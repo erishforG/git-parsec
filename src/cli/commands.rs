@@ -153,6 +153,53 @@ pub async fn config_show(mode: Mode) -> Result<()> {
     Ok(())
 }
 
+pub async fn config_shell(shell: &str, _mode: Mode) -> Result<()> {
+    let script = match shell {
+        "bash" => SHELL_INTEGRATION_BASH,
+        _ => SHELL_INTEGRATION_ZSH,
+    };
+    print!("{}", script);
+    Ok(())
+}
+
+const SHELL_INTEGRATION_ZSH: &str = r#"
+# parsec shell integration - add to ~/.zshrc
+# eval "$(parsec config shell zsh)"
+function parsec() {
+    if [[ "$1" == "switch" && -n "$2" ]]; then
+        local dir
+        dir=$(command parsec switch "${@:2}" 2>&1)
+        if [[ $? -eq 0 && -d "$dir" ]]; then
+            cd "$dir"
+        else
+            echo "$dir" >&2
+            return 1
+        fi
+    else
+        command parsec "$@"
+    fi
+}
+"#;
+
+const SHELL_INTEGRATION_BASH: &str = r#"
+# parsec shell integration - add to ~/.bashrc
+# eval "$(parsec config shell bash)"
+function parsec() {
+    if [[ "$1" == "switch" && -n "$2" ]]; then
+        local dir
+        dir=$(command parsec switch "${@:2}" 2>&1)
+        if [[ $? -eq 0 && -d "$dir" ]]; then
+            cd "$dir"
+        else
+            echo "$dir" >&2
+            return 1
+        fi
+    else
+        command parsec "$@"
+    fi
+}
+"#;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

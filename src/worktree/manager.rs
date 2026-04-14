@@ -50,10 +50,24 @@ impl WorktreeManager {
             "{}{}",
             self.config.workspace.branch_prefix, ticket
         );
-        let worktree_path = self
-            .repo_root
-            .join(&self.config.workspace.base_dir)
-            .join(ticket);
+        let worktree_path = match self.config.workspace.layout {
+            crate::config::WorktreeLayout::Sibling => {
+                // ../reponame.ticket/
+                let repo_name = self.repo_root
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "repo".to_string());
+                self.repo_root
+                    .parent()
+                    .unwrap_or(&self.repo_root)
+                    .join(format!("{}.{}", repo_name, ticket))
+            }
+            crate::config::WorktreeLayout::Internal => {
+                self.repo_root
+                    .join(&self.config.workspace.base_dir)
+                    .join(ticket)
+            }
+        };
 
         // Graceful fetch — won't fail if no remote exists
         git::fetch_if_remote(&self.repo_root)?;
@@ -68,7 +82,7 @@ impl WorktreeManager {
 
         let workspace = Workspace {
             ticket: ticket.to_owned(),
-            path: worktree_path,
+            path: worktree_path.clone(),
             branch,
             base_branch,
             created_at: Utc::now(),
@@ -81,6 +95,20 @@ impl WorktreeManager {
         state.add_workspace(workspace.clone());
         state.save(&self.repo_root)
             .context("failed to save parsec state")?;
+
+        // Run post-create hooks
+        for hook_cmd in &self.config.hooks.post_create {
+            eprintln!("Running post-create hook: {}", hook_cmd);
+            let status = std::process::Command::new("sh")
+                .args(["-c", hook_cmd])
+                .current_dir(&worktree_path)
+                .status();
+            match status {
+                Ok(s) if s.success() => {}
+                Ok(s) => eprintln!("warning: hook '{}' exited with {}", hook_cmd, s),
+                Err(e) => eprintln!("warning: failed to run hook '{}': {}", hook_cmd, e),
+            }
+        }
 
         Ok(workspace)
     }

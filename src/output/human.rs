@@ -166,8 +166,9 @@ pub fn print_config_init() {
 
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
-    println!("  base_dir       = {}", config.workspace.base_dir);
-    println!("  branch_prefix  = {}", config.workspace.branch_prefix);
+    println!("  layout          = {}", config.workspace.layout);
+    println!("  base_dir        = {}", config.workspace.base_dir);
+    println!("  branch_prefix   = {}", config.workspace.branch_prefix);
     println!();
     println!("{}", "[tracker]".bold());
     println!("  provider       = {}", config.tracker.provider);
@@ -179,7 +180,14 @@ pub fn print_config_show(config: &ParsecConfig) {
     }
     println!();
     println!("{}", "[ship]".bold());
-    println!("  auto_pr        = {}", config.ship.auto_pr);
-    println!("  auto_cleanup   = {}", config.ship.auto_cleanup);
-    println!("  draft          = {}", config.ship.draft);
+    println!("  auto_pr         = {}", config.ship.auto_pr);
+    println!("  auto_cleanup    = {}", config.ship.auto_cleanup);
+    println!("  draft           = {}", config.ship.draft);
+    if !config.hooks.post_create.is_empty() {
+        println!();
+        println!("{}", "[hooks]".bold());
+        for cmd in &config.hooks.post_create {
+            println!("  post_create     = {}", cmd);
+        }
+    }
 }
