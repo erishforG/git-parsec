@@ -17,7 +17,10 @@ pub struct WorktreeManager {
 
 impl WorktreeManager {
     pub fn new(repo: &Path, config: &ParsecConfig) -> Result<Self> {
-        let repo_root = git::get_repo_root(repo)
+        // Always resolve to the main repo root so that state is shared
+        // across all worktrees (sibling or internal).
+        let repo_root = git::get_main_repo_root(repo)
+            .or_else(|_| git::get_repo_root(repo))
             .with_context(|| format!("failed to locate git repository root from {:?}", repo))?;
 
         Ok(Self {
@@ -113,6 +116,164 @@ impl WorktreeManager {
     }
 
     // -----------------------------------------------------------------------
+    // adopt — import an existing branch into parsec state
+    // -----------------------------------------------------------------------
+
+    pub fn adopt(
+        &self,
+        ticket: &str,
+        branch: Option<&str>,
+        ticket_title: Option<String>,
+    ) -> Result<Workspace> {
+        let mut state =
+            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
+
+        // Check if ticket is already managed
+        if state.get_workspace(ticket).is_some() {
+            anyhow::bail!(
+                "ticket '{}' is already managed by parsec. Use `parsec status {}` to see it.",
+                ticket,
+                ticket
+            );
+        }
+
+        // Resolve the branch name
+        let branch_name = match branch {
+            Some(b) => b.to_owned(),
+            None => {
+                // Default: branch_prefix + ticket
+                let candidate = format!("{}{}", self.config.workspace.branch_prefix, ticket);
+                // Verify the branch exists
+                match git::run_output(
+                    &self.repo_root,
+                    &[
+                        "rev-parse",
+                        "--verify",
+                        &format!("refs/heads/{}", candidate),
+                    ],
+                ) {
+                    Ok(_) => candidate,
+                    Err(_) => {
+                        // Try current branch
+                        let current = git::run_output(
+                            &self.repo_root,
+                            &["rev-parse", "--abbrev-ref", "HEAD"],
+                        )
+                        .context("could not detect branch. Specify one with --branch <name>")?;
+                        if current == "HEAD" || current == "main" || current == "master" {
+                            anyhow::bail!(
+                                "no branch found for ticket '{}'. Specify one with: parsec adopt {} --branch <branch-name>",
+                                ticket, ticket
+                            );
+                        }
+                        current
+                    }
+                }
+            }
+        };
+
+        // Verify branch exists
+        git::run_output(
+            &self.repo_root,
+            &[
+                "rev-parse",
+                "--verify",
+                &format!("refs/heads/{}", branch_name),
+            ],
+        )
+        .with_context(|| {
+            format!(
+                "branch '{}' does not exist. Create it first or check the name.",
+                branch_name
+            )
+        })?;
+
+        // Detect base branch
+        let base_branch =
+            git::get_default_branch(&self.repo_root).unwrap_or_else(|_| "main".to_owned());
+
+        // Check if this branch already has a worktree
+        let worktree_path = self.find_worktree_for_branch(&branch_name);
+
+        let path = match worktree_path {
+            Some(p) => p,
+            None => {
+                // No worktree exists — create one
+                let wt_path = match self.config.workspace.layout {
+                    crate::config::WorktreeLayout::Sibling => {
+                        let repo_name = self
+                            .repo_root
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "repo".to_string());
+                        self.repo_root
+                            .parent()
+                            .unwrap_or(&self.repo_root)
+                            .join(format!("{}.{}", repo_name, ticket))
+                    }
+                    crate::config::WorktreeLayout::Internal => self
+                        .repo_root
+                        .join(&self.config.workspace.base_dir)
+                        .join(ticket),
+                };
+                git::run(
+                    &self.repo_root,
+                    &[
+                        "worktree",
+                        "add",
+                        wt_path.to_str().unwrap_or(""),
+                        &branch_name,
+                    ],
+                )
+                .with_context(|| {
+                    format!(
+                        "failed to create worktree for branch '{}' at {:?}",
+                        branch_name, wt_path
+                    )
+                })?;
+                wt_path
+            }
+        };
+
+        let workspace = Workspace {
+            ticket: ticket.to_owned(),
+            path,
+            branch: branch_name,
+            base_branch,
+            created_at: Utc::now(),
+            ticket_title,
+            status: WorkspaceStatus::Active,
+        };
+
+        state.add_workspace(workspace.clone());
+        state
+            .save(&self.repo_root)
+            .context("failed to save parsec state after adopt")?;
+
+        Ok(workspace)
+    }
+
+    /// Find existing worktree path for a given branch name.
+    fn find_worktree_for_branch(&self, branch: &str) -> Option<PathBuf> {
+        let output = git::run_output(&self.repo_root, &["worktree", "list", "--porcelain"]).ok()?;
+
+        let mut current_path: Option<String> = None;
+        for line in output.lines() {
+            if let Some(val) = line.strip_prefix("worktree ") {
+                current_path = Some(val.to_owned());
+            } else if let Some(val) = line.strip_prefix("branch ") {
+                let wt_branch = val.strip_prefix("refs/heads/").unwrap_or(val);
+                if wt_branch == branch {
+                    return current_path.map(PathBuf::from);
+                }
+            } else if line.is_empty() {
+                current_path = None;
+            }
+        }
+        None
+    }
+
+    // -----------------------------------------------------------------------
     // list
     // -----------------------------------------------------------------------
 
@@ -134,7 +295,12 @@ impl WorktreeManager {
         state
             .get_workspace(ticket)
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no workspace found for ticket '{}'", ticket))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no workspace found for ticket '{}'. Run `parsec list` to see active workspaces, or `parsec adopt {}` to import an existing branch.",
+                    ticket, ticket
+                )
+            })
     }
 
     // -----------------------------------------------------------------------
@@ -148,7 +314,12 @@ impl WorktreeManager {
         let workspace = state
             .get_workspace(ticket)
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no workspace found for ticket '{}'", ticket))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no workspace found for ticket '{}'. Run `parsec list` to see active workspaces, or `parsec adopt {}` to import an existing branch.",
+                    ticket, ticket
+                )
+            })?;
 
         // Push the branch from the worktree itself so HEAD is correct.
         git::push_branch(&workspace.path, &workspace.branch)

@@ -41,6 +41,32 @@ pub async fn start(
     Ok(())
 }
 
+pub async fn adopt(
+    repo: &Path,
+    ticket: &str,
+    branch: Option<&str>,
+    title: Option<String>,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let repo_root = git::get_repo_root(repo)?;
+
+    let ticket_title = if let Some(t) = title {
+        Some(t)
+    } else {
+        match tracker::fetch_ticket(&config, ticket, Some(&repo_root)).await {
+            Ok(info) => info.map(|t| t.title),
+            Err(_) => None,
+        }
+    };
+
+    let manager = WorktreeManager::new(repo, &config)?;
+    let workspace = manager.adopt(ticket, branch, ticket_title)?;
+
+    output::print_adopt(&workspace, mode);
+    Ok(())
+}
+
 pub async fn list(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
@@ -108,7 +134,10 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
                     result.pr_url = Some(pr.url);
                 }
                 Ok(None) => {
-                    // No GitHub token — skip silently
+                    eprintln!(
+                        "note: PR creation skipped — no GitHub token found.\n      \
+                         Set PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, or GH_TOKEN to enable."
+                    );
                 }
                 Err(e) => {
                     eprintln!("warning: PR creation failed: {e}");
