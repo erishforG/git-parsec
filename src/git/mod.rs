@@ -1,0 +1,187 @@
+use anyhow::{anyhow, Context, Result};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// Run a git command in `repo`, returning an error if the exit code is non-zero.
+pub fn run(repo: &Path, args: &[&str]) -> Result<()> {
+    let status = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .status()
+        .with_context(|| format!("failed to spawn git {:?}", args))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "git {:?} exited with status {}",
+            args,
+            status.code().unwrap_or(-1)
+        ))
+    }
+}
+
+/// Run a git command in `repo`, returning stdout trimmed on success.
+pub fn run_output(repo: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .with_context(|| format!("failed to spawn git {:?}", args))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8(output.stdout)
+            .with_context(|| format!("git {:?} produced non-UTF-8 output", args))?;
+        Ok(stdout.trim().to_owned())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(anyhow!(
+            "git {:?} exited with status {}: {}",
+            args,
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        ))
+    }
+}
+
+/// Detect the default branch: checks for `refs/heads/main`, falls back to `master`.
+pub fn get_default_branch(repo: &Path) -> Result<String> {
+    // Try to resolve refs/heads/main
+    let result = Command::new("git")
+        .args(["rev-parse", "--verify", "refs/heads/main"])
+        .current_dir(repo)
+        .output()
+        .context("failed to spawn git rev-parse")?;
+
+    if result.status.success() {
+        return Ok("main".to_owned());
+    }
+
+    // Fall back to master
+    let result = Command::new("git")
+        .args(["rev-parse", "--verify", "refs/heads/master"])
+        .current_dir(repo)
+        .output()
+        .context("failed to spawn git rev-parse")?;
+
+    if result.status.success() {
+        return Ok("master".to_owned());
+    }
+
+    Err(anyhow!(
+        "could not detect default branch: neither 'main' nor 'master' exists in {:?}",
+        repo
+    ))
+}
+
+/// Return the repository root by running `git rev-parse --show-toplevel`.
+pub fn get_repo_root(path: &Path) -> Result<PathBuf> {
+    let out = run_output(path, &["rev-parse", "--show-toplevel"])?;
+    Ok(PathBuf::from(out))
+}
+
+/// Return `true` if `branch` has been fully merged into `base`.
+pub fn is_branch_merged(repo: &Path, branch: &str, base: &str) -> Result<bool> {
+    // `git branch --merged <base>` lists branches merged into base.
+    let output = run_output(repo, &["branch", "--merged", base])?;
+    Ok(output
+        .lines()
+        .any(|line| line.trim().trim_start_matches('*').trim() == branch))
+}
+
+/// Return the list of files changed between `base` and `head` (`git diff --name-only base..head`).
+pub fn get_changed_files(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
+    let range = format!("{}..{}", base, head);
+    let output = run_output(repo, &["diff", "--name-only", &range])?;
+    Ok(output
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_owned())
+        .collect())
+}
+
+/// Return the URL of the `origin` remote.
+pub fn get_remote_url(repo: &Path) -> Result<String> {
+    run_output(repo, &["remote", "get-url", "origin"])
+}
+
+/// Push `branch` to origin and set the upstream tracking reference.
+pub fn push_branch(repo: &Path, branch: &str) -> Result<()> {
+    run(repo, &["push", "-u", "origin", branch])
+}
+
+/// Return the name of the currently checked-out branch.
+pub fn get_current_branch(repo: &Path) -> Result<String> {
+    run_output(repo, &["rev-parse", "--abbrev-ref", "HEAD"])
+}
+
+/// Create a new worktree at `path` on a new branch `branch` based on `base`.
+pub fn worktree_add(repo: &Path, path: &Path, branch: &str, base: &str) -> Result<()> {
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow!("worktree path is not valid UTF-8: {:?}", path))?;
+    run(repo, &["worktree", "add", "-b", branch, path_str, base])
+}
+
+/// Remove the worktree rooted at `path`.
+pub fn worktree_remove(repo: &Path, path: &Path) -> Result<()> {
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow!("worktree path is not valid UTF-8: {:?}", path))?;
+    run(repo, &["worktree", "remove", path_str])
+}
+
+/// List worktrees, returning `(path, branch, HEAD-sha)` tuples parsed from
+/// `git worktree list --porcelain`.
+pub fn worktree_list(repo: &Path) -> Result<Vec<(String, String, String)>> {
+    let output = run_output(repo, &["worktree", "list", "--porcelain"])?;
+
+    let mut result = Vec::new();
+    let mut wt_path = String::new();
+    let mut wt_head = String::new();
+    let mut wt_branch = String::new();
+
+    for line in output.lines() {
+        if let Some(val) = line.strip_prefix("worktree ") {
+            // Start of a new worktree block — flush the previous one.
+            if !wt_path.is_empty() {
+                result.push((wt_path.clone(), wt_branch.clone(), wt_head.clone()));
+            }
+            wt_path = val.to_owned();
+            wt_head.clear();
+            wt_branch.clear();
+        } else if let Some(val) = line.strip_prefix("HEAD ") {
+            wt_head = val.to_owned();
+        } else if let Some(val) = line.strip_prefix("branch ") {
+            // Porcelain format: "branch refs/heads/<name>"
+            wt_branch = val
+                .strip_prefix("refs/heads/")
+                .unwrap_or(val)
+                .to_owned();
+        } else if line == "detached" {
+            wt_branch = "(detached)".to_owned();
+        }
+    }
+
+    // Flush the last block.
+    if !wt_path.is_empty() {
+        result.push((wt_path, wt_branch, wt_head));
+    }
+
+    Ok(result)
+}
+
+/// Return the best common ancestor of commits `a` and `b`.
+pub fn get_merge_base(repo: &Path, a: &str, b: &str) -> Result<String> {
+    run_output(repo, &["merge-base", a, b])
+}
+
+/// Force-delete a local branch.
+pub fn delete_branch(repo: &Path, branch: &str) -> Result<()> {
+    run(repo, &["branch", "-D", branch])
+}
+
+/// Fetch all refs from `origin`.
+pub fn fetch(repo: &Path) -> Result<()> {
+    run(repo, &["fetch", "origin"])
+}
