@@ -36,8 +36,21 @@ pub fn parse_github_remote(url: &str) -> Option<(String, String)> {
     None
 }
 
+/// Resolve a GitHub token from environment variables.
+/// Checks: PARSEC_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN
+fn resolve_github_token() -> Option<String> {
+    for var in &["PARSEC_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] {
+        if let Ok(token) = std::env::var(var) {
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+    }
+    None
+}
+
 /// Create a GitHub pull request.
-/// Returns None if PARSEC_GITHUB_TOKEN is not set.
+/// Returns None if no GitHub token is available.
 pub async fn create_pr(
     remote_url: &str,
     branch: &str,
@@ -46,9 +59,9 @@ pub async fn create_pr(
     body: &str,
     draft: bool,
 ) -> Result<Option<PrResult>> {
-    let token = match std::env::var("PARSEC_GITHUB_TOKEN") {
-        Ok(t) if !t.is_empty() => t,
-        _ => return Ok(None),
+    let token = match resolve_github_token() {
+        Some(t) => t,
+        None => return Ok(None),
     };
 
     let (owner, repo) = parse_github_remote(remote_url).ok_or_else(|| {
@@ -83,7 +96,9 @@ pub async fn create_pr(
         bail!("GitHub API returned {}: {}", status, body);
     }
 
-    let resp: serde_json::Value = response.json().await
+    let resp: serde_json::Value = response
+        .json()
+        .await
         .context("Failed to parse GitHub API response")?;
 
     let html_url = resp["html_url"]
@@ -91,9 +106,10 @@ pub async fn create_pr(
         .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?
         .to_owned();
 
-    let number = resp["number"]
-        .as_u64()
-        .unwrap_or(0);
+    let number = resp["number"].as_u64().unwrap_or(0);
 
-    Ok(Some(PrResult { url: html_url, number }))
+    Ok(Some(PrResult {
+        url: html_url,
+        number,
+    }))
 }
