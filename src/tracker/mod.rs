@@ -63,12 +63,15 @@ pub async fn fetch_ticket(
             Ok(Some(ticket))
         }
         TrackerProvider::None => {
-            // Auto-detect: if JIRA_BASE_URL is available, try Jira anyway
+            // Auto-detect Jira: try if env vars available, but don't block on failure
             if std::env::var("JIRA_BASE_URL").is_ok()
                 && (std::env::var("JIRA_PAT").is_ok()
                     || std::env::var("PARSEC_JIRA_TOKEN").is_ok())
             {
-                return fetch_jira_ticket(config, id).await;
+                if let Ok(Some(ticket)) = fetch_jira_ticket(config, id).await {
+                    return Ok(Some(ticket));
+                }
+                // Jira failed (404, wrong ID format, etc.) — fall through to GitHub
             }
 
             // Auto-detect GitHub: if remote is github.com and ticket looks numeric

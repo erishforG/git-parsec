@@ -2,7 +2,7 @@
 
 > Git worktree lifecycle manager for parallel AI agent workflows
 
-**parsec** manages isolated git worktrees tied to tickets (Jira, GitHub Issues, Linear), enabling multiple AI agents or developers to work on the same repository in parallel without lock conflicts.
+**parsec** manages isolated git worktrees tied to tickets (Jira, GitHub Issues), enabling multiple AI agents or developers to work on the same repository in parallel without lock conflicts.
 
 ## The Problem
 
@@ -48,7 +48,7 @@ $ parsec clean
 
 ## Features
 
-- **Ticket-driven workspaces** — Create worktrees named after Jira/GitHub/Linear tickets
+- **Ticket-driven workspaces** — Create worktrees named after Jira/GitHub Issues tickets
 - **Zero-conflict parallelism** — Each workspace has its own index, no lock contention
 - **Conflict detection** — Warns when multiple workspaces modify the same files
 - **One-step shipping** — `parsec ship` pushes, creates a PR, and cleans up
@@ -90,7 +90,7 @@ base_dir = ".parsec/workspaces"
 branch_prefix = "feature/"
 
 [tracker]
-# "jira" | "github" | "linear" | "none"
+# "jira" | "github" | "none"
 provider = "jira"
 
 [tracker.jira]
@@ -135,7 +135,7 @@ draft = false
 
 | Feature | parsec | worktrunk | git worktree | git-town |
 |---------|--------|-----------|--------------|----------|
-| Ticket tracker integration | Jira/GitHub/Linear | No | No | No |
+| Ticket tracker integration | Jira/GitHub Issues | No | No | No |
 | Conflict detection | Cross-worktree | No | No | No |
 | One-step ship (push+PR+clean) | Yes | No | No | Yes |
 | JSON output for AI agents | Yes | Yes | No | No |
