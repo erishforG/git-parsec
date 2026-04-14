@@ -36,14 +36,17 @@ impl GithubIssueTracker {
             None => return Ok(self.fallback_ticket(id)),
         };
 
-        let (owner, repo) = match self.resolve_owner_repo() {
-            Some(pair) => pair,
+        let remote = match self.resolve_remote() {
+            Some(r) => r,
             None => return Ok(self.fallback_ticket(id)),
         };
 
         let url = format!(
-            "https://api.github.com/repos/{}/{}/issues/{}",
-            owner, repo, issue_num
+            "{}/repos/{}/{}/issues/{}",
+            remote.api_base(),
+            remote.owner,
+            remote.repo,
+            issue_num
         );
 
         let response = self
@@ -84,7 +87,7 @@ impl GithubIssueTracker {
         })
     }
 
-    fn resolve_owner_repo(&self) -> Option<(String, String)> {
+    fn resolve_remote(&self) -> Option<crate::github::GitHubRemote> {
         let repo_root = self.repo_root.as_ref()?;
         let remote_url = crate::git::get_remote_url(repo_root).ok()?;
         crate::github::parse_github_remote(&remote_url)
