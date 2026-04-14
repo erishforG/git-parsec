@@ -65,8 +65,7 @@ pub async fn fetch_ticket(
         TrackerProvider::None => {
             // Auto-detect Jira: try if env vars available, but don't block on failure
             if std::env::var("JIRA_BASE_URL").is_ok()
-                && (std::env::var("JIRA_PAT").is_ok()
-                    || std::env::var("PARSEC_JIRA_TOKEN").is_ok())
+                && (std::env::var("JIRA_PAT").is_ok() || std::env::var("PARSEC_JIRA_TOKEN").is_ok())
             {
                 if let Ok(Some(ticket)) = fetch_jira_ticket(config, id).await {
                     return Ok(Some(ticket));
@@ -107,11 +106,7 @@ async fn fetch_jira_ticket(config: &ParsecConfig, id: &str) -> Result<Option<Tic
             anyhow::anyhow!("Jira base URL not found. Set it in config or JIRA_BASE_URL env var.")
         })?;
 
-    let email = config
-        .tracker
-        .jira
-        .as_ref()
-        .and_then(|j| j.email.clone());
+    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
 
     let tracker = jira::JiraTracker::new(&base_url, email.as_deref());
     let ticket = tracker.fetch_ticket(id).await?;

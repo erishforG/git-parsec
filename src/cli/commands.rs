@@ -64,13 +64,7 @@ pub async fn status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()>
     Ok(())
 }
 
-pub async fn ship(
-    repo: &Path,
-    ticket: &str,
-    draft: bool,
-    no_pr: bool,
-    mode: Mode,
-) -> Result<()> {
+pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
 

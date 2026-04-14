@@ -111,6 +111,7 @@ pub fn push_branch(repo: &Path, branch: &str) -> Result<()> {
 }
 
 /// Return the name of the currently checked-out branch.
+#[allow(dead_code)]
 pub fn get_current_branch(repo: &Path) -> Result<String> {
     run_output(repo, &["rev-parse", "--abbrev-ref", "HEAD"])
 }
@@ -133,6 +134,7 @@ pub fn worktree_remove(repo: &Path, path: &Path) -> Result<()> {
 
 /// List worktrees, returning `(path, branch, HEAD-sha)` tuples parsed from
 /// `git worktree list --porcelain`.
+#[allow(dead_code)]
 pub fn worktree_list(repo: &Path) -> Result<Vec<(String, String, String)>> {
     let output = run_output(repo, &["worktree", "list", "--porcelain"])?;
 
@@ -154,10 +156,7 @@ pub fn worktree_list(repo: &Path) -> Result<Vec<(String, String, String)>> {
             wt_head = val.to_owned();
         } else if let Some(val) = line.strip_prefix("branch ") {
             // Porcelain format: "branch refs/heads/<name>"
-            wt_branch = val
-                .strip_prefix("refs/heads/")
-                .unwrap_or(val)
-                .to_owned();
+            wt_branch = val.strip_prefix("refs/heads/").unwrap_or(val).to_owned();
         } else if line == "detached" {
             wt_branch = "(detached)".to_owned();
         }

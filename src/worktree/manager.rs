@@ -2,9 +2,9 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 
+use super::lifecycle::{ParsecState, ShipResult, Workspace, WorkspaceStatus};
 use crate::config::ParsecConfig;
 use crate::git;
-use super::lifecycle::{ParsecState, ShipResult, Workspace, WorkspaceStatus};
 
 // ---------------------------------------------------------------------------
 // WorktreeManager
@@ -46,14 +46,12 @@ impl WorktreeManager {
                 .context("failed to detect default branch")?,
         };
 
-        let branch = format!(
-            "{}{}",
-            self.config.workspace.branch_prefix, ticket
-        );
+        let branch = format!("{}{}", self.config.workspace.branch_prefix, ticket);
         let worktree_path = match self.config.workspace.layout {
             crate::config::WorktreeLayout::Sibling => {
                 // ../reponame.ticket/
-                let repo_name = self.repo_root
+                let repo_name = self
+                    .repo_root
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "repo".to_string());
@@ -62,23 +60,23 @@ impl WorktreeManager {
                     .unwrap_or(&self.repo_root)
                     .join(format!("{}.{}", repo_name, ticket))
             }
-            crate::config::WorktreeLayout::Internal => {
-                self.repo_root
-                    .join(&self.config.workspace.base_dir)
-                    .join(ticket)
-            }
+            crate::config::WorktreeLayout::Internal => self
+                .repo_root
+                .join(&self.config.workspace.base_dir)
+                .join(ticket),
         };
 
         // Graceful fetch — won't fail if no remote exists
         git::fetch_if_remote(&self.repo_root)?;
 
-        git::worktree_add(&self.repo_root, &worktree_path, &branch, &base_branch)
-            .with_context(|| {
+        git::worktree_add(&self.repo_root, &worktree_path, &branch, &base_branch).with_context(
+            || {
                 format!(
                     "failed to create worktree for ticket '{}' at {:?}",
                     ticket, worktree_path
                 )
-            })?;
+            },
+        )?;
 
         let workspace = Workspace {
             ticket: ticket.to_owned(),
@@ -90,10 +88,11 @@ impl WorktreeManager {
             status: WorkspaceStatus::Active,
         };
 
-        let mut state = ParsecState::load(&self.repo_root)
-            .context("failed to load parsec state")?;
+        let mut state =
+            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
         state.add_workspace(workspace.clone());
-        state.save(&self.repo_root)
+        state
+            .save(&self.repo_root)
             .context("failed to save parsec state")?;
 
         // Run post-create hooks
@@ -118,8 +117,7 @@ impl WorktreeManager {
     // -----------------------------------------------------------------------
 
     pub fn list(&self) -> Result<Vec<Workspace>> {
-        let state = ParsecState::load(&self.repo_root)
-            .context("failed to load parsec state")?;
+        let state = ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
 
         let mut workspaces: Vec<Workspace> = state.workspaces.into_values().collect();
         workspaces.sort_by_key(|w| w.created_at);
@@ -131,8 +129,7 @@ impl WorktreeManager {
     // -----------------------------------------------------------------------
 
     pub fn get(&self, ticket: &str) -> Result<Workspace> {
-        let state = ParsecState::load(&self.repo_root)
-            .context("failed to load parsec state")?;
+        let state = ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
 
         state
             .get_workspace(ticket)
@@ -145,8 +142,8 @@ impl WorktreeManager {
     // -----------------------------------------------------------------------
 
     pub fn ship(&self, ticket: &str) -> Result<ShipResult> {
-        let mut state = ParsecState::load(&self.repo_root)
-            .context("failed to load parsec state")?;
+        let mut state =
+            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
 
         let workspace = state
             .get_workspace(ticket)
@@ -179,7 +176,8 @@ impl WorktreeManager {
         } else if let Some(ws) = state.workspaces.get_mut(ticket) {
             ws.status = WorkspaceStatus::Shipped;
         }
-        state.save(&self.repo_root)
+        state
+            .save(&self.repo_root)
             .context("failed to save parsec state after ship")?;
 
         Ok(ShipResult {
@@ -197,8 +195,8 @@ impl WorktreeManager {
     // -----------------------------------------------------------------------
 
     pub fn clean(&self, all: bool, dry_run: bool) -> Result<Vec<Workspace>> {
-        let mut state = ParsecState::load(&self.repo_root)
-            .context("failed to load parsec state")?;
+        let mut state =
+            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
 
         let candidates: Vec<Workspace> = state
             .workspaces
@@ -207,8 +205,7 @@ impl WorktreeManager {
                 if all {
                     return true;
                 }
-                git::is_branch_merged(&self.repo_root, &ws.branch, &ws.base_branch)
-                    .unwrap_or(false)
+                git::is_branch_merged(&self.repo_root, &ws.branch, &ws.base_branch).unwrap_or(false)
             })
             .cloned()
             .collect();
@@ -229,7 +226,8 @@ impl WorktreeManager {
                 state.remove_workspace(&ws.ticket);
             }
 
-            state.save(&self.repo_root)
+            state
+                .save(&self.repo_root)
                 .context("failed to save parsec state after clean")?;
         }
 
