@@ -52,13 +52,45 @@ impl std::fmt::Display for TrackerProvider {
 }
 
 // ---------------------------------------------------------------------------
+// WorktreeLayout
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum WorktreeLayout {
+    Sibling,   // ../repo.ticket/ (worktrunk-style, default)
+    Internal,  // .parsec/workspaces/ticket/ (inside repo)
+}
+
+impl Default for WorktreeLayout {
+    fn default() -> Self {
+        WorktreeLayout::Sibling
+    }
+}
+
+fn default_layout() -> WorktreeLayout {
+    WorktreeLayout::Sibling
+}
+
+impl std::fmt::Display for WorktreeLayout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorktreeLayout::Sibling => write!(f, "sibling"),
+            WorktreeLayout::Internal => write!(f, "internal"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // WorkspaceConfig
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
+    #[serde(default = "default_layout")]
+    pub layout: WorktreeLayout,
     #[serde(default = "default_base_dir")]
-    pub base_dir: String,
+    pub base_dir: String, // only used for Internal layout
     #[serde(default = "default_branch_prefix")]
     pub branch_prefix: String,
 }
@@ -66,6 +98,7 @@ pub struct WorkspaceConfig {
 impl Default for WorkspaceConfig {
     fn default() -> Self {
         Self {
+            layout: default_layout(),
             base_dir: default_base_dir(),
             branch_prefix: default_branch_prefix(),
         }
@@ -128,6 +161,17 @@ impl Default for ShipConfig {
 }
 
 // ---------------------------------------------------------------------------
+// HooksConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HooksConfig {
+    /// Commands to run after creating a worktree (in the worktree directory)
+    #[serde(default)]
+    pub post_create: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
 // ParsecConfig
 // ---------------------------------------------------------------------------
 
@@ -139,6 +183,8 @@ pub struct ParsecConfig {
     pub tracker: TrackerConfig,
     #[serde(default)]
     pub ship: ShipConfig,
+    #[serde(default)]
+    pub hooks: HooksConfig,
 }
 
 impl Default for ParsecConfig {
@@ -147,6 +193,7 @@ impl Default for ParsecConfig {
             workspace: WorkspaceConfig::default(),
             tracker: TrackerConfig::default(),
             ship: ShipConfig::default(),
+            hooks: HooksConfig::default(),
         }
     }
 }
@@ -241,6 +288,19 @@ impl ParsecConfig {
                 },
             });
         }
+
+        // ---- Worktree layout -------------------------------------------------
+        let layout_options = &["Sibling (recommended - worktrees next to repo)", "Internal (worktrees inside .parsec/)"];
+        let layout_idx = Select::new()
+            .with_prompt("Worktree layout")
+            .items(layout_options)
+            .default(0)
+            .interact()
+            .context("Failed to read layout selection")?;
+        config.workspace.layout = match layout_idx {
+            1 => WorktreeLayout::Internal,
+            _ => WorktreeLayout::Sibling,
+        };
 
         // ---- Branch prefix ---------------------------------------------------
         let branch_prefix: String = Input::new()

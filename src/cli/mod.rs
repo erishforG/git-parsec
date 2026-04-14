@@ -98,6 +98,12 @@ pub enum ConfigAction {
     Init,
     /// Show current configuration
     Show,
+    /// Output shell integration script (add to .zshrc/.bashrc)
+    Shell {
+        /// Shell type (zsh or bash)
+        #[arg(default_value = "zsh")]
+        shell: String,
+    },
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -131,6 +137,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Config { action } => match action {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,
+            ConfigAction::Shell { shell } => commands::config_shell(&shell, output_mode).await,
         },
     }
 }
