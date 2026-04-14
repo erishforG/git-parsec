@@ -15,23 +15,25 @@ pub struct Ticket {
     pub url: Option<String>,
 }
 
-pub trait TicketTracker {
-    fn fetch_ticket(&self, id: &str) -> Result<Ticket>;
-}
-
-/// Create a tracker from config. Returns None if provider is None.
-pub fn create_tracker(config: &ParsecConfig) -> Option<Box<dyn TicketTracker>> {
+/// Fetch a ticket from the configured tracker. Returns None if no tracker configured.
+/// This is async because it makes HTTP calls.
+pub async fn fetch_ticket(config: &ParsecConfig, id: &str) -> Result<Option<Ticket>> {
     match config.tracker.provider {
         TrackerProvider::Jira => {
-            let jira_config = config.tracker.jira.as_ref()?;
-            Some(Box::new(jira::JiraTracker::new(
+            let jira_config = config.tracker.jira.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Jira configured but no jira settings in config"))?;
+            let tracker = jira::JiraTracker::new(
                 &jira_config.base_url,
                 jira_config.email.as_deref(),
-            )))
+            );
+            let ticket = tracker.fetch_ticket(id).await?;
+            Ok(Some(ticket))
         }
         TrackerProvider::Github => {
-            Some(Box::new(github_issues::GithubIssueTracker::new()))
+            let tracker = github_issues::GithubIssueTracker::new();
+            let ticket = tracker.fetch_ticket(id).await?;
+            Ok(Some(ticket))
         }
-        TrackerProvider::None => None,
+        TrackerProvider::None => Ok(None),
     }
 }

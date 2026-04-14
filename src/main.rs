@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod conflict;
 mod git;
+mod github;
 mod output;
 mod tracker;
 mod worktree;
