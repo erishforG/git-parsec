@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use super::Ticket;
 
@@ -17,17 +17,35 @@ impl JiraTracker {
         }
     }
 
-    pub async fn fetch_ticket(&self, id: &str) -> Result<Ticket> {
-        let token = std::env::var("PARSEC_JIRA_TOKEN")
-            .context("PARSEC_JIRA_TOKEN environment variable not set")?;
+    /// Resolve the Jira API token from environment.
+    /// Priority: PARSEC_JIRA_TOKEN > JIRA_PAT
+    fn resolve_token() -> Result<String> {
+        if let Ok(token) = std::env::var("PARSEC_JIRA_TOKEN") {
+            if !token.is_empty() {
+                return Ok(token);
+            }
+        }
+        if let Ok(token) = std::env::var("JIRA_PAT") {
+            if !token.is_empty() {
+                return Ok(token);
+            }
+        }
+        anyhow::bail!(
+            "No Jira token found. Set PARSEC_JIRA_TOKEN or JIRA_PAT environment variable."
+        )
+    }
 
-        let url = format!("{}/rest/api/3/issue/{}", self.base_url, id);
+    pub async fn fetch_ticket(&self, id: &str) -> Result<Ticket> {
+        let token = Self::resolve_token()?;
+
+        // Use API v2 (compatible with both Cloud and Server/DC)
+        let url = format!("{}/rest/api/2/issue/{}", self.base_url, id);
 
         let mut request = self.client.get(&url)
             .header("Content-Type", "application/json");
 
-        // Jira Cloud: Basic auth with email:api_token
-        // Jira Server/DC: Bearer token
+        // If email is configured: Basic auth (Jira Cloud with API token)
+        // Otherwise: Bearer token (Jira Server/DC with PAT)
         if let Some(ref email) = self.email {
             request = request.basic_auth(email, Some(&token));
         } else {
@@ -40,7 +58,7 @@ impl JiraTracker {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            bail!("Jira API returned {}: {}", status, body);
+            bail!("Jira API returned {} for {}: {}", status, id, body);
         }
 
         let body: serde_json::Value = response.json().await
