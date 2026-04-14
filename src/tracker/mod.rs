@@ -1,9 +1,9 @@
-pub mod jira;
 pub mod github_issues;
+pub mod jira;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::{ParsecConfig, TrackerProvider};
 
@@ -45,28 +45,48 @@ fn load_atlassian_env() {
 /// Fetch a ticket from the configured tracker. Returns None if no tracker configured.
 ///
 /// Auto-detects Jira from `~/.claude/.atlassian-env` even if config says provider = "none".
-pub async fn fetch_ticket(config: &ParsecConfig, id: &str) -> Result<Option<Ticket>> {
+/// Auto-detects GitHub Issues when the git remote points to github.com and the ticket
+/// looks like a bare number or `#N`.
+pub async fn fetch_ticket(
+    config: &ParsecConfig,
+    id: &str,
+    repo_root: Option<&Path>,
+) -> Result<Option<Ticket>> {
     // Load atlassian env file for seamless Claude Jira skill integration
     load_atlassian_env();
 
     match config.tracker.provider {
-        TrackerProvider::Jira => {
-            fetch_jira_ticket(config, id).await
-        }
+        TrackerProvider::Jira => fetch_jira_ticket(config, id).await,
         TrackerProvider::Github => {
-            let tracker = github_issues::GithubIssueTracker::new();
+            let tracker = github_issues::GithubIssueTracker::new(repo_root);
             let ticket = tracker.fetch_ticket(id).await?;
             Ok(Some(ticket))
         }
         TrackerProvider::None => {
             // Auto-detect: if JIRA_BASE_URL is available, try Jira anyway
             if std::env::var("JIRA_BASE_URL").is_ok()
-                && (std::env::var("JIRA_PAT").is_ok() || std::env::var("PARSEC_JIRA_TOKEN").is_ok())
+                && (std::env::var("JIRA_PAT").is_ok()
+                    || std::env::var("PARSEC_JIRA_TOKEN").is_ok())
             {
-                fetch_jira_ticket(config, id).await
-            } else {
-                Ok(None)
+                return fetch_jira_ticket(config, id).await;
             }
+
+            // Auto-detect GitHub: if remote is github.com and ticket looks numeric
+            if let Some(root) = repo_root {
+                if let Ok(remote_url) = crate::git::get_remote_url(root) {
+                    if crate::github::parse_github_remote(&remote_url).is_some() {
+                        let clean_id = id.trim_start_matches('#');
+                        if clean_id.chars().all(|c| c.is_ascii_digit()) {
+                            let tracker = github_issues::GithubIssueTracker::new(repo_root);
+                            if let Ok(ticket) = tracker.fetch_ticket(id).await {
+                                return Ok(Some(ticket));
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(None)
         }
     }
 }
@@ -80,9 +100,9 @@ async fn fetch_jira_ticket(config: &ParsecConfig, id: &str) -> Result<Option<Tic
         .as_ref()
         .map(|j| j.base_url.clone())
         .or_else(|| std::env::var("JIRA_BASE_URL").ok())
-        .ok_or_else(|| anyhow::anyhow!(
-            "Jira base URL not found. Set it in config or JIRA_BASE_URL env var."
-        ))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("Jira base URL not found. Set it in config or JIRA_BASE_URL env var.")
+        })?;
 
     let email = config
         .tracker
