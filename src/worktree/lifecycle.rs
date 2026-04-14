@@ -1,7 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -39,6 +41,8 @@ pub struct Workspace {
 pub struct ShipResult {
     pub ticket: String,
     pub branch: String,
+    pub base_branch: String,
+    pub ticket_title: Option<String>,
     pub pr_url: Option<String>,
     pub cleaned_up: bool,
 }
@@ -56,6 +60,58 @@ impl ParsecState {
     /// Return the canonical path to the state file.
     pub fn state_path(repo_root: &Path) -> PathBuf {
         repo_root.join(".parsec").join("state.json")
+    }
+
+    /// Acquire a lock file. Returns the lock file path for cleanup.
+    fn acquire_lock(repo_root: &Path) -> Result<PathBuf> {
+        let lock_path = Self::state_path(repo_root).with_extension("lock");
+
+        let mut attempts = 0u32;
+        loop {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(mut f) => {
+                    use std::io::Write;
+                    // Write PID for debugging
+                    let _ = writeln!(f, "{}", std::process::id());
+                    return Ok(lock_path);
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                    attempts += 1;
+                    if attempts > 50 {
+                        // Check if lock is stale (older than 30 seconds)
+                        if let Ok(meta) = fs::metadata(&lock_path) {
+                            if let Ok(modified) = meta.modified() {
+                                if modified.elapsed().unwrap_or_default()
+                                    > std::time::Duration::from_secs(30)
+                                {
+                                    let _ = fs::remove_file(&lock_path);
+                                    continue;
+                                }
+                            }
+                        }
+                        bail!(
+                            "Could not acquire state lock after {} attempts. \
+                             Remove {} manually if stale.",
+                            attempts,
+                            lock_path.display()
+                        );
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to create lock file: {}", e));
+                }
+            }
+        }
+    }
+
+    /// Release a previously acquired lock file.
+    fn release_lock(lock_path: &Path) {
+        let _ = fs::remove_file(lock_path);
     }
 
     /// Load state from `{repo_root}/.parsec/state.json`.
@@ -77,22 +133,36 @@ impl ParsecState {
     }
 
     /// Persist state to `{repo_root}/.parsec/state.json`, creating directories as needed.
+    ///
+    /// Uses a lock file to prevent concurrent writes and an atomic rename so
+    /// readers never see a partially-written file.
     pub fn save(&self, repo_root: &Path) -> Result<()> {
         let path = Self::state_path(repo_root);
 
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).with_context(|| {
+            fs::create_dir_all(parent).with_context(|| {
                 format!("failed to create state directory: {}", parent.display())
             })?;
         }
 
-        let contents =
-            serde_json::to_string_pretty(self).context("failed to serialize state to JSON")?;
+        let lock_path = Self::acquire_lock(repo_root)?;
 
-        std::fs::write(&path, contents)
-            .with_context(|| format!("failed to write state file: {}", path.display()))?;
+        let result = (|| {
+            let contents = serde_json::to_string_pretty(self)
+                .context("failed to serialize state to JSON")?;
 
-        Ok(())
+            // Write to a temp file alongside the real state file, then rename.
+            let tmp_path = path.with_extension("tmp");
+            fs::write(&tmp_path, &contents)
+                .with_context(|| format!("failed to write temp state file: {}", tmp_path.display()))?;
+            fs::rename(&tmp_path, &path)
+                .with_context(|| format!("failed to rename temp state file to: {}", path.display()))?;
+
+            Ok(())
+        })();
+
+        Self::release_lock(&lock_path);
+        result
     }
 
     /// Insert a workspace, keyed by its ticket identifier.

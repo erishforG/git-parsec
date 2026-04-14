@@ -1,5 +1,5 @@
 use anyhow::Result;
-use super::{Ticket, TicketTracker};
+use super::Ticket;
 
 pub struct GithubIssueTracker;
 
@@ -7,21 +7,24 @@ impl GithubIssueTracker {
     pub fn new() -> Self {
         Self
     }
-}
 
-impl TicketTracker for GithubIssueTracker {
-    fn fetch_ticket(&self, id: &str) -> Result<Ticket> {
-        // Stub: parse #123 format, return basic ticket
+    pub async fn fetch_ticket(&self, id: &str) -> Result<Ticket> {
         let issue_num = id.trim_start_matches('#');
 
-        // Try to use PARSEC_GITHUB_TOKEN to fetch from GitHub API
-        // For now, return a basic ticket without API call
+        // Try GitHub API if token is available
+        if let Ok(token) = std::env::var("PARSEC_GITHUB_TOKEN") {
+            // We'd need repo context to build the full URL
+            // For now return a basic ticket with the number
+            // In the future, this could use the repo's remote URL
+            let _ = token; // suppress unused warning
+        }
+
         Ok(Ticket {
             id: id.to_string(),
             title: format!("GitHub Issue {}", issue_num),
             status: None,
             assignee: None,
-            url: None, // Would need repo context to build URL
+            url: None,
         })
     }
 }
