@@ -105,10 +105,7 @@ pub fn print_status(workspaces: &[Workspace]) {
 }
 
 pub fn print_ship(result: &ShipResult) {
-    println!(
-        "{}",
-        format!("Shipped {}!", result.ticket).green().bold()
-    );
+    println!("{}", format!("Shipped {}!", result.ticket).green().bold());
     if let Some(url) = &result.pr_url {
         println!("  {} {}", "PR:".bold(), url.cyan());
     }

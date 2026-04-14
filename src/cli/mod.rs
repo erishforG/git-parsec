@@ -121,9 +121,11 @@ pub async fn run(cli: Cli) -> Result<()> {
     };
 
     match cli.command {
-        Command::Start { ticket, base, title } => {
-            commands::start(&repo_path, &ticket, base.as_deref(), title, output_mode).await
-        }
+        Command::Start {
+            ticket,
+            base,
+            title,
+        } => commands::start(&repo_path, &ticket, base.as_deref(), title, output_mode).await,
         Command::List => commands::list(&repo_path, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
