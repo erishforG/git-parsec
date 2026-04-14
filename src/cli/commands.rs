@@ -108,7 +108,10 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
                     result.pr_url = Some(pr.url);
                 }
                 Ok(None) => {
-                    // No GitHub token — skip silently
+                    eprintln!(
+                        "note: PR creation skipped — no GitHub token found.\n      \
+                         Set PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, or GH_TOKEN to enable."
+                    );
                 }
                 Err(e) => {
                     eprintln!("warning: PR creation failed: {e}");
