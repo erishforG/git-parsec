@@ -40,6 +40,10 @@ pub enum Command {
         /// Base branch to create from (default: main/master)
         #[arg(long, short)]
         base: Option<String>,
+
+        /// Manually set the ticket title (skips tracker lookup)
+        #[arg(long)]
+        title: Option<String>,
     },
 
     /// List all active worktrees
@@ -117,8 +121,8 @@ pub async fn run(cli: Cli) -> Result<()> {
     };
 
     match cli.command {
-        Command::Start { ticket, base } => {
-            commands::start(&repo_path, &ticket, base.as_deref(), output_mode).await
+        Command::Start { ticket, base, title } => {
+            commands::start(&repo_path, &ticket, base.as_deref(), title, output_mode).await
         }
         Command::List => commands::list(&repo_path, output_mode).await,
         Command::Status { ticket } => {

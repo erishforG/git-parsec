@@ -10,19 +10,29 @@ use crate::output::{self, Mode};
 use crate::tracker;
 use crate::worktree::WorktreeManager;
 
-pub async fn start(repo: &Path, ticket: &str, base: Option<&str>, mode: Mode) -> Result<()> {
+pub async fn start(
+    repo: &Path,
+    ticket: &str,
+    base: Option<&str>,
+    title: Option<String>,
+    mode: Mode,
+) -> Result<()> {
     let config = ParsecConfig::load()?;
+    let repo_root = git::get_repo_root(repo)?;
 
-    // Fetch ticket info from tracker (Jira/GitHub) if configured
-    let ticket_info = match tracker::fetch_ticket(&config, ticket).await {
-        Ok(info) => info,
-        Err(e) => {
-            eprintln!("warning: could not fetch ticket info: {e}");
-            None
+    let ticket_title = if let Some(t) = title {
+        // Manual title provided — skip tracker lookup
+        Some(t)
+    } else {
+        // Fetch from tracker
+        match tracker::fetch_ticket(&config, ticket, Some(&repo_root)).await {
+            Ok(info) => info.map(|t| t.title),
+            Err(e) => {
+                eprintln!("warning: could not fetch ticket info: {e}");
+                None
+            }
         }
     };
-
-    let ticket_title = ticket_info.as_ref().map(|t| t.title.clone());
 
     let manager = WorktreeManager::new(repo, &config)?;
     let workspace = manager.create(ticket, base, ticket_title)?;
@@ -69,14 +79,24 @@ pub async fn ship(
 
     // Create GitHub PR (async, uses reqwest)
     if !no_pr && config.ship.auto_pr {
+        // Fetch ticket info for URL (works for any tracker)
+        let ticket_url =
+            match tracker::fetch_ticket(&config, ticket, Some(manager.repo_root())).await {
+                Ok(Some(t)) => t.url,
+                _ => None,
+            };
+
         let pr_title = result
             .ticket_title
             .as_ref()
             .map(|t| format!("{}: {}", result.ticket, t))
             .unwrap_or_else(|| result.ticket.clone());
 
-        // Build PR body with Jira link if available
-        let pr_body = build_pr_body(&config, &result.ticket, result.ticket_title.as_deref());
+        let pr_body = build_pr_body(
+            &result.ticket,
+            result.ticket_title.as_deref(),
+            ticket_url.as_deref(),
+        );
 
         let remote_url = git::get_remote_url(manager.repo_root());
         if let Ok(remote_url) = remote_url {
@@ -204,19 +224,16 @@ function parsec() {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn build_pr_body(config: &ParsecConfig, ticket: &str, title: Option<&str>) -> String {
+fn build_pr_body(ticket: &str, title: Option<&str>, ticket_url: Option<&str>) -> String {
     let mut body = String::new();
 
     if let Some(title) = title {
         body.push_str(&format!("## {}\n\n", title));
     }
 
-    // Add Jira link if Jira is configured
-    if let Some(ref jira_config) = config.tracker.jira {
-        body.push_str(&format!(
-            "**Jira**: [{ticket}]({}/browse/{ticket})\n\n",
-            jira_config.base_url
-        ));
+    // Add ticket link if URL is available (works for any tracker)
+    if let Some(url) = ticket_url {
+        body.push_str(&format!("**Ticket**: [{ticket}]({url})\n\n"));
     }
 
     body.push_str(&format!("Shipped via `parsec ship {ticket}`\n"));
