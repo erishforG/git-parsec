@@ -17,7 +17,10 @@ pub struct WorktreeManager {
 
 impl WorktreeManager {
     pub fn new(repo: &Path, config: &ParsecConfig) -> Result<Self> {
-        let repo_root = git::get_repo_root(repo)
+        // Always resolve to the main repo root so that state is shared
+        // across all worktrees (sibling or internal).
+        let repo_root = git::get_main_repo_root(repo)
+            .or_else(|_| git::get_repo_root(repo))
             .with_context(|| format!("failed to locate git repository root from {:?}", repo))?;
 
         Ok(Self {

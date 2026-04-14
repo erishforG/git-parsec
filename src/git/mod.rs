@@ -75,9 +75,38 @@ pub fn get_default_branch(repo: &Path) -> Result<String> {
 }
 
 /// Return the repository root by running `git rev-parse --show-toplevel`.
+/// Note: in a worktree, this returns the worktree root, not the main repo.
 pub fn get_repo_root(path: &Path) -> Result<PathBuf> {
     let out = run_output(path, &["rev-parse", "--show-toplevel"])?;
     Ok(PathBuf::from(out))
+}
+
+/// Return the main repository root, even when called from a worktree.
+/// Uses `git rev-parse --git-common-dir` to find the shared `.git` directory,
+/// then derives the main repo root from it.
+pub fn get_main_repo_root(path: &Path) -> Result<PathBuf> {
+    let common_dir = run_output(path, &["rev-parse", "--git-common-dir"])?;
+    let common_path = PathBuf::from(&common_dir);
+
+    // If common_dir is ".git", we're in the main repo — use --show-toplevel
+    // If it's an absolute path like "/repo/.git", parent is the main repo root
+    // If it's a relative path like "../../repo/.git", resolve it
+    let abs_common = if common_path.is_absolute() {
+        common_path
+    } else {
+        let toplevel = get_repo_root(path)?;
+        toplevel.join(&common_path)
+    };
+
+    // The main repo root is the parent of the .git directory
+    let canonical = abs_common
+        .canonicalize()
+        .with_context(|| format!("failed to canonicalize git common dir: {:?}", abs_common))?;
+
+    canonical
+        .parent()
+        .map(|p| p.to_path_buf())
+        .ok_or_else(|| anyhow!("git common dir has no parent: {:?}", canonical))
 }
 
 /// Return `true` if `branch` has been fully merged into `base`.
