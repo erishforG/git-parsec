@@ -68,6 +68,31 @@ pub fn print_start(workspace: &Workspace) {
     if let Some(title) = &workspace.ticket_title {
         println!("  {}", title.dimmed());
     }
+    // Shell integration hint
+    eprintln!(
+        "\n  {} cd $(parsec switch {})",
+        "Tip:".bold().cyan(),
+        workspace.ticket
+    );
+}
+
+pub fn print_adopt(workspace: &Workspace) {
+    let msg = format!(
+        "Adopted branch '{}' as {} at {}",
+        workspace.branch,
+        workspace.ticket.bold(),
+        workspace.path.display()
+    );
+    println!("{}", msg.green());
+    if let Some(title) = &workspace.ticket_title {
+        println!("  {}", title.dimmed());
+    }
+    // Shell integration hint
+    eprintln!(
+        "\n  {} cd $(parsec switch {})",
+        "Tip:".bold().cyan(),
+        workspace.ticket
+    );
 }
 
 pub fn print_list(workspaces: &[Workspace]) {

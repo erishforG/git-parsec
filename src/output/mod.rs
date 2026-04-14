@@ -20,6 +20,14 @@ pub fn print_start(workspace: &Workspace, mode: Mode) {
     }
 }
 
+pub fn print_adopt(workspace: &Workspace, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_adopt(workspace),
+        Mode::Human => human::print_adopt(workspace),
+    }
+}
+
 pub fn print_list(workspaces: &[Workspace], mode: Mode) {
     match mode {
         Mode::Quiet => {}
