@@ -1,0 +1,1839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>git-parsec — Full-lifecycle worktree management</title>
+  <meta name="description" content="From ticket to PR in one command. git-parsec manages the full lifecycle of git worktrees tied to issue tickets with Jira and GitHub Issues integration.">
+  <meta name="theme-color" content="#0a0e1a">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* ================================================
+       RESET & BASE
+       ================================================ */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-deep: #060a14;
+      --bg-base: #0a0e1a;
+      --bg-raised: #0f1424;
+      --bg-card: #111828;
+      --bg-card-hover: #151d30;
+
+      --accent-cyan: #4FC3F7;
+      --accent-blue: #2196F3;
+      --accent-teal: #26C6DA;
+      --accent-electric: #40E0D0;
+      --accent-purple: #7C4DFF;
+      --accent-glow: rgba(79, 195, 247, 0.15);
+      --accent-glow-strong: rgba(79, 195, 247, 0.3);
+
+      --text-primary: #e8edf5;
+      --text-secondary: #8892a4;
+      --text-muted: #5a6577;
+      --text-code: #b4c7e7;
+
+      --border-subtle: rgba(79, 195, 247, 0.08);
+      --border-accent: rgba(79, 195, 247, 0.2);
+
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Source Sans 3', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ================================================
+       STARFIELD BACKGROUND
+       ================================================ */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background:
+        radial-gradient(1.5px 1.5px at 20% 30%, rgba(79, 195, 247, 0.4) 50%, transparent 50%),
+        radial-gradient(1px 1px at 40% 70%, rgba(255, 255, 255, 0.3) 50%, transparent 50%),
+        radial-gradient(1.2px 1.2px at 60% 20%, rgba(38, 198, 218, 0.35) 50%, transparent 50%),
+        radial-gradient(1px 1px at 80% 50%, rgba(255, 255, 255, 0.25) 50%, transparent 50%),
+        radial-gradient(1.3px 1.3px at 10% 80%, rgba(79, 195, 247, 0.3) 50%, transparent 50%),
+        radial-gradient(0.8px 0.8px at 70% 85%, rgba(255, 255, 255, 0.2) 50%, transparent 50%),
+        radial-gradient(1px 1px at 90% 15%, rgba(64, 224, 208, 0.3) 50%, transparent 50%),
+        radial-gradient(1.1px 1.1px at 35% 45%, rgba(255, 255, 255, 0.15) 50%, transparent 50%),
+        radial-gradient(0.9px 0.9px at 55% 65%, rgba(79, 195, 247, 0.2) 50%, transparent 50%),
+        radial-gradient(1px 1px at 85% 35%, rgba(255, 255, 255, 0.2) 50%, transparent 50%),
+        radial-gradient(1.4px 1.4px at 15% 55%, rgba(38, 198, 218, 0.25) 50%, transparent 50%),
+        radial-gradient(0.7px 0.7px at 45% 90%, rgba(255, 255, 255, 0.15) 50%, transparent 50%),
+        radial-gradient(1px 1px at 75% 10%, rgba(79, 195, 247, 0.25) 50%, transparent 50%),
+        radial-gradient(0.9px 0.9px at 25% 75%, rgba(255, 255, 255, 0.18) 50%, transparent 50%),
+        radial-gradient(1.2px 1.2px at 95% 60%, rgba(64, 224, 208, 0.2) 50%, transparent 50%),
+        radial-gradient(0.8px 0.8px at 5% 40%, rgba(255, 255, 255, 0.12) 50%, transparent 50%),
+        radial-gradient(1px 1px at 50% 5%, rgba(79, 195, 247, 0.3) 50%, transparent 50%),
+        radial-gradient(1.1px 1.1px at 65% 50%, rgba(255, 255, 255, 0.1) 50%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+      animation: starDrift 120s linear infinite;
+    }
+
+    @keyframes starDrift {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-30px); }
+    }
+
+    /* ================================================
+       LAYOUT
+       ================================================ */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    section {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ================================================
+       NAV
+       ================================================ */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 16px 0;
+      background: rgba(6, 10, 20, 0.8);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border-subtle);
+      transition: background 0.3s;
+    }
+
+    .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text-primary);
+    }
+
+    .nav-brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-teal));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--bg-deep);
+      font-family: var(--font-mono);
+    }
+
+    .nav-brand span {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: var(--accent-cyan);
+    }
+
+    .nav-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 20px;
+      background: transparent;
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-sm);
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.25s;
+    }
+
+    .nav-cta:hover {
+      background: var(--accent-glow);
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 20px rgba(79, 195, 247, 0.15);
+    }
+
+    .nav-cta svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* ================================================
+       HERO
+       ================================================ */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding: 140px 0 100px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -20%;
+      right: -10%;
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, rgba(79, 195, 247, 0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero::after {
+      content: '';
+      position: absolute;
+      bottom: -10%;
+      left: -15%;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(38, 198, 218, 0.04) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: var(--accent-glow);
+      border: 1px solid var(--border-accent);
+      border-radius: 100px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--accent-cyan);
+      margin-bottom: 28px;
+      animation: fadeSlideIn 0.8s ease-out both;
+    }
+
+    .hero-badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(79, 195, 247, 0.4); }
+      50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(79, 195, 247, 0); }
+    }
+
+    .hero h1 {
+      font-family: var(--font-display);
+      font-size: clamp(40px, 5vw, 64px);
+      font-weight: 900;
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+      margin-bottom: 24px;
+      animation: fadeSlideIn 0.8s 0.1s ease-out both;
+    }
+
+    .hero h1 .gradient-text {
+      background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-teal) 40%, var(--accent-electric) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-subtitle {
+      font-size: 18px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 40px;
+      max-width: 520px;
+      animation: fadeSlideIn 0.8s 0.2s ease-out both;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      animation: fadeSlideIn 0.8s 0.3s ease-out both;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 28px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      color: var(--bg-deep);
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 15px;
+      border: none;
+      border-radius: var(--radius-md);
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 4px 24px rgba(79, 195, 247, 0.25);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(79, 195, 247, 0.35);
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 28px;
+      background: var(--bg-card);
+      color: var(--text-primary);
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 15px;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-accent);
+    }
+
+    /* Hero Terminal */
+    .hero-terminal {
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.3),
+        0 24px 48px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(79, 195, 247, 0.05),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      animation: fadeSlideUp 1s 0.4s ease-out both;
+      position: relative;
+    }
+
+    .hero-terminal::after {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(135deg, rgba(79, 195, 247, 0.1), transparent 50%, rgba(38, 198, 218, 0.05));
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px;
+      background: var(--bg-raised);
+      border-bottom: 1px solid var(--border-subtle);
+      position: relative;
+      z-index: 1;
+    }
+
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot:nth-child(1) { background: #ff5f57; }
+    .terminal-dot:nth-child(2) { background: #febc2e; }
+    .terminal-dot:nth-child(3) { background: #28c840; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-right: 36px;
+    }
+
+    .terminal-body {
+      padding: 24px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.8;
+      position: relative;
+      z-index: 1;
+      overflow-x: auto;
+    }
+
+    .terminal-body .comment { color: var(--text-muted); }
+    .terminal-body .prompt { color: var(--accent-cyan); }
+    .terminal-body .command { color: var(--text-primary); }
+    .terminal-body .flag { color: var(--accent-purple); }
+    .terminal-body .success { color: #28c840; }
+    .terminal-body .info { color: var(--text-secondary); }
+    .terminal-body .link { color: var(--accent-teal); }
+    .terminal-body .arg { color: #ffb74d; }
+
+    .terminal-line {
+      display: block;
+      white-space: pre;
+    }
+
+    .terminal-line.typing::after {
+      content: '';
+      display: inline-block;
+      width: 8px;
+      height: 16px;
+      background: var(--accent-cyan);
+      margin-left: 2px;
+      animation: blink 1s step-end infinite;
+      vertical-align: text-bottom;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    /* ================================================
+       ANIMATIONS
+       ================================================ */
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .reveal-delay-1 { transition-delay: 0.1s; }
+    .reveal-delay-2 { transition-delay: 0.2s; }
+    .reveal-delay-3 { transition-delay: 0.3s; }
+    .reveal-delay-4 { transition-delay: 0.4s; }
+    .reveal-delay-5 { transition-delay: 0.5s; }
+    .reveal-delay-6 { transition-delay: 0.6s; }
+
+    /* ================================================
+       SECTION HEADERS
+       ================================================ */
+    .section-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent-cyan);
+      margin-bottom: 16px;
+    }
+
+    .section-label::before {
+      content: '';
+      width: 20px;
+      height: 1px;
+      background: var(--accent-cyan);
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: clamp(32px, 4vw, 48px);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+
+    .section-desc {
+      font-size: 17px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      max-width: 600px;
+    }
+
+    /* ================================================
+       PROBLEM SECTION
+       ================================================ */
+    .problem-section {
+      padding: 120px 0;
+      position: relative;
+    }
+
+    .problem-section::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-accent), transparent);
+    }
+
+    .problem-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      margin-top: 64px;
+      align-items: start;
+    }
+
+    .problem-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .problem-item {
+      display: flex;
+      gap: 16px;
+      padding: 20px;
+      background: rgba(255, 87, 87, 0.04);
+      border: 1px solid rgba(255, 87, 87, 0.1);
+      border-radius: var(--radius-md);
+      transition: border-color 0.3s;
+    }
+
+    .problem-item:hover {
+      border-color: rgba(255, 87, 87, 0.2);
+    }
+
+    .problem-icon {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: rgba(255, 87, 87, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .problem-item h4 {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--text-primary);
+    }
+
+    .problem-item p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .solution-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .solution-item {
+      display: flex;
+      gap: 16px;
+      padding: 20px;
+      background: var(--accent-glow);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-md);
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .solution-item:hover {
+      border-color: rgba(79, 195, 247, 0.3);
+      box-shadow: 0 0 24px rgba(79, 195, 247, 0.08);
+    }
+
+    .solution-icon {
+      flex-shrink: 0;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: rgba(79, 195, 247, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .solution-item h4 {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--text-primary);
+    }
+
+    .solution-item p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .problem-col-header {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .problem-col-header.bad { color: #ff5f57; }
+    .problem-col-header.good { color: var(--accent-cyan); }
+
+    .problem-col-header::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: currentColor;
+      opacity: 0.2;
+    }
+
+    /* ================================================
+       FEATURES SECTION
+       ================================================ */
+    .features-section {
+      padding: 120px 0;
+      position: relative;
+    }
+
+    .features-section::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-accent), transparent);
+    }
+
+    .features-header {
+      text-align: center;
+      margin-bottom: 72px;
+    }
+
+    .features-header .section-desc {
+      margin: 0 auto;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .feature-card {
+      padding: 32px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-teal));
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+
+    .feature-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-accent);
+      transform: translateY(-4px);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-accent);
+    }
+
+    .feature-card:hover::before {
+      opacity: 1;
+    }
+
+    .feature-card.featured {
+      grid-column: span 2;
+      background: linear-gradient(135deg, var(--bg-card) 0%, rgba(79, 195, 247, 0.05) 100%);
+      border-color: var(--border-accent);
+    }
+
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: var(--accent-glow);
+      border: 1px solid var(--border-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    .feature-icon svg {
+      width: 24px;
+      height: 24px;
+      stroke: var(--accent-cyan);
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .feature-card h3 {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      letter-spacing: -0.01em;
+    }
+
+    .feature-card p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    .feature-code {
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: var(--bg-deep);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-code);
+      overflow-x: auto;
+    }
+
+    /* ================================================
+       COMPARISON TABLE
+       ================================================ */
+    .comparison-section {
+      padding: 120px 0;
+      position: relative;
+    }
+
+    .comparison-section::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-accent), transparent);
+    }
+
+    .comparison-header {
+      text-align: center;
+      margin-bottom: 64px;
+    }
+
+    .comparison-header .section-desc {
+      margin: 0 auto;
+    }
+
+    .comparison-table-wrapper {
+      overflow-x: auto;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .comparison-table thead th {
+      padding: 20px 24px;
+      text-align: left;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 14px;
+      background: var(--bg-raised);
+      border-bottom: 1px solid var(--border-subtle);
+      white-space: nowrap;
+    }
+
+    .comparison-table thead th:first-child {
+      color: var(--text-secondary);
+    }
+
+    .comparison-table thead th.highlight {
+      color: var(--accent-cyan);
+      position: relative;
+    }
+
+    .comparison-table thead th.highlight::after {
+      content: 'RECOMMENDED';
+      position: absolute;
+      top: 6px;
+      right: 16px;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 2px 8px;
+      background: rgba(79, 195, 247, 0.15);
+      border: 1px solid var(--border-accent);
+      border-radius: 100px;
+      color: var(--accent-cyan);
+    }
+
+    .comparison-table tbody td {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+    }
+
+    .comparison-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .comparison-table tbody td:first-child {
+      font-weight: 500;
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+
+    .comparison-table tbody td.highlight {
+      background: rgba(79, 195, 247, 0.03);
+    }
+
+    .comparison-table .check {
+      color: #28c840;
+      font-weight: 600;
+    }
+
+    .comparison-table .cross {
+      color: var(--text-muted);
+    }
+
+    .comparison-table .partial {
+      color: #febc2e;
+    }
+
+    /* ================================================
+       QUICKSTART SECTION
+       ================================================ */
+    .quickstart-section {
+      padding: 120px 0;
+      position: relative;
+    }
+
+    .quickstart-section::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-accent), transparent);
+    }
+
+    .quickstart-header {
+      text-align: center;
+      margin-bottom: 64px;
+    }
+
+    .quickstart-header .section-desc {
+      margin: 0 auto;
+    }
+
+    .quickstart-steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 64px;
+    }
+
+    .step-card {
+      padding: 32px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      position: relative;
+      transition: border-color 0.3s;
+    }
+
+    .step-card:hover {
+      border-color: var(--border-accent);
+    }
+
+    .step-number {
+      font-family: var(--font-display);
+      font-size: 48px;
+      font-weight: 900;
+      background: linear-gradient(180deg, rgba(79, 195, 247, 0.3), rgba(79, 195, 247, 0.05));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+      margin-bottom: 16px;
+    }
+
+    .step-card h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 17px;
+      margin-bottom: 8px;
+    }
+
+    .step-card p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+
+    .step-code {
+      padding: 12px 16px;
+      background: var(--bg-deep);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--accent-cyan);
+      overflow-x: auto;
+    }
+
+    /* ================================================
+       INSTALL SECTION
+       ================================================ */
+    .install-section {
+      padding: 120px 0;
+      position: relative;
+    }
+
+    .install-section::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-accent), transparent);
+    }
+
+    .install-wrapper {
+      max-width: 720px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .install-wrapper .section-desc {
+      margin: 0 auto 48px;
+    }
+
+    .install-options {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .install-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 28px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      transition: all 0.3s;
+    }
+
+    .install-option:hover {
+      border-color: var(--border-accent);
+      background: var(--bg-card-hover);
+    }
+
+    .install-option-label {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      min-width: 120px;
+      text-align: left;
+    }
+
+    .install-option-cmd {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--accent-cyan);
+      flex: 1;
+      text-align: left;
+      padding-left: 24px;
+    }
+
+    .install-option-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 4px 10px;
+      border-radius: 100px;
+      white-space: nowrap;
+    }
+
+    .install-option-badge.available {
+      background: rgba(40, 200, 64, 0.1);
+      color: #28c840;
+      border: 1px solid rgba(40, 200, 64, 0.2);
+    }
+
+    .install-option-badge.soon {
+      background: rgba(254, 188, 46, 0.1);
+      color: #febc2e;
+      border: 1px solid rgba(254, 188, 46, 0.2);
+    }
+
+    /* ================================================
+       CTA SECTION
+       ================================================ */
+    .cta-section {
+      padding: 120px 0 160px;
+      text-align: center;
+      position: relative;
+    }
+
+    .cta-section::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(79, 195, 247, 0.06), transparent 70%);
+      pointer-events: none;
+    }
+
+    .cta-title {
+      font-family: var(--font-display);
+      font-size: clamp(36px, 4.5vw, 56px);
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-bottom: 20px;
+    }
+
+    .cta-desc {
+      font-size: 18px;
+      color: var(--text-secondary);
+      max-width: 500px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+    }
+
+    .cta-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .cta-install-cmd {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text-code);
+      cursor: pointer;
+      transition: all 0.3s;
+      text-decoration: none;
+    }
+
+    .cta-install-cmd:hover {
+      border-color: var(--border-accent);
+      background: var(--bg-card-hover);
+    }
+
+    .cta-install-cmd .dollar {
+      color: var(--text-muted);
+    }
+
+    /* ================================================
+       FOOTER
+       ================================================ */
+    footer {
+      position: relative;
+      z-index: 1;
+      padding: 40px 0;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .footer-brand {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      transition: color 0.2s;
+    }
+
+    .footer-links a:hover {
+      color: var(--accent-cyan);
+    }
+
+    .footer-right {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* ================================================
+       RESPONSIVE
+       ================================================ */
+    @media (max-width: 1024px) {
+      .hero-grid {
+        grid-template-columns: 1fr;
+        gap: 48px;
+      }
+
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .feature-card.featured {
+        grid-column: span 2;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+
+      .hero {
+        padding: 120px 0 80px;
+        min-height: auto;
+      }
+
+      .problem-grid {
+        grid-template-columns: 1fr;
+        gap: 48px;
+      }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .feature-card.featured {
+        grid-column: span 1;
+      }
+
+      .quickstart-steps {
+        grid-template-columns: 1fr;
+      }
+
+      .comparison-table-wrapper {
+        margin: 0 -24px;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+      }
+
+      .install-option {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      .install-option-cmd {
+        padding-left: 0;
+      }
+
+      .footer-inner {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+      }
+
+      .footer-left {
+        flex-direction: column;
+        gap: 12px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .container { padding: 0 16px; }
+
+      .terminal-body {
+        font-size: 11px;
+        padding: 16px;
+      }
+
+      .hero-actions {
+        flex-direction: column;
+        width: 100%;
+      }
+
+      .btn-primary, .btn-secondary {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .cta-actions {
+        flex-direction: column;
+      }
+    }
+
+    /* ================================================
+       SCROLLBAR
+       ================================================ */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-deep); }
+    ::-webkit-scrollbar-thumb { background: var(--bg-card); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--bg-card-hover); }
+
+    /* ================================================
+       SELECTION
+       ================================================ */
+    ::selection {
+      background: rgba(79, 195, 247, 0.25);
+      color: var(--text-primary);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============ NAV ============ -->
+  <nav>
+    <div class="nav-inner">
+      <a href="#" class="nav-brand">
+        <div class="nav-brand-icon">P</div>
+        <span>git-parsec</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#comparison">Compare</a></li>
+        <li><a href="#quickstart">Quick Start</a></li>
+        <li><a href="#install">Install</a></li>
+      </ul>
+      <a href="https://github.com/erishforG/git-parsec" class="nav-cta" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero" id="hero">
+    <div class="container">
+      <div class="hero-grid">
+        <div>
+          <div class="hero-badge">Built with Rust</div>
+          <h1>
+            From ticket to PR<br>
+            <span class="gradient-text">in one command.</span>
+          </h1>
+          <p class="hero-subtitle">
+            git-parsec manages the full lifecycle of git worktrees tied to your issue tracker. Start a ticket, code in parallel, ship a PR, and clean up -- all without leaving your terminal.
+          </p>
+          <div class="hero-actions">
+            <a href="#install" class="btn-primary">
+              Get Started
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+            <a href="https://github.com/erishforG/git-parsec" class="btn-secondary" target="_blank" rel="noopener">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+              View on GitHub
+            </a>
+          </div>
+        </div>
+        <div class="hero-terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot"></div>
+            <div class="terminal-dot"></div>
+            <div class="terminal-dot"></div>
+            <div class="terminal-title">parsec -- zsh</div>
+          </div>
+          <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Start working on a Jira ticket</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">CL-2283</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Created worktree for </span><span class="arg">CL-2283</span></span>
+<span class="terminal-line"><span class="info">  Title: Collect HeuristicCompletionException handling</span></span>
+<span class="terminal-line"><span class="info">  Branch: </span><span class="link">feature/CL-2283</span></span>
+<span class="terminal-line"><span class="info">  Path: ../myproject.CL-2283</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Work in parallel on another ticket</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">CL-2290</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Created worktree for </span><span class="arg">CL-2290</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Ship it -- push, create PR, cleanup</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">CL-2283</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Pushed </span><span class="link">feature/CL-2283</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">PR created: </span><span class="link">github.com/org/repo/pull/42</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Worktree cleaned up</span></span>
+<span class="terminal-line typing">&nbsp;</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PROBLEM / SOLUTION ============ -->
+  <section class="problem-section" id="problem">
+    <div class="container">
+      <div class="reveal">
+        <div class="section-label">The Problem</div>
+        <div class="section-title">Git wasn't built for<br>parallel workflows.</div>
+        <p class="section-desc">
+          Multiple developers or AI agents on the same repo fight over index.lock.
+          Worktrees solve isolation, but lack lifecycle management.
+        </p>
+      </div>
+
+      <div class="problem-grid">
+        <div class="reveal reveal-delay-1">
+          <div class="problem-col-header bad">
+            Without parsec
+          </div>
+          <ul class="problem-list">
+            <li class="problem-item">
+              <div class="problem-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff5f57" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </div>
+              <div>
+                <h4>Lock contention</h4>
+                <p>Parallel git operations collide on <code>.git/index.lock</code>, blocking agents and developers.</p>
+              </div>
+            </li>
+            <li class="problem-item">
+              <div class="problem-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff5f57" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </div>
+              <div>
+                <h4>Manual worktree management</h4>
+                <p>Create branch, add worktree, remember paths, clean up manually. Error-prone and tedious.</p>
+              </div>
+            </li>
+            <li class="problem-item">
+              <div class="problem-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff5f57" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </div>
+              <div>
+                <h4>No ticket connection</h4>
+                <p>Branches and worktrees have no link to your issue tracker. Context gets lost.</p>
+              </div>
+            </li>
+            <li class="problem-item">
+              <div class="problem-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff5f57" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </div>
+              <div>
+                <h4>Invisible conflicts</h4>
+                <p>Parallel work silently edits the same files. You only find out at merge time.</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="reveal reveal-delay-2">
+          <div class="problem-col-header good">
+            With parsec
+          </div>
+          <ul class="solution-list">
+            <li class="solution-item">
+              <div class="solution-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+              </div>
+              <div>
+                <h4>Zero-conflict parallelism</h4>
+                <p>Each ticket gets its own isolated worktree. No lock contention, ever.</p>
+              </div>
+            </li>
+            <li class="solution-item">
+              <div class="solution-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+              </div>
+              <div>
+                <h4>One-command lifecycle</h4>
+                <p><code>parsec start</code> creates everything. <code>parsec ship</code> pushes, PRs, and cleans up.</p>
+              </div>
+            </li>
+            <li class="solution-item">
+              <div class="solution-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+              </div>
+              <div>
+                <h4>Ticket tracker integration</h4>
+                <p>Jira and GitHub Issues built in. Branches auto-named, PR titles auto-filled.</p>
+              </div>
+            </li>
+            <li class="solution-item">
+              <div class="solution-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+              </div>
+              <div>
+                <h4>Early conflict detection</h4>
+                <p><code>parsec conflicts</code> warns when worktrees touch the same files -- before you merge.</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FEATURES ============ -->
+  <section class="features-section" id="features">
+    <div class="container">
+      <div class="features-header reveal">
+        <div class="section-label">Features</div>
+        <div class="section-title">Everything you need.<br>Nothing you don't.</div>
+        <p class="section-desc">
+          A focused toolset for the complete worktree lifecycle -- from creating isolated workspaces to shipping production-ready PRs.
+        </p>
+      </div>
+
+      <div class="features-grid">
+        <!-- Feature 1: Ticket Integration (Featured) -->
+        <div class="feature-card featured reveal reveal-delay-1">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
+          </div>
+          <h3>Ticket Tracker Integration</h3>
+          <p>
+            Connect to Jira or GitHub Issues. When you <code>parsec start PROJ-123</code>, the ticket title is
+            fetched automatically, branches are named consistently, and PR descriptions reference the original issue.
+            Manual <code>--title</code> fallback for offline or unsupported trackers.
+          </p>
+          <div class="feature-code">$ parsec start PROJ-123 &nbsp;&nbsp;<span style="color: var(--text-muted)"># auto-fetches title from Jira</span></div>
+        </div>
+
+        <!-- Feature 2: Sibling Layout -->
+        <div class="feature-card reveal reveal-delay-2">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          </div>
+          <h3>Sibling Worktree Layout</h3>
+          <p>
+            Worktrees placed adjacent to your repo as <code>../repo.ticket/</code>. Clean, predictable, and compatible with your IDE.
+          </p>
+        </div>
+
+        <!-- Feature 3: One-step Ship -->
+        <div class="feature-card reveal reveal-delay-3">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </div>
+          <h3>One-step Shipping</h3>
+          <p>
+            <code>parsec ship</code> pushes your branch, creates a GitHub PR with the ticket context, and cleans up the worktree. One command, done.
+          </p>
+        </div>
+
+        <!-- Feature 4: Conflict Detection -->
+        <div class="feature-card reveal reveal-delay-1">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <h3>Cross-worktree Conflict Detection</h3>
+          <p>
+            Detect when multiple worktrees modify the same files before you merge. Catch conflicts early, not at review time.
+          </p>
+        </div>
+
+        <!-- Feature 5: Shell Integration -->
+        <div class="feature-card reveal reveal-delay-2">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </div>
+          <h3>Shell Integration</h3>
+          <p>
+            Add <code>eval "$(parsec config shell zsh)"</code> to your shell config and <code>parsec switch</code> teleports you into any worktree.
+          </p>
+        </div>
+
+        <!-- Feature 6: Post-create Hooks -->
+        <div class="feature-card reveal reveal-delay-3">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+          </div>
+          <h3>Post-create Hooks</h3>
+          <p>
+            Automatically run <code>npm install</code>, <code>cargo build</code>, or any setup command after creating a new worktree. Zero manual steps.
+          </p>
+        </div>
+
+        <!-- Feature 7: JSON Output (Featured) -->
+        <div class="feature-card featured reveal reveal-delay-1">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M16 18l2-2v-4l2-2-2-2V4l-2-2"/><path d="M8 6L6 8v4l-2 2 2 2v4l2 2"/></svg>
+          </div>
+          <h3>JSON Output for AI Agents</h3>
+          <p>
+            Every command supports <code>--json</code> for machine-readable output. Build automation pipelines,
+            integrate with AI coding agents, or script complex workflows. parsec is built to be both
+            human-friendly and agent-friendly.
+          </p>
+          <div class="feature-code">$ parsec list --json | jq '.[] | select(.commits > 0)'</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ COMPARISON ============ -->
+  <section class="comparison-section" id="comparison">
+    <div class="container">
+      <div class="comparison-header reveal">
+        <div class="section-label">Comparison</div>
+        <div class="section-title">How parsec stacks up.</div>
+        <p class="section-desc">
+          parsec fills the gap between bare git worktree commands and tools that don't connect to your issue tracker.
+        </p>
+      </div>
+
+      <div class="comparison-table-wrapper reveal reveal-delay-1">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th class="highlight">parsec</th>
+              <th>worktrunk</th>
+              <th>git worktree</th>
+              <th>git-town</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Ticket tracker integration</td>
+              <td class="highlight"><span class="check">Jira + GitHub</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Cross-worktree conflict detection</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>One-step ship (push + PR + clean)</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="partial">Partial</span></td>
+            </tr>
+            <tr>
+              <td>JSON output for AI agents</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Auto-cleanup merged worktrees</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="partial">Manual</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Status dashboard</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Post-create hooks</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Shell integration (cd into worktree)</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUICK START ============ -->
+  <section class="quickstart-section" id="quickstart">
+    <div class="container">
+      <div class="quickstart-header reveal">
+        <div class="section-label">Quick Start</div>
+        <div class="section-title">Up and running in 60 seconds.</div>
+        <p class="section-desc">
+          Three commands from install to your first PR.
+        </p>
+      </div>
+
+      <div class="quickstart-steps">
+        <div class="step-card reveal reveal-delay-1">
+          <div class="step-number">01</div>
+          <h3>Install</h3>
+          <p>Install via cargo. A single binary, no runtime dependencies.</p>
+          <div class="step-code">cargo install git-parsec</div>
+        </div>
+        <div class="step-card reveal reveal-delay-2">
+          <div class="step-number">02</div>
+          <h3>Configure</h3>
+          <p>Run interactive setup to connect your Jira or GitHub Issues instance.</p>
+          <div class="step-code">parsec config init</div>
+        </div>
+        <div class="step-card reveal reveal-delay-3">
+          <div class="step-number">03</div>
+          <h3>Start building</h3>
+          <p>Create a worktree from any ticket. Code, commit, and ship when ready.</p>
+          <div class="step-code">parsec start PROJ-42</div>
+        </div>
+      </div>
+
+      <!-- Full demo terminal -->
+      <div class="hero-terminal reveal reveal-delay-2" style="max-width: 800px; margin: 0 auto;">
+        <div class="terminal-bar">
+          <div class="terminal-dot"></div>
+          <div class="terminal-dot"></div>
+          <div class="terminal-dot"></div>
+          <div class="terminal-title">full workflow demo</div>
+        </div>
+        <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Create isolated workspace from Jira ticket</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">CL-2283</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Created worktree for CL-2283</span></span>
+<span class="terminal-line"><span class="info">  Branch: feature/CL-2283</span></span>
+<span class="terminal-line"><span class="info">  Path:   ../myproject.CL-2283</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Switch into the worktree</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec switch</span> <span class="arg">CL-2283</span></span>
+<span class="terminal-line"><span class="info">  cd ../myproject.CL-2283</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># ... do your work, commit as usual ...</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Check for conflicts with other worktrees</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec conflicts</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">No file conflicts across 3 active worktrees</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Ship it -- push, create PR, cleanup</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">CL-2283</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Pushed feature/CL-2283 (4 commits)</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">PR #42 created: </span><span class="link">github.com/org/repo/pull/42</span></span>
+<span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Worktree cleaned up</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ INSTALL ============ -->
+  <section class="install-section" id="install">
+    <div class="container">
+      <div class="install-wrapper">
+        <div class="reveal">
+          <div class="section-label">Installation</div>
+          <div class="section-title">Install parsec.</div>
+          <p class="section-desc">
+            A single Rust binary. No runtime dependencies, no node_modules, no Python virtualenvs.
+          </p>
+        </div>
+
+        <div class="install-options reveal reveal-delay-1">
+          <div class="install-option">
+            <span class="install-option-label">Cargo</span>
+            <span class="install-option-cmd">cargo install git-parsec</span>
+            <span class="install-option-badge available">Available</span>
+          </div>
+          <div class="install-option">
+            <span class="install-option-label">Homebrew</span>
+            <span class="install-option-cmd">brew install git-parsec</span>
+            <span class="install-option-badge soon">Coming soon</span>
+          </div>
+          <div class="install-option">
+            <span class="install-option-label">From source</span>
+            <span class="install-option-cmd">git clone &amp;&amp; cargo build --release</span>
+            <span class="install-option-badge available">Available</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CTA ============ -->
+  <section class="cta-section">
+    <div class="container">
+      <div class="reveal">
+        <div class="cta-title">
+          Stop managing worktrees.<br>
+          <span class="gradient-text" style="background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-teal) 40%, var(--accent-electric) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Start shipping tickets.</span>
+        </div>
+        <p class="cta-desc">
+          Join developers who use parsec to work on multiple tickets in parallel without the overhead.
+        </p>
+        <div class="cta-actions">
+          <a href="https://github.com/erishforG/git-parsec" class="btn-primary" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            Star on GitHub
+          </a>
+          <div class="cta-install-cmd">
+            <span class="dollar">$</span> cargo install git-parsec
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer>
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">
+          <span class="footer-brand">git-parsec</span>
+          <ul class="footer-links">
+            <li><a href="https://github.com/erishforG/git-parsec" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://github.com/erishforG/git-parsec/issues" target="_blank" rel="noopener">Issues</a></li>
+            <li><a href="https://github.com/erishforG/git-parsec/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
+          </ul>
+        </div>
+        <div class="footer-right">
+          Built with Rust. Designed for velocity.
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ============ SCROLL REVEAL (minimal JS, no libraries) ============ -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const reveals = document.querySelectorAll('.reveal');
+
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+          }
+        });
+      }, {
+        threshold: 0.1,
+        rootMargin: '0px 0px -40px 0px'
+      });
+
+      reveals.forEach(el => observer.observe(el));
+    });
+  </script>
+
+</body>
+</html>
