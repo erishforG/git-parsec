@@ -1,0 +1,269 @@
+use anyhow::{Context, Result};
+use dialoguer::{Confirm, Input, Select};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+// ---------------------------------------------------------------------------
+// Default value helpers required by serde
+// ---------------------------------------------------------------------------
+
+fn default_base_dir() -> String {
+    ".parsec/workspaces".to_string()
+}
+
+fn default_branch_prefix() -> String {
+    "feature/".to_string()
+}
+
+fn default_provider() -> TrackerProvider {
+    TrackerProvider::None
+}
+
+fn default_true() -> bool {
+    true
+}
+
+// ---------------------------------------------------------------------------
+// TrackerProvider
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TrackerProvider {
+    Jira,
+    Github,
+    None,
+}
+
+impl Default for TrackerProvider {
+    fn default() -> Self {
+        TrackerProvider::None
+    }
+}
+
+impl std::fmt::Display for TrackerProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TrackerProvider::Jira => write!(f, "jira"),
+            TrackerProvider::Github => write!(f, "github"),
+            TrackerProvider::None => write!(f, "none"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WorkspaceConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceConfig {
+    #[serde(default = "default_base_dir")]
+    pub base_dir: String,
+    #[serde(default = "default_branch_prefix")]
+    pub branch_prefix: String,
+}
+
+impl Default for WorkspaceConfig {
+    fn default() -> Self {
+        Self {
+            base_dir: default_base_dir(),
+            branch_prefix: default_branch_prefix(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JiraConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraConfig {
+    pub base_url: String,
+    pub email: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// TrackerConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackerConfig {
+    #[serde(default = "default_provider")]
+    pub provider: TrackerProvider,
+    #[serde(default)]
+    pub jira: Option<JiraConfig>,
+}
+
+impl Default for TrackerConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_provider(),
+            jira: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ShipConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShipConfig {
+    #[serde(default = "default_true")]
+    pub auto_pr: bool,
+    #[serde(default = "default_true")]
+    pub auto_cleanup: bool,
+    #[serde(default)]
+    pub draft: bool,
+}
+
+impl Default for ShipConfig {
+    fn default() -> Self {
+        Self {
+            auto_pr: true,
+            auto_cleanup: true,
+            draft: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ParsecConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParsecConfig {
+    #[serde(default)]
+    pub workspace: WorkspaceConfig,
+    #[serde(default)]
+    pub tracker: TrackerConfig,
+    #[serde(default)]
+    pub ship: ShipConfig,
+}
+
+impl Default for ParsecConfig {
+    fn default() -> Self {
+        Self {
+            workspace: WorkspaceConfig::default(),
+            tracker: TrackerConfig::default(),
+            ship: ShipConfig::default(),
+        }
+    }
+}
+
+impl ParsecConfig {
+    /// Return the canonical path to the config file.
+    pub fn config_path() -> PathBuf {
+        dirs::config_dir()
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".config")
+            })
+            .join("parsec")
+            .join("config.toml")
+    }
+
+    /// Load the config from disk. Returns `Default` if the file does not exist.
+    pub fn load() -> Result<Self> {
+        let path = Self::config_path();
+
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+
+        let contents = std::fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read config file: {}", path.display()))?;
+
+        let config: Self = toml::from_str(&contents)
+            .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
+
+        Ok(config)
+    }
+
+    /// Persist the config to disk, creating parent directories as needed.
+    pub fn save(&self) -> Result<()> {
+        let path = Self::config_path();
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory: {}", parent.display())
+            })?;
+        }
+
+        let contents =
+            toml::to_string_pretty(self).context("Failed to serialize config to TOML")?;
+
+        std::fs::write(&path, contents)
+            .with_context(|| format!("Failed to write config file: {}", path.display()))?;
+
+        Ok(())
+    }
+
+    /// Interactively prompt the user to configure parsec and return the resulting config.
+    pub fn init_interactive() -> Result<Self> {
+        let mut config = Self::default();
+
+        // ---- Tracker provider ------------------------------------------------
+        let provider_options = &["None", "Jira", "GitHub"];
+        let provider_idx = Select::new()
+            .with_prompt("Issue tracker provider")
+            .items(provider_options)
+            .default(0)
+            .interact()
+            .context("Failed to read tracker provider selection")?;
+
+        config.tracker.provider = match provider_idx {
+            1 => TrackerProvider::Jira,
+            2 => TrackerProvider::Github,
+            _ => TrackerProvider::None,
+        };
+
+        // ---- Jira-specific options -------------------------------------------
+        if config.tracker.provider == TrackerProvider::Jira {
+            let base_url: String = Input::new()
+                .with_prompt("Jira base URL (e.g. https://yourorg.atlassian.net)")
+                .interact_text()
+                .context("Failed to read Jira base URL")?;
+
+            let email_input: String = Input::new()
+                .with_prompt("Jira email (leave blank to skip)")
+                .allow_empty(true)
+                .interact_text()
+                .context("Failed to read Jira email")?;
+
+            config.tracker.jira = Some(JiraConfig {
+                base_url,
+                email: if email_input.is_empty() {
+                    None
+                } else {
+                    Some(email_input)
+                },
+            });
+        }
+
+        // ---- Branch prefix ---------------------------------------------------
+        let branch_prefix: String = Input::new()
+            .with_prompt("Branch prefix for new worktrees")
+            .default("feature/".to_string())
+            .interact_text()
+            .context("Failed to read branch prefix")?;
+
+        config.workspace.branch_prefix = branch_prefix;
+
+        // ---- Ship options ----------------------------------------------------
+        config.ship.auto_pr = Confirm::new()
+            .with_prompt("Automatically open a PR when shipping?")
+            .default(true)
+            .interact()
+            .context("Failed to read auto PR preference")?;
+
+        config.ship.draft = Confirm::new()
+            .with_prompt("Create PRs as drafts by default?")
+            .default(false)
+            .interact()
+            .context("Failed to read draft PR preference")?;
+
+        Ok(config)
+    }
+}
