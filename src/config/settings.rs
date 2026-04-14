@@ -29,16 +29,12 @@ fn default_true() -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum TrackerProvider {
     Jira,
     Github,
+    #[default]
     None,
-}
-
-impl Default for TrackerProvider {
-    fn default() -> Self {
-        TrackerProvider::None
-    }
 }
 
 impl std::fmt::Display for TrackerProvider {
@@ -57,15 +53,11 @@ impl std::fmt::Display for TrackerProvider {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum WorktreeLayout {
-    Sibling,   // ../repo.ticket/ (worktrunk-style, default)
-    Internal,  // .parsec/workspaces/ticket/ (inside repo)
-}
-
-impl Default for WorktreeLayout {
-    fn default() -> Self {
-        WorktreeLayout::Sibling
-    }
+    #[default]
+    Sibling, // ../repo.ticket/ (worktrunk-style, default)
+    Internal, // .parsec/workspaces/ticket/ (inside repo)
 }
 
 fn default_layout() -> WorktreeLayout {
@@ -175,7 +167,7 @@ pub struct HooksConfig {
 // ParsecConfig
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ParsecConfig {
     #[serde(default)]
     pub workspace: WorkspaceConfig,
@@ -185,17 +177,6 @@ pub struct ParsecConfig {
     pub ship: ShipConfig,
     #[serde(default)]
     pub hooks: HooksConfig,
-}
-
-impl Default for ParsecConfig {
-    fn default() -> Self {
-        Self {
-            workspace: WorkspaceConfig::default(),
-            tracker: TrackerConfig::default(),
-            ship: ShipConfig::default(),
-            hooks: HooksConfig::default(),
-        }
-    }
 }
 
 impl ParsecConfig {
@@ -290,7 +271,10 @@ impl ParsecConfig {
         }
 
         // ---- Worktree layout -------------------------------------------------
-        let layout_options = &["Sibling (recommended - worktrees next to repo)", "Internal (worktrees inside .parsec/)"];
+        let layout_options = &[
+            "Sibling (recommended - worktrees next to repo)",
+            "Internal (worktrees inside .parsec/)",
+        ];
         let layout_idx = Select::new()
             .with_prompt("Worktree layout")
             .items(layout_options)

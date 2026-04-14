@@ -1,6 +1,6 @@
+use super::Ticket;
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
-use super::Ticket;
 
 pub struct JiraTracker {
     base_url: String,
@@ -41,7 +41,9 @@ impl JiraTracker {
         // Use API v2 (compatible with both Cloud and Server/DC)
         let url = format!("{}/rest/api/2/issue/{}", self.base_url, id);
 
-        let mut request = self.client.get(&url)
+        let mut request = self
+            .client
+            .get(&url)
             .header("Content-Type", "application/json");
 
         // If email is configured: Basic auth (Jira Cloud with API token)
@@ -52,7 +54,9 @@ impl JiraTracker {
             request = request.bearer_auth(&token);
         }
 
-        let response = request.send().await
+        let response = request
+            .send()
+            .await
             .context("Failed to send request to Jira")?;
 
         if !response.status().is_success() {
@@ -61,7 +65,9 @@ impl JiraTracker {
             bail!("Jira API returned {} for {}: {}", status, id, body);
         }
 
-        let body: serde_json::Value = response.json().await
+        let body: serde_json::Value = response
+            .json()
+            .await
             .context("Failed to parse Jira response")?;
 
         let title = body["fields"]["summary"]
@@ -69,9 +75,7 @@ impl JiraTracker {
             .unwrap_or("Untitled")
             .to_string();
 
-        let status = body["fields"]["status"]["name"]
-            .as_str()
-            .map(String::from);
+        let status = body["fields"]["status"]["name"].as_str().map(String::from);
 
         let assignee = body["fields"]["assignee"]["displayName"]
             .as_str()

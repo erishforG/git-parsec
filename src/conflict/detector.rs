@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::git;
 use crate::worktree::Workspace;
@@ -8,7 +8,7 @@ use crate::worktree::Workspace;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileConflict {
     pub file: String,
-    pub worktrees: Vec<String>,  // ticket IDs that modify this file
+    pub worktrees: Vec<String>, // ticket IDs that modify this file
 }
 
 /// Detect files that are modified in multiple active worktrees.
@@ -29,7 +29,7 @@ pub fn detect(workspaces: &[Workspace]) -> Result<Vec<FileConflict>> {
         // Run from the workspace path
         let merge_base = match git::get_merge_base(&ws.path, &ws.base_branch, "HEAD") {
             Ok(base) => base,
-            Err(_) => continue,  // Skip if can't determine merge base
+            Err(_) => continue, // Skip if can't determine merge base
         };
 
         // Get changed files
@@ -39,10 +39,7 @@ pub fn detect(workspaces: &[Workspace]) -> Result<Vec<FileConflict>> {
         };
 
         for file in changed {
-            file_map
-                .entry(file)
-                .or_default()
-                .push(ws.ticket.clone());
+            file_map.entry(file).or_default().push(ws.ticket.clone());
         }
     }
 
@@ -55,7 +52,9 @@ pub fn detect(workspaces: &[Workspace]) -> Result<Vec<FileConflict>> {
 
     // Sort by number of conflicting worktrees (descending), then by filename
     conflicts.sort_by(|a, b| {
-        b.worktrees.len().cmp(&a.worktrees.len())
+        b.worktrees
+            .len()
+            .cmp(&a.worktrees.len())
             .then_with(|| a.file.cmp(&b.file))
     });
 

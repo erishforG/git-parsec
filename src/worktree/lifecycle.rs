@@ -148,15 +148,17 @@ impl ParsecState {
         let lock_path = Self::acquire_lock(repo_root)?;
 
         let result = (|| {
-            let contents = serde_json::to_string_pretty(self)
-                .context("failed to serialize state to JSON")?;
+            let contents =
+                serde_json::to_string_pretty(self).context("failed to serialize state to JSON")?;
 
             // Write to a temp file alongside the real state file, then rename.
             let tmp_path = path.with_extension("tmp");
-            fs::write(&tmp_path, &contents)
-                .with_context(|| format!("failed to write temp state file: {}", tmp_path.display()))?;
-            fs::rename(&tmp_path, &path)
-                .with_context(|| format!("failed to rename temp state file to: {}", path.display()))?;
+            fs::write(&tmp_path, &contents).with_context(|| {
+                format!("failed to write temp state file: {}", tmp_path.display())
+            })?;
+            fs::rename(&tmp_path, &path).with_context(|| {
+                format!("failed to rename temp state file to: {}", path.display())
+            })?;
 
             Ok(())
         })();

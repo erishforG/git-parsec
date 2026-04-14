@@ -67,10 +67,7 @@ impl GithubIssueTracker {
             .await
             .context("Failed to parse GitHub Issues response")?;
 
-        let title = body["title"]
-            .as_str()
-            .unwrap_or("Untitled")
-            .to_string();
+        let title = body["title"].as_str().unwrap_or("Untitled").to_string();
 
         let status = body["state"].as_str().map(String::from);
 

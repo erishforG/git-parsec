@@ -6,9 +6,11 @@ use crate::conflict::FileConflict;
 use crate::worktree::{ShipResult, Workspace};
 
 fn emit<T: Serialize>(value: &T) {
-    println!("{}", serde_json::to_string(value).unwrap_or_else(|e| {
-        json!({ "error": e.to_string() }).to_string()
-    }));
+    println!(
+        "{}",
+        serde_json::to_string(value)
+            .unwrap_or_else(|e| { json!({ "error": e.to_string() }).to_string() })
+    );
 }
 
 pub fn print_start(workspace: &Workspace) {

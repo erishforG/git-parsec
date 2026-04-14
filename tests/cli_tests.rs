@@ -90,12 +90,7 @@ fn setup_repo_with_remote() -> (TempDir, TempDir) {
         .unwrap();
 
     StdCommand::new("git")
-        .args([
-            "remote",
-            "add",
-            "origin",
-            bare.path().to_str().unwrap(),
-        ])
+        .args(["remote", "add", "origin", bare.path().to_str().unwrap()])
         .current_dir(dir.path())
         .output()
         .unwrap();
@@ -134,10 +129,7 @@ fn test_help() {
 
 #[test]
 fn test_version() {
-    parsec()
-        .arg("--version")
-        .assert()
-        .success();
+    parsec().arg("--version").assert().success();
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +171,10 @@ fn test_start_creates_worktree() {
 
     // .parsec/state.json must exist and contain the ticket.
     let state_path = repo.path().join(".parsec").join("state.json");
-    assert!(state_path.exists(), ".parsec/state.json should exist after start");
+    assert!(
+        state_path.exists(),
+        ".parsec/state.json should exist after start"
+    );
 
     let contents = std::fs::read_to_string(&state_path).unwrap();
     assert!(
@@ -287,7 +282,12 @@ fn test_clean_empty() {
 fn test_clean_dry_run() {
     let repo = setup_repo();
     parsec()
-        .args(["clean", "--dry-run", "--repo", repo.path().to_str().unwrap()])
+        .args([
+            "clean",
+            "--dry-run",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
         .assert()
         .success();
 }
@@ -299,11 +299,7 @@ fn test_clean_dry_run() {
 #[test]
 fn test_config_show_defaults() {
     // config show reads the user-level config and should always succeed.
-    parsec()
-        .arg("config")
-        .arg("show")
-        .assert()
-        .success();
+    parsec().arg("config").arg("show").assert().success();
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +310,12 @@ fn test_config_show_defaults() {
 fn test_switch_nonexistent_fails() {
     let repo = setup_repo();
     parsec()
-        .args(["switch", "NONEXIST", "--repo", repo.path().to_str().unwrap()])
+        .args([
+            "switch",
+            "NONEXIST",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
         .assert()
         .failure();
 }
@@ -351,11 +352,14 @@ fn test_list_json_format() {
 
     let stdout = String::from_utf8(output.stdout).unwrap();
     // Must be parseable as a JSON array.
-    let parsed: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("parsec list --json must produce valid JSON");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("parsec list --json must produce valid JSON");
 
     let arr = parsed.as_array().expect("output should be a JSON array");
-    assert!(!arr.is_empty(), "array should contain at least one workspace");
+    assert!(
+        !arr.is_empty(),
+        "array should contain at least one workspace"
+    );
 
     // Each element must have a "ticket" field.
     let first = &arr[0];
@@ -376,10 +380,13 @@ fn test_status_json_format() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "parsec status --json should succeed");
+    assert!(
+        output.status.success(),
+        "parsec status --json should succeed"
+    );
 
     let stdout = String::from_utf8(output.stdout).unwrap();
     // Must be valid JSON (array of workspaces, possibly empty).
-    let _: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("parsec status --json must produce valid JSON");
+    let _: serde_json::Value =
+        serde_json::from_str(&stdout).expect("parsec status --json must produce valid JSON");
 }
