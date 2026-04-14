@@ -9,31 +9,71 @@ pub struct PrResult {
     pub number: u64,
 }
 
-/// Parse `git@github.com:owner/repo.git` or `https://github.com/owner/repo.git`
-/// into `(owner, repo)`.
-pub fn parse_github_remote(url: &str) -> Option<(String, String)> {
-    // SSH form: git@github.com:owner/repo.git
-    if let Some(rest) = url.strip_prefix("git@github.com:") {
-        let rest = rest.trim_end_matches(".git");
-        let mut parts = rest.splitn(2, '/');
-        let owner = parts.next()?.to_owned();
-        let repo = parts.next()?.to_owned();
-        return Some((owner, repo));
+/// Parsed GitHub remote info including the host (for Enterprise support).
+#[derive(Debug, Clone)]
+pub struct GitHubRemote {
+    pub host: String,
+    pub owner: String,
+    pub repo: String,
+}
+
+impl GitHubRemote {
+    /// Return the API base URL for this remote.
+    /// - `github.com` → `https://api.github.com`
+    /// - Enterprise (e.g. `github.daumkakao.com`) → `https://{host}/api/v3`
+    pub fn api_base(&self) -> String {
+        if self.host == "github.com" {
+            "https://api.github.com".to_string()
+        } else {
+            format!("https://{}/api/v3", self.host)
+        }
     }
 
-    // HTTPS form
-    if let Some(rest) = url
-        .strip_prefix("https://github.com/")
-        .or_else(|| url.strip_prefix("http://github.com/"))
-    {
-        let rest = rest.trim_end_matches(".git");
-        let mut parts = rest.splitn(2, '/');
+    /// Return the browse URL for this remote.
+    #[allow(dead_code)]
+    pub fn browse_url(&self, path: &str) -> String {
+        format!(
+            "https://{}/{}/{}/{}",
+            self.host, self.owner, self.repo, path
+        )
+    }
+}
+
+/// Parse any GitHub remote URL (github.com or Enterprise) into GitHubRemote.
+///
+/// Supports:
+/// - SSH: `git@github.com:owner/repo.git`, `git@github.enterprise.com:owner/repo.git`
+/// - HTTPS: `https://github.com/owner/repo.git`, `https://github.enterprise.com/owner/repo.git`
+pub fn parse_github_remote(url: &str) -> Option<GitHubRemote> {
+    // SSH form: git@<host>:owner/repo.git
+    if url.starts_with("git@") {
+        let rest = url.strip_prefix("git@")?;
+        let (host, path) = rest.split_once(':')?;
+        let path = path.trim_end_matches(".git");
+        let mut parts = path.splitn(2, '/');
         let owner = parts.next()?.to_owned();
         let repo = parts.next()?.to_owned();
-        return Some((owner, repo));
+        return Some(GitHubRemote {
+            host: host.to_owned(),
+            owner,
+            repo,
+        });
     }
 
-    None
+    // HTTPS form: https://<host>/owner/repo.git
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let (host, path) = rest.split_once('/')?;
+    let path = path.trim_end_matches(".git");
+    let mut parts = path.splitn(2, '/');
+    let owner = parts.next()?.to_owned();
+    let repo = parts.next()?.to_owned();
+    Some(GitHubRemote {
+        host: host.to_owned(),
+        owner,
+        repo,
+    })
 }
 
 /// Resolve a GitHub token from environment variables.
@@ -64,11 +104,16 @@ pub async fn create_pr(
         None => return Ok(None),
     };
 
-    let (owner, repo) = parse_github_remote(remote_url).ok_or_else(|| {
+    let remote = parse_github_remote(remote_url).ok_or_else(|| {
         anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
     })?;
 
-    let api_url = format!("https://api.github.com/repos/{}/{}/pulls", owner, repo);
+    let api_url = format!(
+        "{}/repos/{}/{}/pulls",
+        remote.api_base(),
+        remote.owner,
+        remote.repo
+    );
 
     let payload = serde_json::json!({
         "title": title,
