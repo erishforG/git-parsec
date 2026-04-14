@@ -89,6 +89,20 @@ pub enum Command {
         ticket: String,
     },
 
+    /// Import an existing branch into parsec management
+    Adopt {
+        /// Ticket identifier to associate with the branch
+        ticket: String,
+
+        /// Branch name to adopt (default: current branch)
+        #[arg(long, short)]
+        branch: Option<String>,
+
+        /// Ticket title (optional)
+        #[arg(long)]
+        title: Option<String>,
+    },
+
     /// Configure parsec
     Config {
         #[command(subcommand)]
@@ -138,6 +152,11 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Clean { all, dry_run } => {
             commands::clean(&repo_path, all, dry_run, output_mode).await
         }
+        Command::Adopt {
+            ticket,
+            branch,
+            title,
+        } => commands::adopt(&repo_path, &ticket, branch.as_deref(), title, output_mode).await,
         Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
         Command::Switch { ticket } => commands::switch(&repo_path, &ticket, output_mode).await,
         Command::Config { action } => match action {

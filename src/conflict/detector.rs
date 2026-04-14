@@ -18,6 +18,7 @@ pub struct FileConflict {
 pub fn detect(workspaces: &[Workspace]) -> Result<Vec<FileConflict>> {
     // Map: filename -> list of ticket IDs that touch it
     let mut file_map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut skipped: Vec<String> = Vec::new();
 
     for ws in workspaces {
         // Skip non-active workspaces
@@ -29,18 +30,37 @@ pub fn detect(workspaces: &[Workspace]) -> Result<Vec<FileConflict>> {
         // Run from the workspace path
         let merge_base = match git::get_merge_base(&ws.path, &ws.base_branch, "HEAD") {
             Ok(base) => base,
-            Err(_) => continue, // Skip if can't determine merge base
+            Err(_) => {
+                skipped.push(ws.ticket.clone());
+                continue;
+            }
         };
 
         // Get changed files
         let changed = match git::get_changed_files(&ws.path, &merge_base, "HEAD") {
             Ok(files) => files,
-            Err(_) => continue,
+            Err(_) => {
+                skipped.push(ws.ticket.clone());
+                continue;
+            }
         };
+
+        if changed.is_empty() {
+            skipped.push(ws.ticket.clone());
+        }
 
         for file in changed {
             file_map.entry(file).or_default().push(ws.ticket.clone());
         }
+    }
+
+    // Report skipped worktrees (no changes yet)
+    if !skipped.is_empty() {
+        eprintln!(
+            "note: {} workspace(s) skipped (no changes yet): {}",
+            skipped.len(),
+            skipped.join(", ")
+        );
     }
 
     // Filter to only files touched by 2+ worktrees

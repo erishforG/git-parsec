@@ -17,6 +17,10 @@ pub fn print_start(workspace: &Workspace) {
     emit(workspace);
 }
 
+pub fn print_adopt(workspace: &Workspace) {
+    emit(workspace);
+}
+
 pub fn print_list(workspaces: &[Workspace]) {
     emit(&workspaces);
 }
