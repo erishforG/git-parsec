@@ -4,6 +4,8 @@
 
 **parsec** manages isolated git worktrees tied to tickets (Jira, GitHub Issues), enabling multiple AI agents or developers to work on the same repository in parallel without lock conflicts.
 
+![demo](demo.gif)
+
 ## The Problem
 
 Git uses a single working directory with a single `index.lock`. When multiple AI agents (or developers) try to work on the same repo simultaneously:
