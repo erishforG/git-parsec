@@ -185,3 +185,22 @@ pub fn delete_branch(repo: &Path, branch: &str) -> Result<()> {
 pub fn fetch(repo: &Path) -> Result<()> {
     run(repo, &["fetch", "origin"])
 }
+
+/// Fetch from origin if a remote exists. Non-fatal if no remote configured.
+pub fn fetch_if_remote(repo: &Path) -> Result<()> {
+    // Check if remote exists first
+    let has_remote = std::process::Command::new("git")
+        .args(["remote"])
+        .current_dir(repo)
+        .output()
+        .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+        .unwrap_or(false);
+
+    if has_remote {
+        // Fetch but don't fail hard - just warn
+        if let Err(e) = fetch(repo) {
+            eprintln!("warning: fetch failed (continuing anyway): {}", e);
+        }
+    }
+    Ok(())
+}
