@@ -3,6 +3,7 @@ use serde_json::json;
 
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
+use crate::oplog::OpEntry;
 use crate::worktree::{ShipResult, Workspace};
 
 fn emit<T: Serialize>(value: &T) {
@@ -49,6 +50,10 @@ pub fn print_conflicts(conflicts: &[FileConflict]) {
 pub fn print_switch(workspace: &Workspace) {
     let value = json!({ "path": workspace.path });
     println!("{}", value);
+}
+
+pub fn print_log(entries: &[&OpEntry]) {
+    emit(&entries);
 }
 
 pub fn print_config_init() {

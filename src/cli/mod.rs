@@ -103,6 +103,16 @@ pub enum Command {
         title: Option<String>,
     },
 
+    /// Show operation history
+    Log {
+        /// Filter by ticket identifier
+        ticket: Option<String>,
+
+        /// Show last N entries (default: 20)
+        #[arg(long, short = 'n', default_value = "20")]
+        last: usize,
+    },
+
     /// Configure parsec
     Config {
         #[command(subcommand)]
@@ -159,6 +169,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         } => commands::adopt(&repo_path, &ticket, branch.as_deref(), title, output_mode).await,
         Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
         Command::Switch { ticket } => commands::switch(&repo_path, &ticket, output_mode).await,
+        Command::Log { ticket, last } => {
+            commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
+        }
         Command::Config { action } => match action {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,

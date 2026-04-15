@@ -38,6 +38,22 @@ pub async fn start(
     let workspace = manager.create(ticket, base, ticket_title)?;
 
     output::print_start(&workspace, mode);
+
+    if let Err(e) = crate::oplog::record(
+        manager.repo_root(),
+        crate::oplog::OpKind::Start,
+        Some(ticket),
+        &format!("Created workspace at {}", workspace.path.display()),
+        Some(crate::oplog::UndoInfo {
+            branch: Some(workspace.branch.clone()),
+            base_branch: Some(workspace.base_branch.clone()),
+            path: Some(workspace.path.clone()),
+            ticket_title: workspace.ticket_title.clone(),
+        }),
+    ) {
+        eprintln!("warning: failed to write oplog: {e}");
+    }
+
     Ok(())
 }
 
@@ -64,6 +80,22 @@ pub async fn adopt(
     let workspace = manager.adopt(ticket, branch, ticket_title)?;
 
     output::print_adopt(&workspace, mode);
+
+    if let Err(e) = crate::oplog::record(
+        manager.repo_root(),
+        crate::oplog::OpKind::Adopt,
+        Some(ticket),
+        &format!("Adopted branch '{}' at {}", workspace.branch, workspace.path.display()),
+        Some(crate::oplog::UndoInfo {
+            branch: Some(workspace.branch.clone()),
+            base_branch: Some(workspace.base_branch.clone()),
+            path: Some(workspace.path.clone()),
+            ticket_title: workspace.ticket_title.clone(),
+        }),
+    ) {
+        eprintln!("warning: failed to write oplog: {e}");
+    }
+
     Ok(())
 }
 
@@ -147,6 +179,30 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
     }
 
     output::print_ship(&result, mode);
+
+    if let Err(e) = crate::oplog::record(
+        manager.repo_root(),
+        crate::oplog::OpKind::Ship,
+        Some(ticket),
+        &format!(
+            "Shipped branch '{}'{}",
+            result.branch,
+            result
+                .pr_url
+                .as_ref()
+                .map(|u| format!(" -> {}", u))
+                .unwrap_or_default()
+        ),
+        Some(crate::oplog::UndoInfo {
+            branch: Some(result.branch.clone()),
+            base_branch: Some(result.base_branch.clone()),
+            path: None,
+            ticket_title: result.ticket_title.clone(),
+        }),
+    ) {
+        eprintln!("warning: failed to write oplog: {e}");
+    }
+
     Ok(())
 }
 
@@ -157,6 +213,26 @@ pub async fn clean(repo: &Path, all: bool, dry_run: bool, mode: Mode) -> Result<
     let removed = manager.clean(all, dry_run)?;
 
     output::print_clean(&removed, dry_run, mode);
+
+    if !dry_run && !removed.is_empty() {
+        for ws in &removed {
+            if let Err(e) = crate::oplog::record(
+                manager.repo_root(),
+                crate::oplog::OpKind::Clean,
+                Some(&ws.ticket),
+                &format!("Cleaned workspace for branch '{}'", ws.branch),
+                Some(crate::oplog::UndoInfo {
+                    branch: Some(ws.branch.clone()),
+                    base_branch: Some(ws.base_branch.clone()),
+                    path: Some(ws.path.clone()),
+                    ticket_title: ws.ticket_title.clone(),
+                }),
+            ) {
+                eprintln!("warning: failed to write oplog: {e}");
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -178,6 +254,18 @@ pub async fn switch(repo: &Path, ticket: &str, mode: Mode) -> Result<()> {
     let workspace = manager.get(ticket)?;
 
     output::print_switch(&workspace, mode);
+    Ok(())
+}
+
+pub async fn log(repo: &Path, ticket: Option<&str>, last: usize, mode: Mode) -> Result<()> {
+    let repo_root =
+        git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let entries = oplog.get_entries(ticket);
+    // Take last N entries
+    let start = entries.len().saturating_sub(last);
+    let entries: Vec<_> = entries[start..].to_vec();
+    output::print_log(&entries, mode);
     Ok(())
 }
 
