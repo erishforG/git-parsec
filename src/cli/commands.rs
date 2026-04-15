@@ -273,12 +273,38 @@ pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
-pub async fn switch(repo: &Path, ticket: &str, mode: Mode) -> Result<()> {
+pub async fn switch(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
 
-    let workspace = manager.get(ticket)?;
+    let ticket = match ticket {
+        Some(t) => t.to_string(),
+        None => {
+            let workspaces = manager.list()?;
+            if workspaces.is_empty() {
+                anyhow::bail!("no active workspaces. Run `parsec start <ticket>` to create one.");
+            }
+            let items: Vec<String> = workspaces
+                .iter()
+                .map(|w| {
+                    let title = w
+                        .ticket_title
+                        .as_deref()
+                        .map(|t| format!(" — {t}"))
+                        .unwrap_or_default();
+                    format!("{}{title}", w.ticket)
+                })
+                .collect();
+            let selection = dialoguer::Select::new()
+                .with_prompt("Switch to workspace")
+                .items(&items)
+                .default(0)
+                .interact()?;
+            workspaces[selection].ticket.clone()
+        }
+    };
 
+    let workspace = manager.get(&ticket)?;
     output::print_switch(&workspace, mode);
     Ok(())
 }

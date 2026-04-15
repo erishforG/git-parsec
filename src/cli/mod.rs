@@ -107,11 +107,12 @@ pub enum Command {
     /// Print workspace path for a ticket (use with cd)
     ///
     /// Outputs the absolute path to the worktree for a given ticket.
+    /// When called without a ticket, shows an interactive picker.
     /// With shell integration (eval "$(parsec config shell zsh)"),
     /// this command changes your directory automatically.
     Switch {
-        /// Ticket identifier
-        ticket: String,
+        /// Ticket identifier (interactive picker if omitted)
+        ticket: Option<String>,
     },
 
     /// Import an existing branch into parsec management
@@ -241,7 +242,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             title,
         } => commands::adopt(&repo_path, &ticket, branch.as_deref(), title, output_mode).await,
         Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
-        Command::Switch { ticket } => commands::switch(&repo_path, &ticket, output_mode).await,
+        Command::Switch { ticket } => {
+            commands::switch(&repo_path, ticket.as_deref(), output_mode).await
+        }
         Command::Log { ticket, last } => {
             commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
         }

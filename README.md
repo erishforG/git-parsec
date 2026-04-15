@@ -313,17 +313,24 @@ $ parsec conflicts
 
 ---
 
-### `parsec switch <ticket>`
+### `parsec switch [ticket]`
 
-Print the absolute path to a ticket's worktree. Designed for `cd $(parsec switch ...)`.
+Print the absolute path to a ticket's worktree. When called without a ticket, shows an interactive picker. Designed for `cd $(parsec switch ...)`.
 
 ```
-parsec switch <ticket>
+parsec switch [ticket]
 ```
 
 ```bash
+# Direct switch
 $ parsec switch PROJ-1234
 /home/user/myapp.PROJ-1234
+
+# Interactive picker (no argument)
+$ parsec switch
+? Switch to workspace ›
+❯ PROJ-1234 — Add user authentication
+  PROJ-5678 — Fix payment timeout
 
 # Use with cd
 $ cd $(parsec switch PROJ-1234)
