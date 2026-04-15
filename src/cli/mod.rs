@@ -53,6 +53,10 @@ pub enum Command {
         /// Create stacked on another ticket's branch
         #[arg(long)]
         on: Option<String>,
+
+        /// Use an existing branch instead of creating a new one
+        #[arg(long = "branch")]
+        existing_branch: Option<String>,
     },
 
     /// List all active worktrees
@@ -333,6 +337,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             base,
             title,
             on,
+            existing_branch,
         } => {
             commands::start(
                 &repo_path,
@@ -340,6 +345,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 base.as_deref(),
                 title,
                 on.as_deref(),
+                existing_branch.as_deref(),
                 output_mode,
             )
             .await

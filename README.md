@@ -59,6 +59,7 @@ Removed 1 worktree(s):
 - **Conflict detection** -- Warns when multiple workspaces modify the same files
 - **One-step shipping** -- `parsec ship` pushes, creates a GitHub PR or GitLab MR, and cleans up
 - **Adopt existing branches** -- Import branches already in progress with `parsec adopt`
+- **Attach to existing branches** -- Start a workspace from an existing local or remote branch with `--branch`
 - **Operation history and undo** -- `parsec log` shows what happened, `parsec undo` reverts it
 - **Keep branches fresh** -- `parsec sync` rebases or merges the latest base branch into any worktree
 - **Agent-friendly output** -- `--json` flag on every command for machine consumption
@@ -126,7 +127,7 @@ $ parsec log
 Create an isolated worktree for a ticket. Fetches the ticket title from your configured tracker (Jira, GitHub Issues) or accepts a manual title.
 
 ```
-parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>]
+parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>] [--branch <name>]
 ```
 
 | Option | Description |
@@ -134,6 +135,7 @@ parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>]
 | `-b, --base <branch>` | Base branch to create from (default: main/master) |
 | `--title "text"` | Set ticket title manually, skip tracker lookup |
 | `--on <ticket>` | Stack on another ticket's branch (for dependent PRs) |
+| `--branch <name>` | Use an existing branch instead of creating a new one |
 
 ```bash
 # With Jira integration (title auto-fetched)
@@ -152,6 +154,12 @@ Created workspace for 42 at /home/user/myapp.42
 
 # From a specific base branch
 $ parsec start PROJ-99 --base release/2.0
+
+# Attach to an existing branch (local or remote)
+$ parsec start CL-2208 --branch feature/CL-2208
+
+# Attach to a remote-only branch (auto-fetches and tracks)
+$ parsec start CL-2208 --branch origin/feature/CL-2208
 ```
 
 ---

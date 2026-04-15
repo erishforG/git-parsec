@@ -18,6 +18,7 @@ pub async fn start(
     base: Option<&str>,
     title: Option<String>,
     on: Option<&str>,
+    existing_branch: Option<&str>,
     mode: Mode,
 ) -> Result<()> {
     let config = ParsecConfig::load()?;
@@ -38,7 +39,7 @@ pub async fn start(
     };
 
     let manager = WorktreeManager::new(repo, &config)?;
-    let workspace = manager.create(ticket, base, ticket_title, on)?;
+    let workspace = manager.create(ticket, base, ticket_title, on, existing_branch)?;
 
     output::print_start(&workspace, mode);
 
