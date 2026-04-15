@@ -102,7 +102,7 @@ pub fn print_list(workspaces: &[Workspace]) {
         return;
     }
     let rows: Vec<WorkspaceRow> = workspaces.iter().map(workspace_to_row).collect();
-    let table = Table::new(rows).with(Style::rounded()).to_string();
+    let table = Table::new(rows).with(Style::modern()).to_string();
     println!("{}", table);
 }
 
@@ -174,7 +174,7 @@ pub fn print_conflicts(conflicts: &[FileConflict]) {
             worktrees: c.worktrees.join(", "),
         })
         .collect();
-    let table = Table::new(rows).with(Style::rounded()).to_string();
+    let table = Table::new(rows).with(Style::modern()).to_string();
     println!("{}", table);
 }
 
@@ -225,7 +225,7 @@ pub fn print_log(entries: &[&OpEntry]) {
         })
         .collect();
 
-    let table = Table::new(rows).with(Style::rounded()).to_string();
+    let table = Table::new(rows).with(Style::modern()).to_string();
     println!("{}", table);
 }
 

@@ -10,6 +10,18 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  branch-policy:
+    name: Branch Policy
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only develop can merge into main
+        run: |
+          if [ "${{ github.head_ref }}" != "develop" ]; then
+            echo "::error::Only the 'develop' branch can be merged into 'main'. Got '${{ github.head_ref }}'."
+            exit 1
+          fi
+
   check:
     name: Check
     runs-on: ubuntu-latest

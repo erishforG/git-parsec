@@ -493,6 +493,26 @@ function parsec() {
 }
 "#;
 
+pub async fn config_man(dir: &Path) -> Result<()> {
+    use clap::CommandFactory;
+    let cmd = super::Cli::command();
+    let man = clap_mangen::Man::new(cmd);
+    let mut buf = Vec::new();
+    man.render(&mut buf)?;
+
+    let man1_dir = dir.join("man1");
+    std::fs::create_dir_all(&man1_dir)
+        .with_context(|| format!("Failed to create directory {}", man1_dir.display()))?;
+
+    let path = man1_dir.join("parsec.1");
+    std::fs::write(&path, buf)
+        .with_context(|| format!("Failed to write man page to {}", path.display()))?;
+
+    println!("Man page installed to {}", path.display());
+    println!("Try: man parsec");
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

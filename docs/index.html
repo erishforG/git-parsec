@@ -1320,6 +1320,30 @@
       background: rgba(79, 195, 247, 0.25);
       color: var(--text-primary);
     }
+
+    /* Demo Section */
+    .demo-section {
+      padding: 80px 0;
+    }
+
+    .demo-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .demo-container {
+      max-width: 900px;
+      margin: 0 auto;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    .demo-gif {
+      width: 100%;
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -1508,6 +1532,19 @@
             </li>
           </ul>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DEMO ============ -->
+  <section class="demo-section" id="demo">
+    <div class="container">
+      <div class="demo-header reveal">
+        <div class="section-label">See it in action</div>
+        <div class="section-title">From ticket to PR in 60 seconds.</div>
+      </div>
+      <div class="demo-container reveal reveal-delay-1">
+        <img src="demo.gif" alt="git-parsec demo showing start, list, switch, log, undo, and clean commands" class="demo-gif" loading="lazy">
       </div>
     </div>
   </section>

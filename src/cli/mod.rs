@@ -10,6 +10,7 @@ use crate::output;
 #[command(
     name = "parsec",
     about = "Git worktree lifecycle manager for parallel AI agent workflows",
+    long_about = "Git worktree lifecycle manager for parallel AI agent workflows.\n\nCreate isolated workspaces tied to issue tickets (Jira, GitHub Issues, GitLab),\nwork in parallel without lock conflicts, and ship with one command.\n\nQuick start:\n  parsec start PROJ-123          Create workspace for a ticket\n  parsec list                    See all active workspaces\n  parsec switch PROJ-123         Jump into a workspace\n  parsec ship PROJ-123           Push + PR + cleanup\n  parsec log                     View operation history\n  parsec undo                    Revert last operation",
     version,
     arg_required_else_help = true
 )]
@@ -33,6 +34,10 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Create a new worktree for a ticket
+    ///
+    /// Creates an isolated git worktree linked to a ticket identifier.
+    /// If a tracker (Jira/GitHub Issues) is configured, the ticket title
+    /// is fetched automatically. Use --title to set it manually.
     Start {
         /// Ticket identifier (e.g., PROJ-1234, #42)
         ticket: String,
@@ -47,15 +52,25 @@ pub enum Command {
     },
 
     /// List all active worktrees
+    ///
+    /// Shows a table of all parsec-managed worktrees with ticket, branch,
+    /// status, creation time, and path. Use --json for machine-readable output.
     List,
 
     /// Show detailed status of a workspace
+    ///
+    /// Displays full details for one or all workspaces including ticket title,
+    /// branch, base branch, status, and path.
     Status {
         /// Ticket identifier (optional, shows all if omitted)
         ticket: Option<String>,
     },
 
-    /// Push, create PR, and clean up a workspace
+    /// Push, create PR/MR, and clean up a workspace
+    ///
+    /// Pushes the branch to remote, creates a GitHub PR or GitLab MR
+    /// with the ticket title, and removes the worktree. The forge type
+    /// is auto-detected from the remote URL.
     Ship {
         /// Ticket identifier
         ticket: String,
@@ -70,6 +85,9 @@ pub enum Command {
     },
 
     /// Remove merged or stale worktrees
+    ///
+    /// By default, only removes worktrees whose branches have been merged
+    /// into the base branch. Use --all to remove everything.
     Clean {
         /// Remove all worktrees (including unmerged)
         #[arg(long)]
@@ -81,15 +99,26 @@ pub enum Command {
     },
 
     /// Detect file conflicts across active worktrees
+    ///
+    /// Compares modified files across all active worktrees and reports
+    /// any files that are being edited in more than one workspace.
     Conflicts,
 
     /// Print workspace path for a ticket (use with cd)
+    ///
+    /// Outputs the absolute path to the worktree for a given ticket.
+    /// With shell integration (eval "$(parsec config shell zsh)"),
+    /// this command changes your directory automatically.
     Switch {
         /// Ticket identifier
         ticket: String,
     },
 
     /// Import an existing branch into parsec management
+    ///
+    /// Brings an existing branch under parsec lifecycle management.
+    /// Useful when you started work before using parsec or when
+    /// taking over someone else's branch.
     Adopt {
         /// Ticket identifier to associate with the branch
         ticket: String,
@@ -104,6 +133,10 @@ pub enum Command {
     },
 
     /// Show operation history
+    ///
+    /// Displays a table of all recorded parsec operations (start, adopt,
+    /// ship, clean, undo) with timestamps. Filter by ticket or limit
+    /// the number of entries shown.
     Log {
         /// Filter by ticket identifier
         ticket: Option<String>,
@@ -114,6 +147,11 @@ pub enum Command {
     },
 
     /// Undo the last parsec operation
+    ///
+    /// Reverses the most recent parsec operation:
+    ///   start/adopt → removes worktree and deletes branch
+    ///   ship/clean  → restores worktree from branch
+    /// Use --dry-run to preview before executing.
     Undo {
         /// Preview what would be undone without making changes
         #[arg(long)]
@@ -121,6 +159,9 @@ pub enum Command {
     },
 
     /// Configure parsec
+    ///
+    /// Manage parsec configuration: run interactive setup, view current
+    /// settings, or output shell integration scripts.
     Config {
         #[command(subcommand)]
         action: ConfigAction,
@@ -130,14 +171,31 @@ pub enum Command {
 #[derive(Subcommand)]
 pub enum ConfigAction {
     /// Interactive configuration setup
+    ///
+    /// Walks through tracker provider, branch prefix, ship behavior,
+    /// and other settings interactively.
     Init,
     /// Show current configuration
+    ///
+    /// Prints the active configuration from ~/.config/parsec/config.toml.
     Show,
-    /// Output shell integration script (add to .zshrc/.bashrc)
+    /// Output shell integration script
+    ///
+    /// Prints a shell function that wraps parsec switch to auto-cd.
+    /// Add eval "$(parsec config shell zsh)" to your ~/.zshrc.
     Shell {
         /// Shell type (zsh or bash)
         #[arg(default_value = "zsh")]
         shell: String,
+    },
+    /// Install man page
+    ///
+    /// Generates and installs the parsec(1) man page so that
+    /// `man parsec` works. Requires write access to the man directory.
+    Man {
+        /// Man page base directory (default: /usr/local/share/man)
+        #[arg(long, default_value = "/usr/local/share/man")]
+        dir: PathBuf,
     },
 }
 
@@ -184,6 +242,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,
             ConfigAction::Shell { shell } => commands::config_shell(&shell, output_mode).await,
+            ConfigAction::Man { dir } => commands::config_man(&dir).await,
         },
     }
 }
