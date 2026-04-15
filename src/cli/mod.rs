@@ -197,6 +197,14 @@ pub enum ConfigAction {
         #[arg(long, default_value = "/usr/local/share/man")]
         dir: PathBuf,
     },
+    /// Output shell completions
+    ///
+    /// Generates tab-completion scripts for your shell.
+    /// Add eval "$(parsec config completions zsh)" to your ~/.zshrc.
+    Completions {
+        /// Shell type (zsh, bash, fish, elvish, powershell)
+        shell: clap_complete::Shell,
+    },
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -243,6 +251,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Show => commands::config_show(output_mode).await,
             ConfigAction::Shell { shell } => commands::config_shell(&shell, output_mode).await,
             ConfigAction::Man { dir } => commands::config_man(&dir).await,
+            ConfigAction::Completions { shell } => commands::config_completions(shell).await,
         },
     }
 }
