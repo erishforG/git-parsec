@@ -217,6 +217,7 @@ pub fn print_log(entries: &[&OpEntry]) {
                 crate::oplog::OpKind::Adopt => "adopt".cyan().to_string(),
                 crate::oplog::OpKind::Ship => "ship".yellow().to_string(),
                 crate::oplog::OpKind::Clean => "clean".red().to_string(),
+                crate::oplog::OpKind::Undo => "undo".magenta().to_string(),
             },
             ticket: e.ticket.clone().unwrap_or_else(|| "-".to_string()),
             detail: e.detail.clone(),
@@ -226,6 +227,60 @@ pub fn print_log(entries: &[&OpEntry]) {
 
     let table = Table::new(rows).with(Style::rounded()).to_string();
     println!("{}", table);
+}
+
+pub fn print_undo(entry: &OpEntry) {
+    let ticket_str = entry.ticket.as_deref().unwrap_or("?");
+    let msg = format!("Undid {} for {}", entry.op, ticket_str);
+    println!("{}", msg.green().bold());
+
+    match &entry.op {
+        crate::oplog::OpKind::Start | crate::oplog::OpKind::Adopt => {
+            println!("  {}", "Worktree removed.".dimmed());
+        }
+        crate::oplog::OpKind::Ship | crate::oplog::OpKind::Clean => {
+            if let Some(info) = &entry.undo_info {
+                if let Some(path) = &info.path {
+                    println!("  {} {}", "Restored at:".bold(), path.display());
+                }
+            }
+            println!("  {}", "Workspace restored.".dimmed());
+        }
+        _ => {}
+    }
+}
+
+pub fn print_undo_preview(entry: &OpEntry) {
+    let ticket_str = entry.ticket.as_deref().unwrap_or("?");
+    println!(
+        "{}",
+        format!("Would undo: {} {}", entry.op, ticket_str)
+            .yellow()
+            .bold()
+    );
+
+    match &entry.op {
+        crate::oplog::OpKind::Start | crate::oplog::OpKind::Adopt => {
+            if let Some(info) = &entry.undo_info {
+                if let Some(path) = &info.path {
+                    println!("  Would remove worktree at {}", path.display());
+                }
+                if let Some(branch) = &info.branch {
+                    println!("  Would delete branch '{}'", branch);
+                }
+            }
+        }
+        crate::oplog::OpKind::Ship | crate::oplog::OpKind::Clean => {
+            if let Some(info) = &entry.undo_info {
+                if let Some(branch) = &info.branch {
+                    println!("  Would restore worktree for branch '{}'", branch);
+                }
+            }
+        }
+        _ => {
+            println!("  {}", "This operation cannot be undone.".red());
+        }
+    }
 }
 
 pub fn print_config_show(config: &ParsecConfig) {
