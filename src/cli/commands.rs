@@ -6,6 +6,7 @@ use crate::config::ParsecConfig;
 use crate::conflict;
 use crate::git;
 use crate::github;
+use crate::gitlab;
 use crate::output::{self, Mode};
 use crate::tracker;
 use crate::worktree::WorktreeManager;
@@ -155,9 +156,10 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
         );
 
         let remote_url = git::get_remote_url(manager.repo_root());
-        if let Ok(remote_url) = remote_url {
+        if let Ok(ref remote_url) = remote_url {
+            // Try GitHub first
             match github::create_pr(
-                &remote_url,
+                remote_url,
                 &result.branch,
                 &result.base_branch,
                 &pr_title,
@@ -170,10 +172,30 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
                     result.pr_url = Some(pr.url);
                 }
                 Ok(None) => {
-                    eprintln!(
-                        "note: PR creation skipped — no GitHub token found.\n      \
-                         Set PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, or GH_TOKEN to enable."
-                    );
+                    // GitHub had no token — try GitLab
+                    match gitlab::create_mr(
+                        remote_url,
+                        &result.branch,
+                        &result.base_branch,
+                        &pr_title,
+                        &pr_body,
+                        draft || config.ship.draft,
+                    )
+                    .await
+                    {
+                        Ok(Some(mr)) => {
+                            result.pr_url = Some(mr.url);
+                        }
+                        Ok(None) => {
+                            eprintln!(
+                                "note: PR/MR creation skipped — no token found.\n      \
+                                 Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("warning: GitLab MR creation failed: {e}");
+                        }
+                    }
                 }
                 Err(e) => {
                     eprintln!("warning: PR creation failed: {e}");

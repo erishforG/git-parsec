@@ -33,6 +33,7 @@ fn default_true() -> bool {
 pub enum TrackerProvider {
     Jira,
     Github,
+    Gitlab,
     #[default]
     None,
 }
@@ -42,6 +43,7 @@ impl std::fmt::Display for TrackerProvider {
         match self {
             TrackerProvider::Jira => write!(f, "jira"),
             TrackerProvider::Github => write!(f, "github"),
+            TrackerProvider::Gitlab => write!(f, "gitlab"),
             TrackerProvider::None => write!(f, "none"),
         }
     }
@@ -108,6 +110,15 @@ pub struct JiraConfig {
 }
 
 // ---------------------------------------------------------------------------
+// GitlabConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitlabConfig {
+    pub base_url: String,
+}
+
+// ---------------------------------------------------------------------------
 // TrackerConfig
 // ---------------------------------------------------------------------------
 
@@ -117,6 +128,8 @@ pub struct TrackerConfig {
     pub provider: TrackerProvider,
     #[serde(default)]
     pub jira: Option<JiraConfig>,
+    #[serde(default)]
+    pub gitlab: Option<GitlabConfig>,
 }
 
 impl Default for TrackerConfig {
@@ -124,6 +137,7 @@ impl Default for TrackerConfig {
         Self {
             provider: default_provider(),
             jira: None,
+            gitlab: None,
         }
     }
 }
@@ -233,7 +247,7 @@ impl ParsecConfig {
         let mut config = Self::default();
 
         // ---- Tracker provider ------------------------------------------------
-        let provider_options = &["None", "Jira", "GitHub"];
+        let provider_options = &["None", "Jira", "GitHub", "GitLab"];
         let provider_idx = Select::new()
             .with_prompt("Issue tracker provider")
             .items(provider_options)
@@ -244,6 +258,7 @@ impl ParsecConfig {
         config.tracker.provider = match provider_idx {
             1 => TrackerProvider::Jira,
             2 => TrackerProvider::Github,
+            3 => TrackerProvider::Gitlab,
             _ => TrackerProvider::None,
         };
 
@@ -268,6 +283,17 @@ impl ParsecConfig {
                     Some(email_input)
                 },
             });
+        }
+
+        // ---- GitLab-specific options -----------------------------------------
+        if config.tracker.provider == TrackerProvider::Gitlab {
+            let base_url: String = Input::new()
+                .with_prompt("GitLab base URL (e.g. https://gitlab.com)")
+                .default("https://gitlab.com".to_string())
+                .interact_text()
+                .context("Failed to read GitLab base URL")?;
+
+            config.tracker.gitlab = Some(GitlabConfig { base_url });
         }
 
         // ---- Worktree layout -------------------------------------------------

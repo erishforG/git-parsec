@@ -62,7 +62,7 @@ pub async fn fetch_ticket(
             let ticket = tracker.fetch_ticket(id).await?;
             Ok(Some(ticket))
         }
-        TrackerProvider::None => {
+        TrackerProvider::Gitlab | TrackerProvider::None => {
             // Auto-detect Jira: try if env vars available, but don't block on failure
             if std::env::var("JIRA_BASE_URL").is_ok()
                 && (std::env::var("JIRA_PAT").is_ok() || std::env::var("PARSEC_JIRA_TOKEN").is_ok())
