@@ -146,6 +146,22 @@ pub fn print_diff_full(files: &[(String, String)], ticket: &str) {
     println!("{}", value);
 }
 
+pub fn print_stack(workspaces: &[Workspace]) {
+    let value: Vec<_> = workspaces
+        .iter()
+        .map(|ws| {
+            json!({
+                "ticket": ws.ticket,
+                "branch": ws.branch,
+                "base_branch": ws.base_branch,
+                "parent_ticket": ws.parent_ticket,
+                "title": ws.ticket_title,
+            })
+        })
+        .collect();
+    emit(&value);
+}
+
 pub fn print_undo(entry: &OpEntry) {
     let value = json!({
         "action": "undo",

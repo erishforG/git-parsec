@@ -528,6 +528,72 @@ pub fn print_diff_stat(stat: &str, ticket: &str) {
     print!("{}", stat);
 }
 
+pub fn print_stack(workspaces: &[Workspace]) {
+    use std::collections::HashMap;
+
+    // Build parent -> children map
+    let mut children_map: HashMap<&str, Vec<&Workspace>> = HashMap::new();
+    let mut roots = Vec::new();
+
+    for ws in workspaces {
+        if let Some(parent) = &ws.parent_ticket {
+            children_map.entry(parent.as_str()).or_default().push(ws);
+        } else if workspaces
+            .iter()
+            .any(|other| other.parent_ticket.as_deref() == Some(&ws.ticket))
+        {
+            roots.push(ws);
+        }
+    }
+
+    println!("{}", "Stack dependency graph:".bold());
+
+    fn print_tree(
+        ws: &Workspace,
+        children_map: &HashMap<&str, Vec<&Workspace>>,
+        prefix: &str,
+        is_last: bool,
+    ) {
+        use colored::Colorize;
+        let connector = if prefix.is_empty() {
+            ""
+        } else if is_last {
+            "└── "
+        } else {
+            "├── "
+        };
+        let title = ws.ticket_title.as_deref().unwrap_or("");
+        println!(
+            "{}{}{}  {}",
+            prefix,
+            connector,
+            ws.ticket.bold().cyan(),
+            title.dimmed()
+        );
+
+        let child_prefix = if prefix.is_empty() {
+            String::new()
+        } else if is_last {
+            format!("{}    ", prefix)
+        } else {
+            format!("{}│   ", prefix)
+        };
+
+        if let Some(children) = children_map.get(ws.ticket.as_str()) {
+            for (i, child) in children.iter().enumerate() {
+                print_tree(child, children_map, &child_prefix, i == children.len() - 1);
+            }
+        }
+    }
+
+    for (i, root) in roots.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        print_tree(root, &children_map, "", true);
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);

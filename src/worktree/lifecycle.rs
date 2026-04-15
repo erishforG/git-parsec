@@ -31,6 +31,8 @@ pub struct Workspace {
     pub created_at: DateTime<Utc>,
     pub ticket_title: Option<String>,
     pub status: WorkspaceStatus,
+    #[serde(default)]
+    pub parent_ticket: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
