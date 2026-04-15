@@ -123,7 +123,9 @@ impl WorktreeManager {
 
         // Run post-create hooks
         if !self.config.hooks.post_create.is_empty() {
-            let skip_prompt = std::env::var("PARSEC_YES").map(|v| v == "1").unwrap_or(false);
+            let skip_prompt = std::env::var("PARSEC_YES")
+                .map(|v| v == "1")
+                .unwrap_or(false);
 
             let confirmed = if skip_prompt {
                 true
