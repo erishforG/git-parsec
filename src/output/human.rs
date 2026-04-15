@@ -511,6 +511,23 @@ pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)]) {
     }
 }
 
+pub fn print_diff_names(files: &[String], ticket: &str) {
+    println!(
+        "{} {} ({} files):",
+        "Changed files for".bold(),
+        ticket.bold().cyan(),
+        files.len()
+    );
+    for f in files {
+        println!("  {}", f);
+    }
+}
+
+pub fn print_diff_stat(stat: &str, ticket: &str) {
+    println!("{} {}:", "Diff stat for".bold(), ticket.bold().cyan());
+    print!("{}", stat);
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);

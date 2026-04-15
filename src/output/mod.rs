@@ -154,3 +154,23 @@ pub fn print_config_show(config: &ParsecConfig, mode: Mode) {
         Mode::Human => human::print_config_show(config),
     }
 }
+
+pub fn print_diff_names(files: &[String], ticket: &str, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_diff_names(files, ticket),
+        Mode::Human => human::print_diff_names(files, ticket),
+    }
+}
+
+pub fn print_diff_stat(stat: &str, ticket: &str, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => {} // stat is human-only
+        Mode::Human => human::print_diff_stat(stat, ticket),
+    }
+}
+
+pub fn print_diff_full_json(files: &[(String, String)], ticket: &str) {
+    json::print_diff_full(files, ticket);
+}
