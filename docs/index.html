@@ -20,6 +20,75 @@
   <!-- Canonical -->
   <link rel="canonical" href="https://erishforg.github.io/git-parsec/">
   <meta name="theme-color" content="#0a0e1a">
+  <!-- Schema.org Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "git-parsec",
+    "alternateName": "parsec",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "macOS, Linux, Windows",
+    "description": "Git worktree lifecycle manager for parallel AI agent workflows. Create isolated workspaces from ticket IDs (Jira, GitHub Issues, GitLab), work in parallel without lock conflicts, ship with one command (push + PR + cleanup). Supports CI monitoring, stacked PRs, conflict detection, and operation history with undo.",
+    "url": "https://erishforg.github.io/git-parsec/",
+    "downloadUrl": "https://crates.io/crates/git-parsec",
+    "softwareVersion": "0.2.3",
+    "author": {
+      "@type": "Person",
+      "name": "erishforG",
+      "url": "https://github.com/erishforG"
+    },
+    "codeRepository": "https://github.com/erishforG/git-parsec",
+    "programmingLanguage": "Rust",
+    "license": "https://opensource.org/licenses/MIT",
+    "keywords": ["git", "worktree", "CLI", "Jira", "GitHub Issues", "GitLab", "parallel development", "AI agents", "developer tools", "pull request", "CI/CD", "stacked PRs", "git worktree manager"],
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What is git-parsec?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "git-parsec (parsec) is a command-line tool that manages the full lifecycle of git worktrees tied to issue tickets. It creates isolated workspaces from ticket IDs, enables parallel development without lock conflicts, and ships features with one command (push + PR/MR + cleanup). It integrates with Jira, GitHub Issues, and GitLab."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How does parsec differ from git worktree?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Plain git worktree only creates and removes worktrees. parsec adds full lifecycle management: ticket tracker integration (Jira, GitHub Issues, GitLab), one-step shipping (push + PR + cleanup), cross-worktree conflict detection, operation history with undo, CI status monitoring, stacked PR support, and machine-readable JSON output for AI agents."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can multiple AI agents use parsec on the same repository?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. Each parsec workspace is a separate git worktree with its own index, so multiple AI agents (or developers) can run git add, commit, and push simultaneously without index.lock conflicts. parsec also detects when multiple workspaces modify the same files."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I install parsec?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Install via cargo: cargo install git-parsec. Or build from source: git clone https://github.com/erishforG/git-parsec.git && cd git-parsec && cargo build --release. The binary is at ./target/release/parsec."
+        }
+      }
+    ]
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">

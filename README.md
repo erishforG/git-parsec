@@ -6,6 +6,18 @@
 
 ![demo](demo.gif)
 
+## What is parsec?
+
+**parsec** is a command-line tool (CLI) that automates the full lifecycle of git worktrees: create an isolated workspace from a ticket ID, work in parallel without lock conflicts, then push + create PR + clean up in one command. It integrates with **Jira**, **GitHub Issues**, and **GitLab Issues** for automatic ticket title lookup, and supports **GitHub** and **GitLab** for PR/MR creation.
+
+Unlike plain `git worktree`, parsec tracks workspace state, detects file conflicts across worktrees, provides operation history with undo, supports stacked PRs, and offers CI status monitoring — all from a single CLI.
+
+**Key use cases:**
+- Run multiple AI coding agents on the same repo simultaneously (no `index.lock` conflicts)
+- Work on several tickets in parallel as a developer without stashing or switching branches
+- Ship complete features (push + PR + cleanup) with one command
+- Monitor CI, merge PRs, and manage stacked dependencies from the terminal
+
 ## The Problem
 
 Git uses a single working directory with a single `index.lock`. When multiple AI agents (or developers) try to work on the same repo simultaneously:
