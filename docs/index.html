@@ -1656,6 +1656,18 @@
           <div class="feature-code">$ parsec adopt PROJ-99 --branch fix/payment-timeout</div>
         </div>
 
+        <!-- Feature: Attach to Existing Branch -->
+        <div class="feature-card reveal reveal-delay-3">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+          </div>
+          <h3>Attach to Existing Branch</h3>
+          <p>
+            Need to work on a branch that already exists? <code>parsec start --branch</code> creates a managed worktree from any local or remote branch. Fetches remote-only branches automatically.
+          </p>
+          <div class="feature-code">$ parsec start CL-2208 --branch feature/CL-2208</div>
+        </div>
+
         <!-- Feature 9: Operation History -->
         <div class="feature-card reveal reveal-delay-3">
           <div class="feature-icon">
@@ -1853,6 +1865,14 @@
             </tr>
             <tr>
               <td>Adopt existing branches</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Attach to existing branch</td>
               <td class="highlight"><span class="check">Yes</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
