@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>git-parsec — Full-lifecycle worktree management</title>
   <meta name="description" content="From ticket to PR in one command. git-parsec manages the full lifecycle of git worktrees tied to issue tickets with Jira and GitHub Issues integration.">
-  <meta name="keywords" content="git, worktree, CLI, Rust, Jira, GitHub Issues, parallel development, AI agents, developer tools, git-parsec, parsec">
+  <meta name="keywords" content="git, worktree, CLI, Rust, Jira, GitHub Issues, GitLab, parallel development, AI agents, developer tools, git-parsec, parsec">
   <meta name="author" content="erishforG">
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
@@ -1497,6 +1497,15 @@
                 <p><code>parsec conflicts</code> warns when worktrees touch the same files -- before you merge.</p>
               </div>
             </li>
+            <li class="solution-item">
+              <div class="solution-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+              </div>
+              <div>
+                <h4>Full operation history</h4>
+                <p><code>parsec log</code> shows everything parsec has done. <code>parsec undo</code> rolls back the last step if something goes wrong.</p>
+              </div>
+            </li>
           </ul>
         </div>
       </div>
@@ -1523,7 +1532,7 @@
           <h3>Ticket Tracker Integration</h3>
           <p>
             Connect to Jira or GitHub Issues. When you <code>parsec start PROJ-123</code>, the ticket title is
-            fetched automatically, branches are named consistently, and PR descriptions reference the original issue.
+            fetched automatically, branches are named consistently, and PR/MR descriptions reference the original issue.
             Manual <code>--title</code> fallback for offline or unsupported trackers.
           </p>
           <div class="feature-code">$ parsec start PROJ-123 &nbsp;&nbsp;<span style="color: var(--text-muted)"># auto-fetches title from Jira</span></div>
@@ -1547,7 +1556,7 @@
           </div>
           <h3>One-step Shipping</h3>
           <p>
-            <code>parsec ship</code> pushes your branch, creates a GitHub PR with the ticket context, and cleans up the worktree. One command, done.
+            <code>parsec ship</code> pushes your branch, creates a GitHub PR or GitLab MR with the ticket context, and cleans up the worktree. One command, done.
           </p>
         </div>
 
@@ -1597,6 +1606,42 @@
           </p>
           <div class="feature-code">$ parsec list --json | jq '.[] | select(.commits > 0)'</div>
         </div>
+
+        <!-- Feature 8: Adopt -->
+        <div class="feature-card reveal reveal-delay-2">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
+          </div>
+          <h3>Adopt Existing Branches</h3>
+          <p>
+            Already have a branch in flight? <code>parsec adopt</code> imports it into parsec management so you get full lifecycle tracking without starting over.
+          </p>
+          <div class="feature-code">$ parsec adopt PROJ-99 --branch fix/payment-timeout</div>
+        </div>
+
+        <!-- Feature 9: Operation History -->
+        <div class="feature-card reveal reveal-delay-3">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <h3>Operation History</h3>
+          <p>
+            Every parsec action is logged. Use <code>parsec log</code> to review your full operation history, filter by ticket, or inspect the last N operations at a glance.
+          </p>
+          <div class="feature-code">$ parsec log --last 5 &nbsp;&nbsp;<span style="color: var(--text-muted)"># or: parsec log PROJ-1234</span></div>
+        </div>
+
+        <!-- Feature 10: Undo -->
+        <div class="feature-card reveal reveal-delay-1">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/></svg>
+          </div>
+          <h3>Undo Last Operation</h3>
+          <p>
+            Made a mistake? <code>parsec undo</code> reverts the most recent operation. Use <code>--dry-run</code> to preview exactly what will be rolled back before committing.
+          </p>
+          <div class="feature-code">$ parsec undo --dry-run</div>
+        </div>
       </div>
     </div>
   </section>
@@ -1621,12 +1666,14 @@
               <th>worktrunk</th>
               <th>git worktree</th>
               <th>git-town</th>
+              <th>GitButler</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td>Ticket tracker integration</td>
               <td class="highlight"><span class="check">Jira + GitHub</span></td>
+              <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
@@ -1637,18 +1684,21 @@
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
             </tr>
             <tr>
-              <td>One-step ship (push + PR + clean)</td>
-              <td class="highlight"><span class="check">Yes</span></td>
+              <td>One-step ship (push + PR/MR + clean)</td>
+              <td class="highlight"><span class="check">GitHub + GitLab</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="partial">Partial</span></td>
+              <td><span class="partial">PR only</span></td>
             </tr>
             <tr>
               <td>JSON output for AI agents</td>
               <td class="highlight"><span class="check">Yes</span></td>
               <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
             </tr>
@@ -1658,6 +1708,7 @@
               <td><span class="check">Yes</span></td>
               <td><span class="partial">Manual</span></td>
               <td><span class="cross">--</span></td>
+              <td><span class="check">Yes</span></td>
             </tr>
             <tr>
               <td>Status dashboard</td>
@@ -1665,10 +1716,12 @@
               <td><span class="check">Yes</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
+              <td><span class="check">Yes</span></td>
             </tr>
             <tr>
               <td>Post-create hooks</td>
               <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
@@ -1677,6 +1730,23 @@
               <td>Shell integration (cd into worktree)</td>
               <td class="highlight"><span class="check">Yes</span></td>
               <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Operation history &amp; undo</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Adopt existing branches</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
             </tr>
