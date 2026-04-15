@@ -283,6 +283,34 @@ pub fn print_undo_preview(entry: &OpEntry) {
     }
 }
 
+pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str) {
+    if !synced.is_empty() {
+        println!(
+            "{} {} {} worktree(s):",
+            "✓".green(),
+            strategy.bold(),
+            synced.len()
+        );
+        for ticket in synced {
+            println!("  - {}", ticket);
+        }
+    }
+    if !failed.is_empty() {
+        println!(
+            "{} Failed to {} {} worktree(s):",
+            "✗".red(),
+            strategy,
+            failed.len()
+        );
+        for (ticket, reason) in failed {
+            println!("  - {}: {}", ticket, reason.red());
+        }
+    }
+    if synced.is_empty() && failed.is_empty() {
+        println!("Nothing to sync.");
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);

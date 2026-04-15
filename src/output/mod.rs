@@ -109,6 +109,14 @@ pub fn print_undo_preview(entry: &OpEntry, mode: Mode) {
     }
 }
 
+pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_sync(synced, failed, strategy),
+        Mode::Human => human::print_sync(synced, failed, strategy),
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig, mode: Mode) {
     match mode {
         Mode::Quiet => {}

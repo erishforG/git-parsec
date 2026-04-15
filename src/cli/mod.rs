@@ -114,6 +114,24 @@ pub enum Command {
         ticket: String,
     },
 
+    /// Sync worktree with latest base branch changes
+    ///
+    /// Fetches the latest changes from the remote base branch and rebases
+    /// (or merges) the worktree branch on top. Use --all to sync every
+    /// active worktree at once. Strategy is configurable in config.toml.
+    Sync {
+        /// Ticket identifier (syncs current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Sync all active worktrees
+        #[arg(long)]
+        all: bool,
+
+        /// Sync strategy: rebase or merge (default: rebase)
+        #[arg(long, default_value = "rebase")]
+        strategy: String,
+    },
+
     /// Import an existing branch into parsec management
     ///
     /// Brings an existing branch under parsec lifecycle management.
@@ -235,6 +253,11 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Clean { all, dry_run } => {
             commands::clean(&repo_path, all, dry_run, output_mode).await
         }
+        Command::Sync {
+            ticket,
+            all,
+            strategy,
+        } => commands::sync(&repo_path, ticket.as_deref(), all, &strategy, output_mode).await,
         Command::Adopt {
             ticket,
             branch,

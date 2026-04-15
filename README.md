@@ -60,6 +60,7 @@ Removed 1 worktree(s):
 - **One-step shipping** -- `parsec ship` pushes, creates a GitHub PR or GitLab MR, and cleans up
 - **Adopt existing branches** -- Import branches already in progress with `parsec adopt`
 - **Operation history and undo** -- `parsec log` shows what happened, `parsec undo` reverts it
+- **Keep branches fresh** -- `parsec sync` rebases or merges the latest base branch into any worktree
 - **Agent-friendly output** -- `--json` flag on every command for machine consumption
 - **Status dashboard** -- See all parallel work at a glance
 - **Auto-cleanup** -- Remove worktrees for merged branches automatically
@@ -394,6 +395,37 @@ Undid start for PROJ-5678
 # Nothing to undo
 $ parsec undo
 Error: nothing to undo. Run `parsec log` to see operation history.
+```
+
+---
+
+### `parsec sync [ticket]`
+
+Fetch the latest base branch and rebase (or merge) the worktree on top. Detects the current worktree automatically when no ticket is given.
+
+```
+parsec sync [ticket] [--all] [--strategy rebase|merge]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--all` | Sync all active worktrees |
+| `--strategy` | `rebase` (default) or `merge` |
+
+```bash
+# Sync current worktree
+$ parsec sync
+✓ rebase 1 worktree(s):
+  - PROJ-1234
+
+# Sync a specific worktree
+$ parsec sync PROJ-5678
+
+# Sync all worktrees at once
+$ parsec sync --all
+
+# Use merge instead of rebase
+$ parsec sync --strategy merge
 ```
 
 ---
