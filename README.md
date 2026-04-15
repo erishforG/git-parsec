@@ -422,6 +422,12 @@ $ parsec config show
 
 # Output shell integration script
 $ parsec config shell zsh
+
+# Generate shell completions
+$ parsec config completions zsh
+
+# Install man page
+$ sudo parsec config man
 ```
 
 ---
@@ -461,6 +467,41 @@ After sourcing, `parsec switch <ticket>` will `cd` into the worktree directly:
 ```bash
 $ parsec switch PROJ-1234
 # Now you're in /home/user/myapp.PROJ-1234
+```
+
+---
+
+## Shell Completions
+
+Generate tab-completion scripts for your shell:
+
+```bash
+# Zsh — add to ~/.zshrc
+eval "$(parsec config completions zsh)"
+
+# Bash — add to ~/.bashrc
+eval "$(parsec config completions bash)"
+
+# Fish — add to ~/.config/fish/config.fish
+parsec config completions fish | source
+
+# Other shells
+parsec config completions elvish
+parsec config completions powershell
+```
+
+---
+
+## Man Page
+
+Install the man page so `man parsec` works:
+
+```bash
+sudo parsec config man
+# Man page installed to /usr/local/share/man/man1/parsec.1
+
+# Custom directory
+parsec config man --dir ~/.local/share/man
 ```
 
 ---

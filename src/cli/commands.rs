@@ -513,6 +513,13 @@ pub async fn config_man(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+pub async fn config_completions(shell: clap_complete::Shell) -> Result<()> {
+    use clap::CommandFactory;
+    let mut cmd = super::Cli::command();
+    clap_complete::generate(shell, &mut cmd, "parsec", &mut std::io::stdout());
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

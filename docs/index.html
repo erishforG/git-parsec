@@ -1608,14 +1608,14 @@
           </p>
         </div>
 
-        <!-- Feature 5: Shell Integration -->
+        <!-- Feature 5: Shell Integration & Completions -->
         <div class="feature-card reveal reveal-delay-2">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           </div>
-          <h3>Shell Integration</h3>
+          <h3>Shell Integration & Completions</h3>
           <p>
-            Add <code>eval "$(parsec config shell zsh)"</code> to your shell config and <code>parsec switch</code> teleports you into any worktree.
+            Auto-cd with <code>parsec switch</code>, tab-completions for zsh/bash/fish/powershell, and a man page — all built in.
           </p>
         </div>
 
@@ -1814,8 +1814,8 @@
         <div class="step-card reveal reveal-delay-2">
           <div class="step-number">02</div>
           <h3>Configure</h3>
-          <p>Run interactive setup to connect your Jira or GitHub Issues instance.</p>
-          <div class="step-code">parsec config init</div>
+          <p>Run interactive setup, enable shell integration and tab-completions.</p>
+          <div class="step-code">parsec config init<br>eval "$(parsec config completions zsh)"</div>
         </div>
         <div class="step-card reveal reveal-delay-3">
           <div class="step-number">03</div>
