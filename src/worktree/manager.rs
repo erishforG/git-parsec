@@ -42,14 +42,23 @@ impl WorktreeManager {
         ticket: &str,
         base: Option<&str>,
         ticket_title: Option<String>,
+        parent_ticket: Option<&str>,
+        existing_branch: Option<&str>,
     ) -> Result<Workspace> {
         let base_branch = match base {
             Some(b) => b.to_owned(),
-            None => git::get_default_branch(&self.repo_root)
-                .context("failed to detect default branch")?,
+            None => {
+                if let Some(parent) = parent_ticket {
+                    // When stacking, use the parent's branch as base
+                    let parent_ws = self.get(parent)?;
+                    parent_ws.branch.clone()
+                } else {
+                    git::get_default_branch(&self.repo_root)
+                        .context("failed to detect default branch")?
+                }
+            }
         };
 
-        let branch = format!("{}{}", self.config.workspace.branch_prefix, ticket);
         let worktree_path = match self.config.workspace.layout {
             crate::config::WorktreeLayout::Sibling => {
                 // ../reponame.ticket/
@@ -72,14 +81,27 @@ impl WorktreeManager {
         // Graceful fetch — won't fail if no remote exists
         git::fetch_if_remote(&self.repo_root)?;
 
-        git::worktree_add(&self.repo_root, &worktree_path, &branch, &base_branch).with_context(
-            || {
+        let branch = if let Some(eb) = existing_branch {
+            // Use an existing branch — resolve the local name
+            let local_name = eb.strip_prefix("origin/").unwrap_or(eb).to_owned();
+            git::worktree_add_existing(&self.repo_root, &worktree_path, eb).with_context(|| {
                 format!(
-                    "failed to create worktree for ticket '{}' at {:?}",
-                    ticket, worktree_path
+                    "failed to create worktree from existing branch '{}' for ticket '{}' at {:?}",
+                    eb, ticket, worktree_path
                 )
-            },
-        )?;
+            })?;
+            local_name
+        } else {
+            let branch = format!("{}{}", self.config.workspace.branch_prefix, ticket);
+            git::worktree_add(&self.repo_root, &worktree_path, &branch, &base_branch)
+                .with_context(|| {
+                    format!(
+                        "failed to create worktree for ticket '{}' at {:?}",
+                        ticket, worktree_path
+                    )
+                })?;
+            branch
+        };
 
         let workspace = Workspace {
             ticket: ticket.to_owned(),
@@ -89,6 +111,7 @@ impl WorktreeManager {
             created_at: Utc::now(),
             ticket_title,
             status: WorkspaceStatus::Active,
+            parent_ticket: parent_ticket.map(|s| s.to_owned()),
         };
 
         let mut state =
@@ -243,6 +266,7 @@ impl WorktreeManager {
             created_at: Utc::now(),
             ticket_title,
             status: WorkspaceStatus::Active,
+            parent_ticket: None,
         };
 
         state.add_workspace(workspace.clone());

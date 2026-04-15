@@ -49,6 +49,14 @@ pub enum Command {
         /// Manually set the ticket title (skips tracker lookup)
         #[arg(long)]
         title: Option<String>,
+
+        /// Create stacked on another ticket's branch
+        #[arg(long)]
+        on: Option<String>,
+
+        /// Use an existing branch instead of creating a new one
+        #[arg(long = "branch")]
+        existing_branch: Option<String>,
     },
 
     /// List all active worktrees
@@ -111,6 +119,56 @@ pub enum Command {
     PrStatus {
         /// Ticket identifier (shows all shipped if omitted)
         ticket: Option<String>,
+    },
+
+    /// Merge a ticket's PR on GitHub and clean up
+    ///
+    /// Merges the PR via the GitHub API. By default uses squash merge
+    /// and waits for CI to pass before merging. Cleans up the local
+    /// worktree after a successful merge.
+    Merge {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+        /// Use rebase merge instead of squash
+        #[arg(long)]
+        rebase: bool,
+        /// Skip waiting for CI to pass
+        #[arg(long)]
+        no_wait: bool,
+        /// Keep remote branch after merge (default: delete)
+        #[arg(long)]
+        no_delete_branch: bool,
+    },
+
+    /// Check CI/CD pipeline status for a ticket's PR
+    ///
+    /// Shows individual check runs with status, duration, and overall
+    /// summary. Auto-detects the current worktree if no ticket is given.
+    /// Use --watch to poll until all checks complete.
+    Ci {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+        /// Watch CI in real-time until completion (refresh every 5s)
+        #[arg(long)]
+        watch: bool,
+        /// Show CI for all shipped PRs
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// View changes in a worktree compared to base branch
+    ///
+    /// Shows the diff between the worktree branch and its base branch
+    /// using the merge-base as the comparison point.
+    Diff {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+        /// Show file-level summary only
+        #[arg(long)]
+        stat: bool,
+        /// List changed file names only
+        #[arg(long)]
+        name_only: bool,
     },
 
     /// Print workspace path for a ticket (use with cd)
@@ -204,6 +262,16 @@ pub enum Command {
         dry_run: bool,
     },
 
+    /// Show or manage stacked PR dependencies
+    ///
+    /// Displays the dependency graph of worktrees created with --on.
+    /// Use `parsec stack --sync` to rebase the entire chain.
+    Stack {
+        /// Sync the entire stack (rebase chain)
+        #[arg(long)]
+        sync: bool,
+    },
+
     /// Configure parsec
     ///
     /// Manage parsec configuration: run interactive setup, view current
@@ -268,7 +336,20 @@ pub async fn run(cli: Cli) -> Result<()> {
             ticket,
             base,
             title,
-        } => commands::start(&repo_path, &ticket, base.as_deref(), title, output_mode).await,
+            on,
+            existing_branch,
+        } => {
+            commands::start(
+                &repo_path,
+                &ticket,
+                base.as_deref(),
+                title,
+                on.as_deref(),
+                existing_branch.as_deref(),
+                output_mode,
+            )
+            .await
+        }
         Command::List => commands::list(&repo_path, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
@@ -299,6 +380,30 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::PrStatus { ticket } => {
             commands::pr_status(&repo_path, ticket.as_deref(), output_mode).await
         }
+        Command::Merge {
+            ticket,
+            rebase,
+            no_wait,
+            no_delete_branch,
+        } => {
+            commands::merge(
+                &repo_path,
+                ticket.as_deref(),
+                rebase,
+                no_wait,
+                no_delete_branch,
+                output_mode,
+            )
+            .await
+        }
+        Command::Ci { ticket, watch, all } => {
+            commands::ci(&repo_path, ticket.as_deref(), watch, all, output_mode).await
+        }
+        Command::Diff {
+            ticket,
+            stat,
+            name_only,
+        } => commands::diff(&repo_path, ticket.as_deref(), stat, name_only, output_mode).await,
         Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
         Command::Switch { ticket } => {
             commands::switch(&repo_path, ticket.as_deref(), output_mode).await
@@ -307,6 +412,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
         }
         Command::Undo { dry_run } => commands::undo(&repo_path, dry_run, output_mode).await,
+        Command::Stack { sync } => {
+            if sync {
+                commands::stack_sync(&repo_path, output_mode).await
+            } else {
+                commands::stack(&repo_path, output_mode).await
+            }
+        }
         Command::Config { action } => match action {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,

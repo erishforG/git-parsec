@@ -370,6 +370,230 @@ pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)]) {
     println!("{table}");
 }
 
+pub fn print_merge(
+    ticket: &str,
+    pr_number: u64,
+    result: &crate::github::MergeResult,
+    method: &str,
+) {
+    println!(
+        "{}",
+        format!("Merged PR #{} for {}!", pr_number, ticket)
+            .green()
+            .bold()
+    );
+    println!("  {} {}", "Method:".bold(), method);
+    println!("  {} {}", "SHA:".bold(), result.sha.dimmed());
+    if !result.message.is_empty() {
+        println!("  {} {}", "Message:".bold(), result.message);
+    }
+}
+
+pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)]) {
+    use tabled::{Table, Tabled};
+
+    for (ticket, ci) in statuses {
+        println!(
+            "{} {} (PR #{}, {})",
+            "CI for".bold(),
+            ticket.bold().cyan(),
+            ci.pr_number,
+            ci.head_sha[..7].dimmed()
+        );
+
+        if ci.checks.is_empty() {
+            println!("  {}", "No checks found.".dimmed());
+            println!();
+            continue;
+        }
+
+        #[derive(Tabled)]
+        struct CheckRow {
+            #[tabled(rename = "Check")]
+            name: String,
+            #[tabled(rename = "Status")]
+            status: String,
+            #[tabled(rename = "Duration")]
+            duration: String,
+        }
+
+        let rows: Vec<CheckRow> = ci
+            .checks
+            .iter()
+            .map(|c| {
+                let status = match (c.status.as_str(), c.conclusion.as_deref()) {
+                    (_, Some("success")) => "✓ passed".green().to_string(),
+                    (_, Some("failure")) => "✗ failed".red().to_string(),
+                    (_, Some("skipped")) => "- skipped".dimmed().to_string(),
+                    ("in_progress", _) => "● running".yellow().to_string(),
+                    ("queued", _) => "○ queued".dimmed().to_string(),
+                    _ => c.status.clone(),
+                };
+                let duration = match (&c.started_at, &c.completed_at) {
+                    (Some(start), Some(end)) => {
+                        if let (Ok(s), Ok(e)) = (
+                            chrono::DateTime::parse_from_rfc3339(start),
+                            chrono::DateTime::parse_from_rfc3339(end),
+                        ) {
+                            let secs = (e - s).num_seconds();
+                            if secs >= 60 {
+                                format!("{}m {}s", secs / 60, secs % 60)
+                            } else {
+                                format!("{}s", secs)
+                            }
+                        } else {
+                            "-".to_string()
+                        }
+                    }
+                    (Some(_), None) => "running...".to_string(),
+                    _ => "-".to_string(),
+                };
+                CheckRow {
+                    name: c.name.clone(),
+                    status,
+                    duration,
+                }
+            })
+            .collect();
+
+        let table = Table::new(rows)
+            .with(tabled::settings::Style::modern())
+            .to_string();
+        println!("{table}");
+
+        // Summary line
+        let passed = ci
+            .checks
+            .iter()
+            .filter(|c| c.conclusion.as_deref() == Some("success"))
+            .count();
+        let failed = ci
+            .checks
+            .iter()
+            .filter(|c| c.conclusion.as_deref() == Some("failure"))
+            .count();
+        let running = ci
+            .checks
+            .iter()
+            .filter(|c| c.status == "in_progress")
+            .count();
+        let queued = ci.checks.iter().filter(|c| c.status == "queued").count();
+        let total = ci.checks.len();
+
+        let mut parts = Vec::new();
+        if passed > 0 {
+            parts.push(format!("{passed} passed").green().to_string());
+        }
+        if failed > 0 {
+            parts.push(format!("{failed} failed").red().to_string());
+        }
+        if running > 0 {
+            parts.push(format!("{running} running").yellow().to_string());
+        }
+        if queued > 0 {
+            parts.push(format!("{queued} queued"));
+        }
+
+        let overall_icon = match ci.overall.as_str() {
+            "passing" => "✓".green().to_string(),
+            "failing" => "✗".red().to_string(),
+            _ => "●".yellow().to_string(),
+        };
+
+        println!(
+            "{} CI: {}/{} — {}",
+            overall_icon,
+            passed,
+            total,
+            parts.join(", ")
+        );
+        println!();
+    }
+}
+
+pub fn print_diff_names(files: &[String], ticket: &str) {
+    println!(
+        "{} {} ({} files):",
+        "Changed files for".bold(),
+        ticket.bold().cyan(),
+        files.len()
+    );
+    for f in files {
+        println!("  {}", f);
+    }
+}
+
+pub fn print_diff_stat(stat: &str, ticket: &str) {
+    println!("{} {}:", "Diff stat for".bold(), ticket.bold().cyan());
+    print!("{}", stat);
+}
+
+pub fn print_stack(workspaces: &[Workspace]) {
+    use std::collections::HashMap;
+
+    // Build parent -> children map
+    let mut children_map: HashMap<&str, Vec<&Workspace>> = HashMap::new();
+    let mut roots = Vec::new();
+
+    for ws in workspaces {
+        if let Some(parent) = &ws.parent_ticket {
+            children_map.entry(parent.as_str()).or_default().push(ws);
+        } else if workspaces
+            .iter()
+            .any(|other| other.parent_ticket.as_deref() == Some(&ws.ticket))
+        {
+            roots.push(ws);
+        }
+    }
+
+    println!("{}", "Stack dependency graph:".bold());
+
+    fn print_tree(
+        ws: &Workspace,
+        children_map: &HashMap<&str, Vec<&Workspace>>,
+        prefix: &str,
+        is_last: bool,
+    ) {
+        use colored::Colorize;
+        let connector = if prefix.is_empty() {
+            ""
+        } else if is_last {
+            "└── "
+        } else {
+            "├── "
+        };
+        let title = ws.ticket_title.as_deref().unwrap_or("");
+        println!(
+            "{}{}{}  {}",
+            prefix,
+            connector,
+            ws.ticket.bold().cyan(),
+            title.dimmed()
+        );
+
+        let child_prefix = if prefix.is_empty() {
+            String::new()
+        } else if is_last {
+            format!("{}    ", prefix)
+        } else {
+            format!("{}│   ", prefix)
+        };
+
+        if let Some(children) = children_map.get(ws.ticket.as_str()) {
+            for (i, child) in children.iter().enumerate() {
+                print_tree(child, children_map, &child_prefix, i == children.len() - 1);
+            }
+        }
+    }
+
+    for (i, root) in roots.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        print_tree(root, &children_map, "", true);
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);

@@ -94,6 +94,74 @@ pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)]) {
     emit(&value);
 }
 
+pub fn print_merge(
+    ticket: &str,
+    pr_number: u64,
+    result: &crate::github::MergeResult,
+    method: &str,
+) {
+    let value = json!({
+        "action": "merge",
+        "ticket": ticket,
+        "pr_number": pr_number,
+        "method": method,
+        "sha": result.sha,
+        "message": result.message,
+        "merged": result.merged,
+    });
+    println!("{}", value);
+}
+
+pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)]) {
+    let value: Vec<_> = statuses
+        .iter()
+        .map(|(ticket, ci)| {
+            json!({
+                "ticket": ticket,
+                "pr_number": ci.pr_number,
+                "head_sha": ci.head_sha,
+                "overall": ci.overall,
+                "checks": ci.checks,
+            })
+        })
+        .collect();
+    emit(&value);
+}
+
+pub fn print_diff_names(files: &[String], ticket: &str) {
+    let value = json!({
+        "ticket": ticket,
+        "files": files,
+        "count": files.len(),
+    });
+    println!("{}", value);
+}
+
+pub fn print_diff_full(files: &[(String, String)], ticket: &str) {
+    let value = json!({
+        "ticket": ticket,
+        "changes": files.iter().map(|(status, file)| json!({"status": status, "file": file})).collect::<Vec<_>>(),
+        "count": files.len(),
+    });
+    println!("{}", value);
+}
+
+pub fn print_stack(workspaces: &[Workspace]) {
+    let value: Vec<_> = workspaces
+        .iter()
+        .map(|ws| {
+            json!({
+                "ticket": ws.ticket,
+                "branch": ws.branch,
+                "base_branch": ws.base_branch,
+                "parent_ticket": ws.parent_ticket,
+                "title": ws.ticket_title,
+            })
+        })
+        .collect();
+    emit(&value);
+}
+
 pub fn print_undo(entry: &OpEntry) {
     let value = json!({
         "action": "undo",

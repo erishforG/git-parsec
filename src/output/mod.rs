@@ -125,10 +125,60 @@ pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)], mode: Mod
     }
 }
 
+pub fn print_merge(
+    ticket: &str,
+    pr_number: u64,
+    result: &crate::github::MergeResult,
+    method: &str,
+    mode: Mode,
+) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_merge(ticket, pr_number, result, method),
+        Mode::Human => human::print_merge(ticket, pr_number, result, method),
+    }
+}
+
+pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)], mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_ci_status(statuses),
+        Mode::Human => human::print_ci_status(statuses),
+    }
+}
+
+pub fn print_stack(workspaces: &[Workspace], mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_stack(workspaces),
+        Mode::Human => human::print_stack(workspaces),
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig, mode: Mode) {
     match mode {
         Mode::Quiet => {}
         Mode::Json => json::print_config_show(config),
         Mode::Human => human::print_config_show(config),
     }
+}
+
+pub fn print_diff_names(files: &[String], ticket: &str, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_diff_names(files, ticket),
+        Mode::Human => human::print_diff_names(files, ticket),
+    }
+}
+
+pub fn print_diff_stat(stat: &str, ticket: &str, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => {} // stat is human-only
+        Mode::Human => human::print_diff_stat(stat, ticket),
+    }
+}
+
+pub fn print_diff_full_json(files: &[(String, String)], ticket: &str) {
+    json::print_diff_full(files, ticket);
 }

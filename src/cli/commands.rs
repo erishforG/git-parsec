@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use colored::Colorize;
 
 use crate::config::ParsecConfig;
 use crate::conflict;
@@ -16,6 +17,8 @@ pub async fn start(
     ticket: &str,
     base: Option<&str>,
     title: Option<String>,
+    on: Option<&str>,
+    existing_branch: Option<&str>,
     mode: Mode,
 ) -> Result<()> {
     let config = ParsecConfig::load()?;
@@ -36,7 +39,7 @@ pub async fn start(
     };
 
     let manager = WorktreeManager::new(repo, &config)?;
-    let workspace = manager.create(ticket, base, ticket_title)?;
+    let workspace = manager.create(ticket, base, ticket_title, on, existing_branch)?;
 
     output::print_start(&workspace, mode);
 
@@ -393,6 +396,333 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
     Ok(())
 }
 
+pub async fn merge(
+    repo: &Path,
+    ticket: Option<&str>,
+    rebase: bool,
+    no_wait: bool,
+    no_delete_branch: bool,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let manager = WorktreeManager::new(repo, &config)?;
+
+    // Resolve ticket
+    let ticket_id = if let Some(t) = ticket {
+        t.to_string()
+    } else {
+        let cwd = std::env::current_dir()?;
+        let all_ws = manager.list()?;
+        let found = all_ws
+            .into_iter()
+            .find(|w| cwd.starts_with(&w.path))
+            .ok_or_else(|| anyhow::anyhow!("not inside a parsec worktree. Specify a ticket."))?;
+        found.ticket
+    };
+
+    // Find PR number: check oplog first, then try open PR by branch
+    let pr_number = {
+        let shipped_pr = oplog
+            .get_entries(Some(&ticket_id))
+            .into_iter()
+            .rev()
+            .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+            .find_map(|e| {
+                let url = e.detail.split(" -> ").nth(1)?;
+                url.rsplit('/').next()?.parse::<u64>().ok()
+            });
+
+        if let Some(pr) = shipped_pr {
+            pr
+        } else {
+            let ws = manager.get(&ticket_id).with_context(|| {
+                format!("ticket {ticket_id} not found in active workspaces or oplog")
+            })?;
+            github::find_pr_by_branch(&remote_url, &ws.branch)
+                .await?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no PR found for {ticket_id}. Ship it first with `parsec ship {ticket_id}`."
+                    )
+                })?
+        }
+    };
+
+    // Wait for CI to pass (unless --no-wait)
+    if !no_wait {
+        if mode == Mode::Human {
+            eprint!("Waiting for CI to pass...");
+        }
+        loop {
+            match github::get_check_runs(&remote_url, pr_number).await? {
+                Some(ci) => {
+                    if ci.overall == "passing" {
+                        if mode == Mode::Human {
+                            eprintln!(" {}", "✓".green());
+                        }
+                        break;
+                    } else if ci.overall == "failing" {
+                        if mode == Mode::Human {
+                            eprintln!(" {}", "✗".red());
+                        }
+                        anyhow::bail!(
+                            "CI is failing for PR #{}. Fix CI or use --no-wait to merge anyway.",
+                            pr_number
+                        );
+                    }
+                    // Still pending — wait and retry
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+                None => {
+                    anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
+                }
+            }
+        }
+    }
+
+    // Determine merge method
+    let method = if rebase { "rebase" } else { "squash" };
+    let delete_branch = !no_delete_branch;
+
+    // Merge the PR
+    match github::merge_pr(&remote_url, pr_number, method, delete_branch).await? {
+        Some(result) => {
+            output::print_merge(&ticket_id, pr_number, &result, method, mode);
+
+            // Clean up local worktree if it exists
+            if let Ok(ws) = manager.get(&ticket_id) {
+                if ws.path.exists() {
+                    if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
+                        eprintln!("warning: failed to remove worktree: {e}");
+                    }
+                }
+                // Update state
+                let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+                state.remove_workspace(&ticket_id);
+                state.save(&repo_root)?;
+
+                // Delete local branch
+                if let Some(branch) = &oplog
+                    .get_entries(Some(&ticket_id))
+                    .last()
+                    .and_then(|e| e.undo_info.as_ref())
+                    .and_then(|u| u.branch.clone())
+                {
+                    let _ = git::delete_branch(&repo_root, branch);
+                }
+
+                if mode == Mode::Human {
+                    println!("  {}", "Local worktree cleaned up.".dimmed());
+                }
+            }
+
+            // Record in oplog
+            if let Err(e) = crate::oplog::record(
+                &repo_root,
+                crate::oplog::OpKind::Clean,
+                Some(&ticket_id),
+                &format!("Merged PR #{} ({})", pr_number, method),
+                None,
+            ) {
+                eprintln!("warning: failed to write oplog: {e}");
+            }
+        }
+        None => {
+            anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn ci(
+    repo: &Path,
+    ticket: Option<&str>,
+    watch: bool,
+    all: bool,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let manager = WorktreeManager::new(repo, &config)?;
+
+    // Collect (ticket_id, pr_number) pairs to check
+    let mut targets: Vec<(String, u64)> = Vec::new();
+
+    if all {
+        // All shipped entries with PR numbers from oplog
+        let entries: Vec<_> = oplog
+            .get_entries(None)
+            .into_iter()
+            .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+            .filter_map(|e| {
+                let url = e.detail.split(" -> ").nth(1)?;
+                let number = url.rsplit('/').next()?.parse::<u64>().ok()?;
+                Some((e.ticket.clone().unwrap_or_default(), number))
+            })
+            .collect();
+        if entries.is_empty() {
+            anyhow::bail!("no shipped PRs found. Ship a ticket first with `parsec ship`.");
+        }
+        targets = entries;
+    } else {
+        // Resolve which ticket to look up
+        let ticket_id = if let Some(t) = ticket {
+            t.to_string()
+        } else {
+            // Auto-detect from current worktree
+            let cwd = std::env::current_dir()?;
+            let all_ws = manager.list()?;
+            let found = all_ws
+                .into_iter()
+                .find(|w| cwd.starts_with(&w.path))
+                .ok_or_else(|| {
+                    anyhow::anyhow!("not inside a parsec worktree. Specify a ticket or use --all.")
+                })?;
+            found.ticket
+        };
+
+        // First check if there's a shipped PR in the oplog
+        let shipped_pr = oplog
+            .get_entries(Some(&ticket_id))
+            .into_iter()
+            .rev()
+            .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+            .find_map(|e| {
+                let url = e.detail.split(" -> ").nth(1)?;
+                url.rsplit('/').next()?.parse::<u64>().ok()
+            });
+
+        if let Some(pr_number) = shipped_pr {
+            targets.push((ticket_id, pr_number));
+        } else {
+            // Not shipped yet — try to find an open PR by branch name
+            let ws = manager.get(&ticket_id).with_context(|| {
+                format!("ticket {ticket_id} not found in active workspaces or oplog")
+            })?;
+            match github::find_pr_by_branch(&remote_url, &ws.branch).await? {
+                Some(pr_number) => targets.push((ticket_id, pr_number)),
+                None => {
+                    anyhow::bail!(
+                        "no PR found for {ticket_id}. Push and create a PR first, or ship with `parsec ship {ticket_id}`."
+                    );
+                }
+            }
+        }
+    }
+
+    loop {
+        let mut statuses: Vec<(String, crate::github::CiStatus)> = Vec::new();
+
+        for (ticket_id, pr_number) in &targets {
+            match github::get_check_runs(&remote_url, *pr_number).await? {
+                Some(ci) => statuses.push((ticket_id.clone(), ci)),
+                None => {
+                    anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
+                }
+            }
+        }
+
+        // In watch + human mode, clear screen before redraw
+        if watch && mode == Mode::Human {
+            print!("\x1B[2J\x1B[H");
+        }
+
+        output::print_ci_status(&statuses, mode);
+
+        if !watch || mode != Mode::Human {
+            // JSON/quiet mode prints once even with --watch
+            // Determine exit code based on overall status
+            let has_failure = statuses.iter().any(|(_t, ci)| ci.overall == "failing");
+            if has_failure {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+
+        // Check if all checks are completed
+        let all_completed = statuses
+            .iter()
+            .all(|(_t, ci)| ci.checks.iter().all(|c| c.status == "completed"));
+
+        if all_completed {
+            let has_failure = statuses.iter().any(|(_t, ci)| ci.overall == "failing");
+            if has_failure {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
+pub async fn diff(
+    repo: &Path,
+    ticket: Option<&str>,
+    stat: bool,
+    name_only: bool,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config)?;
+
+    // Resolve workspace
+    let ws = if let Some(t) = ticket {
+        manager.get(t)?
+    } else {
+        let cwd = std::env::current_dir()?;
+        let all_ws = manager.list()?;
+        all_ws
+            .into_iter()
+            .find(|w| cwd.starts_with(&w.path))
+            .ok_or_else(|| anyhow::anyhow!("not inside a parsec worktree. Specify a ticket."))?
+    };
+
+    // Find merge base
+    let merge_base = git::run_output(
+        &ws.path,
+        &["merge-base", &format!("origin/{}", ws.base_branch), "HEAD"],
+    )?;
+    let merge_base = merge_base.trim();
+
+    if name_only {
+        let output = git::run_output(&ws.path, &["diff", "--name-only", merge_base])?;
+        let files: Vec<String> = output.lines().map(|l| l.to_string()).collect();
+        output::print_diff_names(&files, &ws.ticket, mode);
+    } else if stat {
+        let output = git::run_output(&ws.path, &["diff", "--stat", merge_base])?;
+        output::print_diff_stat(&output, &ws.ticket, mode);
+    } else {
+        // Full diff — just pass through to terminal in human mode
+        if mode == Mode::Json {
+            let output = git::run_output(&ws.path, &["diff", "--name-status", merge_base])?;
+            let files: Vec<(String, String)> = output
+                .lines()
+                .filter_map(|l| {
+                    let mut parts = l.splitn(2, '\t');
+                    let status = parts.next()?.to_string();
+                    let file = parts.next()?.to_string();
+                    Some((status, file))
+                })
+                .collect();
+            output::print_diff_full_json(&files, &ws.ticket);
+        } else if mode == Mode::Human {
+            // Pass through with color
+            let _ = std::process::Command::new("git")
+                .args(["diff", "--color=always", merge_base])
+                .current_dir(&ws.path)
+                .status();
+        }
+    }
+    Ok(())
+}
+
 pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
@@ -619,7 +949,7 @@ pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
                 ],
             )?;
 
-            // Restore state
+            // Restore state (parent_ticket is lost on undo — acceptable)
             let workspace = crate::worktree::Workspace {
                 ticket: ticket.to_owned(),
                 path: worktree_path,
@@ -628,6 +958,7 @@ pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
                 created_at: chrono::Utc::now(),
                 ticket_title: undo_info.ticket_title.clone(),
                 status: crate::worktree::WorkspaceStatus::Active,
+                parent_ticket: None,
             };
 
             let mut state = crate::worktree::ParsecState::load(&repo_root)?;
@@ -649,6 +980,110 @@ pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
     oplog.save(&repo_root)?;
 
     output::print_undo(&last, mode);
+    Ok(())
+}
+
+pub async fn stack(repo: &Path, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config)?;
+    let workspaces = manager.list()?;
+
+    // Build the set of workspaces that are part of any stack:
+    // either they have a parent, or they ARE a parent of something.
+    let stacked: Vec<_> = workspaces
+        .iter()
+        .filter(|w| {
+            w.parent_ticket.is_some()
+                || workspaces
+                    .iter()
+                    .any(|other| other.parent_ticket.as_deref() == Some(&w.ticket))
+        })
+        .cloned()
+        .collect();
+
+    if stacked.is_empty() {
+        if mode == Mode::Human {
+            println!(
+                "No stacked worktrees. Use `parsec start <ticket> --on <parent>` to create a stack."
+            );
+        }
+        return Ok(());
+    }
+
+    output::print_stack(&stacked, mode);
+    Ok(())
+}
+
+pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config)?;
+    let workspaces = manager.list()?;
+
+    let mut synced = Vec::new();
+    let mut failed = Vec::new();
+
+    // Find roots: workspaces that have children but no parent themselves
+    let roots: Vec<_> = workspaces
+        .iter()
+        .filter(|w| {
+            w.parent_ticket.is_none()
+                && workspaces
+                    .iter()
+                    .any(|other| other.parent_ticket.as_deref() == Some(&w.ticket))
+        })
+        .collect();
+
+    if roots.is_empty() {
+        if mode == Mode::Human {
+            println!(
+                "No stacked worktrees to sync. Use `parsec start <ticket> --on <parent>` to create a stack."
+            );
+        }
+        return Ok(());
+    }
+
+    for root in &roots {
+        // First sync root with its base branch
+        if let Err(e) = git::run(&root.path, &["fetch", "origin", &root.base_branch]) {
+            failed.push((root.ticket.clone(), format!("fetch failed: {e}")));
+            continue;
+        }
+        let remote_base = format!("origin/{}", root.base_branch);
+        if let Err(e) = git::run(&root.path, &["rebase", &remote_base]) {
+            let _ = git::run(&root.path, &["rebase", "--abort"]);
+            failed.push((root.ticket.clone(), format!("rebase failed: {e}")));
+            continue;
+        }
+        synced.push(root.ticket.clone());
+
+        // Then rebase children onto their parent, in topological order
+        let mut queue: Vec<&str> = vec![&root.ticket];
+        while let Some(parent_ticket) = queue.first().copied() {
+            queue.remove(0);
+            let children: Vec<_> = workspaces
+                .iter()
+                .filter(|w| w.parent_ticket.as_deref() == Some(parent_ticket))
+                .collect();
+            for child in &children {
+                let parent_ws = workspaces
+                    .iter()
+                    .find(|w| w.ticket == parent_ticket)
+                    .unwrap();
+                if let Err(e) = git::run(&child.path, &["rebase", &parent_ws.branch]) {
+                    let _ = git::run(&child.path, &["rebase", "--abort"]);
+                    failed.push((
+                        child.ticket.clone(),
+                        format!("rebase onto {} failed: {e}", parent_ticket),
+                    ));
+                } else {
+                    synced.push(child.ticket.clone());
+                    queue.push(&child.ticket);
+                }
+            }
+        }
+    }
+
+    output::print_sync(&synced, &failed, "rebase (stack)", mode);
     Ok(())
 }
 

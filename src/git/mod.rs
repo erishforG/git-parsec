@@ -153,6 +153,58 @@ pub fn worktree_add(repo: &Path, path: &Path, branch: &str, base: &str) -> Resul
     run(repo, &["worktree", "add", "-b", branch, path_str, base])
 }
 
+/// Create a worktree at `path` for an already-existing branch.
+/// If the branch only exists on the remote, it is fetched and tracked locally first.
+pub fn worktree_add_existing(repo: &Path, path: &Path, branch: &str) -> Result<()> {
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow!("worktree path is not valid UTF-8: {:?}", path))?;
+
+    // Check if branch exists locally
+    let local_exists = run_output(
+        repo,
+        &["rev-parse", "--verify", &format!("refs/heads/{}", branch)],
+    )
+    .is_ok();
+
+    if local_exists {
+        return run(repo, &["worktree", "add", path_str, branch]);
+    }
+
+    // Check if it exists on remote (handle "origin/branch" syntax too)
+    let remote_ref = if branch.starts_with("origin/") {
+        branch.to_owned()
+    } else {
+        format!("origin/{}", branch)
+    };
+
+    let remote_exists = run_output(
+        repo,
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("refs/remotes/{}", remote_ref),
+        ],
+    )
+    .is_ok();
+
+    if remote_exists {
+        // Strip "origin/" prefix for the local branch name
+        let local_name = branch.strip_prefix("origin/").unwrap_or(branch);
+        // Create local tracking branch and worktree in one step
+        run(
+            repo,
+            &["worktree", "add", "-b", local_name, path_str, &remote_ref],
+        )
+    } else {
+        Err(anyhow!(
+            "branch '{}' not found locally or on remote. Use `parsec start {}` without --branch to create a new branch.",
+            branch,
+            branch.strip_prefix("origin/").unwrap_or(branch)
+        ))
+    }
+}
+
 /// Remove the worktree rooted at `path`.
 pub fn worktree_remove(repo: &Path, path: &Path) -> Result<()> {
     let path_str = path

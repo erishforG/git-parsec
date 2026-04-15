@@ -6,6 +6,18 @@
 
 ![demo](demo.gif)
 
+## What is parsec?
+
+**parsec** is a command-line tool (CLI) that automates the full lifecycle of git worktrees: create an isolated workspace from a ticket ID, work in parallel without lock conflicts, then push + create PR + clean up in one command. It integrates with **Jira**, **GitHub Issues**, and **GitLab Issues** for automatic ticket title lookup, and supports **GitHub** and **GitLab** for PR/MR creation.
+
+Unlike plain `git worktree`, parsec tracks workspace state, detects file conflicts across worktrees, provides operation history with undo, supports stacked PRs, and offers CI status monitoring — all from a single CLI.
+
+**Key use cases:**
+- Run multiple AI coding agents on the same repo simultaneously (no `index.lock` conflicts)
+- Work on several tickets in parallel as a developer without stashing or switching branches
+- Ship complete features (push + PR + cleanup) with one command
+- Monitor CI, merge PRs, and manage stacked dependencies from the terminal
+
 ## The Problem
 
 Git uses a single working directory with a single `index.lock`. When multiple AI agents (or developers) try to work on the same repo simultaneously:
@@ -59,12 +71,14 @@ Removed 1 worktree(s):
 - **Conflict detection** -- Warns when multiple workspaces modify the same files
 - **One-step shipping** -- `parsec ship` pushes, creates a GitHub PR or GitLab MR, and cleans up
 - **Adopt existing branches** -- Import branches already in progress with `parsec adopt`
+- **Attach to existing branches** -- Start a workspace from an existing local or remote branch with `--branch`
 - **Operation history and undo** -- `parsec log` shows what happened, `parsec undo` reverts it
 - **Keep branches fresh** -- `parsec sync` rebases or merges the latest base branch into any worktree
 - **Agent-friendly output** -- `--json` flag on every command for machine consumption
 - **Status dashboard** -- See all parallel work at a glance
 - **Auto-cleanup** -- Remove worktrees for merged branches automatically
 - **GitHub and GitLab** -- PR and MR creation for both platforms
+- **Stacked PRs** -- Create dependent PR chains with `--on` and sync the entire stack
 
 ## Installation
 
@@ -125,13 +139,15 @@ $ parsec log
 Create an isolated worktree for a ticket. Fetches the ticket title from your configured tracker (Jira, GitHub Issues) or accepts a manual title.
 
 ```
-parsec start <ticket> [--base <branch>] [--title "text"]
+parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>] [--branch <name>]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `-b, --base <branch>` | Base branch to create from (default: main/master) |
 | `--title "text"` | Set ticket title manually, skip tracker lookup |
+| `--on <ticket>` | Stack on another ticket's branch (for dependent PRs) |
+| `--branch <name>` | Use an existing branch instead of creating a new one |
 
 ```bash
 # With Jira integration (title auto-fetched)
@@ -150,6 +166,12 @@ Created workspace for 42 at /home/user/myapp.42
 
 # From a specific base branch
 $ parsec start PROJ-99 --base release/2.0
+
+# Attach to an existing branch (local or remote)
+$ parsec start CL-2208 --branch feature/CL-2208
+
+# Attach to a remote-only branch (auto-fetches and tracks)
+$ parsec start CL-2208 --branch origin/feature/CL-2208
 ```
 
 ---
@@ -491,6 +513,152 @@ $ parsec pr-status PROJ-1234 --json
 ```
 
 Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
+---
+
+### `parsec ci [ticket] [--watch] [--all]`
+
+Check CI/CD pipeline status for a ticket's PR. Shows individual check runs with status, duration, and an overall summary.
+
+```
+parsec ci [ticket] [--watch] [--all]
+```
+
+| Option | Description |
+|--------|-------------|
+| `ticket` | Ticket identifier (auto-detects current worktree if omitted) |
+| `--watch` | Poll CI every 5s until all checks complete |
+| `--all` | Show CI for all shipped PRs |
+
+```bash
+# Auto-detect from current worktree
+$ parsec ci
+CI for PROJ-1234 (PR #42, a1b2c3d)
+┌────────────┬───────────┬──────────┐
+│ Check      │ Status    │ Duration │
+├────────────┼───────────┼──────────┤
+│ Tests      │ ✓ passed  │ 2m 15s   │
+│ Build      │ ✓ passed  │ 1m 42s   │
+│ Lint       │ ● running │ running… │
+└────────────┴───────────┴──────────┘
+✓ CI: 2/3 — 2 passed, 1 running
+
+# Check a specific ticket
+$ parsec ci PROJ-1234
+
+# Watch mode — refreshes every 5s until done
+$ parsec ci PROJ-1234 --watch
+
+# All shipped PRs
+$ parsec ci --all
+
+# JSON output
+$ parsec ci PROJ-1234 --json
+```
+
+Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
+
+---
+
+### `parsec merge [ticket] [--rebase] [--no-wait] [--no-delete-branch]`
+
+Merge a ticket's PR directly from the terminal. Waits for CI to pass before merging, then cleans up the local worktree.
+
+```
+parsec merge [ticket] [--rebase] [--no-wait] [--no-delete-branch]
+```
+
+| Option | Description |
+|--------|-------------|
+| `ticket` | Ticket identifier (auto-detects current worktree if omitted) |
+| `--rebase` | Use rebase merge instead of squash (default: squash) |
+| `--no-wait` | Skip CI check before merging |
+| `--no-delete-branch` | Keep remote branch after merge |
+
+```bash
+# Squash merge (default)
+$ parsec merge PROJ-1234
+Waiting for CI to pass... ✓
+Merged PR #42 for PROJ-1234!
+  Method: squash
+  SHA:    a1b2c3d
+
+# Rebase merge
+$ parsec merge PROJ-1234 --rebase
+
+# Skip CI wait
+$ parsec merge PROJ-1234 --no-wait
+
+# JSON output
+$ parsec merge PROJ-1234 --json
+```
+
+Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
+
+---
+
+### `parsec diff [ticket] [--stat] [--name-only]`
+
+View changes in a worktree compared to its base branch. Uses merge-base for accurate comparison.
+
+```
+parsec diff [ticket] [--stat] [--name-only]
+```
+
+| Option | Description |
+|--------|-------------|
+| `ticket` | Ticket identifier (auto-detects current worktree if omitted) |
+| `--stat` | Show file-level summary only |
+| `--name-only` | List changed file names only |
+
+```bash
+# Full diff for current worktree
+$ parsec diff
+
+# File summary
+$ parsec diff PROJ-1234 --stat
+
+# Just file names
+$ parsec diff --name-only
+
+# JSON output (changed files list)
+$ parsec diff PROJ-1234 --json
+```
+
+---
+
+### `parsec stack [--sync]`
+
+View and manage stacked PR dependencies. Worktrees created with `--on` form a dependency chain.
+
+```
+parsec stack [--sync]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--sync` | Rebase the entire stack chain |
+
+```bash
+# Create a stack
+$ parsec start PROJ-1 --title "Add models"
+$ parsec start PROJ-2 --on PROJ-1 --title "Add API endpoints"
+$ parsec start PROJ-3 --on PROJ-2 --title "Add frontend"
+
+# View the dependency graph
+$ parsec stack
+Stack dependency graph:
+└── PROJ-1 Add models
+    └── PROJ-2 Add API endpoints
+        └── PROJ-3 Add frontend
+
+# Sync the entire stack
+$ parsec stack --sync
+
+# Ship creates PRs with correct base branches
+$ parsec ship PROJ-1   # PR to main
+$ parsec ship PROJ-2   # PR to feature/PROJ-1
+$ parsec ship PROJ-3   # PR to feature/PROJ-2
+```
 ---
 
 ### `parsec config`
