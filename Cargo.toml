@@ -1,6 +1,6 @@
 [package]
 name = "git-parsec"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 authors = ["erishforG"]
 description = "Git worktree lifecycle manager — ticket to PR in one command. Parallel AI agent workflows with Jira & GitHub Issues integration."
