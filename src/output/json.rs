@@ -75,6 +75,25 @@ pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str
     println!("{}", value);
 }
 
+pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)]) {
+    let value: Vec<_> = statuses
+        .iter()
+        .map(|(ticket, s)| {
+            json!({
+                "ticket": ticket,
+                "pr_number": s.number,
+                "title": s.title,
+                "state": s.state,
+                "ci_status": s.ci_status,
+                "review_status": s.review_status,
+                "mergeable": s.mergeable,
+                "url": s.url,
+            })
+        })
+        .collect();
+    emit(&value);
+}
+
 pub fn print_undo(entry: &OpEntry) {
     let value = json!({
         "action": "undo",

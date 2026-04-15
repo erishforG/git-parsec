@@ -117,6 +117,14 @@ pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str
     }
 }
 
+pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)], mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_pr_status(statuses),
+        Mode::Human => human::print_pr_status(statuses),
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig, mode: Mode) {
     match mode {
         Mode::Quiet => {}

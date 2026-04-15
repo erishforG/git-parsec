@@ -466,6 +466,33 @@ Opening https://github.com/org/repo/pull/42
 
 ---
 
+### `parsec pr-status [ticket]`
+
+Check the CI and review status of shipped PRs. Shows CI check results, review approvals, and merge state in a color-coded table.
+
+```
+parsec pr-status [ticket]
+```
+
+```bash
+# Check a specific ticket's PR
+$ parsec pr-status PROJ-1234
+┌───────────┬─────┬────────┬──────────┬──────────────┐
+│ Ticket    │ PR  │ State  │ CI       │ Reviews      │
+├───────────┼─────┼────────┼──────────┼──────────────┤
+│ PROJ-1234 │ #42 │ open   │ ✓ passed │ ✓ approved   │
+└───────────┴─────┴────────┴──────────┴──────────────┘
+
+# Check all shipped PRs
+$ parsec pr-status
+
+# JSON output
+$ parsec pr-status PROJ-1234 --json
+```
+
+Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
+---
+
 ### `parsec config`
 
 ```bash
