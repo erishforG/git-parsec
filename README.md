@@ -574,6 +574,35 @@ Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
 
 ---
 
+### `parsec diff [ticket] [--stat] [--name-only]`
+
+View changes in a worktree compared to its base branch. Uses merge-base for accurate comparison.
+
+```
+parsec diff [ticket] [--stat] [--name-only]
+```
+
+| Option | Description |
+|--------|-------------|
+| `ticket` | Ticket identifier (auto-detects current worktree if omitted) |
+| `--stat` | Show file-level summary only |
+| `--name-only` | List changed file names only |
+
+```bash
+# Full diff for current worktree
+$ parsec diff
+
+# File summary
+$ parsec diff PROJ-1234 --stat
+
+# Just file names
+$ parsec diff --name-only
+
+# JSON output (changed files list)
+$ parsec diff PROJ-1234 --json
+```
+---
+
 ### `parsec config`
 
 ```bash

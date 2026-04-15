@@ -660,6 +660,67 @@ pub async fn ci(
     }
 }
 
+pub async fn diff(
+    repo: &Path,
+    ticket: Option<&str>,
+    stat: bool,
+    name_only: bool,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config)?;
+
+    // Resolve workspace
+    let ws = if let Some(t) = ticket {
+        manager.get(t)?
+    } else {
+        let cwd = std::env::current_dir()?;
+        let all_ws = manager.list()?;
+        all_ws
+            .into_iter()
+            .find(|w| cwd.starts_with(&w.path))
+            .ok_or_else(|| anyhow::anyhow!("not inside a parsec worktree. Specify a ticket."))?
+    };
+
+    // Find merge base
+    let merge_base = git::run_output(
+        &ws.path,
+        &["merge-base", &format!("origin/{}", ws.base_branch), "HEAD"],
+    )?;
+    let merge_base = merge_base.trim();
+
+    if name_only {
+        let output = git::run_output(&ws.path, &["diff", "--name-only", merge_base])?;
+        let files: Vec<String> = output.lines().map(|l| l.to_string()).collect();
+        output::print_diff_names(&files, &ws.ticket, mode);
+    } else if stat {
+        let output = git::run_output(&ws.path, &["diff", "--stat", merge_base])?;
+        output::print_diff_stat(&output, &ws.ticket, mode);
+    } else {
+        // Full diff — just pass through to terminal in human mode
+        if mode == Mode::Json {
+            let output = git::run_output(&ws.path, &["diff", "--name-status", merge_base])?;
+            let files: Vec<(String, String)> = output
+                .lines()
+                .filter_map(|l| {
+                    let mut parts = l.splitn(2, '\t');
+                    let status = parts.next()?.to_string();
+                    let file = parts.next()?.to_string();
+                    Some((status, file))
+                })
+                .collect();
+            output::print_diff_full_json(&files, &ws.ticket);
+        } else if mode == Mode::Human {
+            // Pass through with color
+            let _ = std::process::Command::new("git")
+                .args(["diff", "--color=always", merge_base])
+                .current_dir(&ws.path)
+                .status();
+        }
+    }
+    Ok(())
+}
+
 pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;

@@ -128,6 +128,24 @@ pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)]) {
     emit(&value);
 }
 
+pub fn print_diff_names(files: &[String], ticket: &str) {
+    let value = json!({
+        "ticket": ticket,
+        "files": files,
+        "count": files.len(),
+    });
+    println!("{}", value);
+}
+
+pub fn print_diff_full(files: &[(String, String)], ticket: &str) {
+    let value = json!({
+        "ticket": ticket,
+        "changes": files.iter().map(|(status, file)| json!({"status": status, "file": file})).collect::<Vec<_>>(),
+        "count": files.len(),
+    });
+    println!("{}", value);
+}
+
 pub fn print_undo(entry: &OpEntry) {
     let value = json!({
         "action": "undo",

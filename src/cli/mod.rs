@@ -148,6 +148,21 @@ pub enum Command {
         all: bool,
     },
 
+    /// View changes in a worktree compared to base branch
+    ///
+    /// Shows the diff between the worktree branch and its base branch
+    /// using the merge-base as the comparison point.
+    Diff {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+        /// Show file-level summary only
+        #[arg(long)]
+        stat: bool,
+        /// List changed file names only
+        #[arg(long)]
+        name_only: bool,
+    },
+
     /// Print workspace path for a ticket (use with cd)
     ///
     /// Outputs the absolute path to the worktree for a given ticket.
@@ -353,6 +368,11 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Ci { ticket, watch, all } => {
             commands::ci(&repo_path, ticket.as_deref(), watch, all, output_mode).await
         }
+        Command::Diff {
+            ticket,
+            stat,
+            name_only,
+        } => commands::diff(&repo_path, ticket.as_deref(), stat, name_only, output_mode).await,
         Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
         Command::Switch { ticket } => {
             commands::switch(&repo_path, ticket.as_deref(), output_mode).await
