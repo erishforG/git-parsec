@@ -188,6 +188,15 @@ pub enum ConfigAction {
         #[arg(default_value = "zsh")]
         shell: String,
     },
+    /// Install man page
+    ///
+    /// Generates and installs the parsec(1) man page so that
+    /// `man parsec` works. Requires write access to the man directory.
+    Man {
+        /// Man page base directory (default: /usr/local/share/man)
+        #[arg(long, default_value = "/usr/local/share/man")]
+        dir: PathBuf,
+    },
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -233,6 +242,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,
             ConfigAction::Shell { shell } => commands::config_shell(&shell, output_mode).await,
+            ConfigAction::Man { dir } => commands::config_man(&dir).await,
         },
     }
 }
