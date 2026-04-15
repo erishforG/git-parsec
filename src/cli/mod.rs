@@ -133,6 +133,24 @@ pub enum Command {
         strategy: String,
     },
 
+    /// Open PR/MR or ticket page in browser
+    ///
+    /// Opens the associated PR/MR URL (if shipped) or the ticket tracker
+    /// page in your default browser. Use --pr to force opening the PR,
+    /// or --ticket to force opening the tracker page.
+    Open {
+        /// Ticket identifier
+        ticket: String,
+
+        /// Force open the PR/MR page
+        #[arg(long)]
+        pr: bool,
+
+        /// Force open the ticket tracker page
+        #[arg(long)]
+        ticket_page: bool,
+    },
+
     /// Import an existing branch into parsec management
     ///
     /// Brings an existing branch under parsec lifecycle management.
@@ -264,6 +282,11 @@ pub async fn run(cli: Cli) -> Result<()> {
             branch,
             title,
         } => commands::adopt(&repo_path, &ticket, branch.as_deref(), title, output_mode).await,
+        Command::Open {
+            ticket,
+            pr,
+            ticket_page,
+        } => commands::open(&repo_path, &ticket, pr, ticket_page, output_mode).await,
         Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
         Command::Switch { ticket } => {
             commands::switch(&repo_path, ticket.as_deref(), output_mode).await

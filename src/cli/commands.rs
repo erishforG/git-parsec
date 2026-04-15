@@ -262,6 +262,93 @@ pub async fn clean(repo: &Path, all: bool, dry_run: bool, mode: Mode) -> Result<
     Ok(())
 }
 
+pub async fn open(
+    repo: &Path,
+    ticket: &str,
+    force_pr: bool,
+    force_ticket: bool,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+
+    // Try to find PR URL from oplog
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let pr_url: Option<String> = oplog.get_entries(Some(ticket)).iter().rev().find_map(|e| {
+        if matches!(e.op, crate::oplog::OpKind::Ship) {
+            // PR URL is after " -> " in the detail string
+            e.detail.split(" -> ").nth(1).map(|s| s.to_string())
+        } else {
+            None
+        }
+    });
+
+    // Try to construct ticket tracker URL
+    use crate::config::TrackerProvider;
+    let ticket_url = match config.tracker.provider {
+        TrackerProvider::Jira => config
+            .tracker
+            .jira
+            .as_ref()
+            .map(|j| format!("{}/browse/{}", j.base_url.trim_end_matches('/'), ticket)),
+        TrackerProvider::Github => git::run_output(repo, &["remote", "get-url", "origin"])
+            .ok()
+            .map(|url| {
+                let url = url
+                    .trim_end_matches(".git")
+                    .replace("git@github.com:", "https://github.com/");
+                format!("{}/issues/{}", url, ticket.trim_start_matches('#'))
+            }),
+        TrackerProvider::Gitlab => config.tracker.gitlab.as_ref().map(|g| {
+            let base = g.base_url.trim_end_matches('/');
+            git::run_output(repo, &["remote", "get-url", "origin"])
+                .ok()
+                .and_then(|url| {
+                    let path = url
+                        .trim_end_matches(".git")
+                        .rsplit_once("gitlab.com")
+                        .map(|(_, p)| p.trim_start_matches([':', '/']))?;
+                    Some(format!("{}/{}/-/issues/{}", base, path, ticket))
+                })
+                .unwrap_or_else(|| format!("{}/-/issues/{}", base, ticket))
+        }),
+        TrackerProvider::None => None,
+    };
+
+    // Decide which URL to open
+    let url = if force_pr {
+        pr_url.ok_or_else(|| anyhow::anyhow!("no PR found for ticket {ticket}. Ship it first."))?
+    } else if force_ticket {
+        ticket_url
+            .ok_or_else(|| anyhow::anyhow!("no ticket URL for {ticket}. Configure a tracker."))?
+    } else {
+        // Default: PR if available, otherwise ticket
+        pr_url.or(ticket_url).ok_or_else(|| {
+            anyhow::anyhow!("no URL found for {ticket}. Ship it or configure a tracker.")
+        })?
+    };
+
+    // Open in browser
+    #[cfg(target_os = "macos")]
+    let open_cmd = "open";
+    #[cfg(not(target_os = "macos"))]
+    let open_cmd = "xdg-open";
+
+    std::process::Command::new(open_cmd)
+        .arg(&url)
+        .spawn()
+        .with_context(|| format!("failed to open browser with {open_cmd}"))?;
+
+    if mode == Mode::Json {
+        let value = serde_json::json!({ "action": "open", "ticket": ticket, "url": url });
+        println!("{}", value);
+    } else if mode != Mode::Quiet {
+        println!("Opening {}", url);
+    }
+
+    Ok(())
+}
+
 pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
