@@ -437,6 +437,35 @@ $ parsec sync --strategy merge
 
 ---
 
+### `parsec open <ticket>`
+
+Open the associated PR/MR or ticket tracker page in your default browser. If the ticket has been shipped, opens the PR by default; otherwise opens the tracker page.
+
+```
+parsec open <ticket> [--pr] [--ticket-page]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--pr` | Force open the PR/MR page |
+| `--ticket-page` | Force open the ticket tracker page |
+
+```bash
+# Open PR if shipped, otherwise ticket page
+$ parsec open PROJ-1234
+Opening https://github.com/org/repo/pull/42
+
+# Force open the Jira ticket
+$ parsec open PROJ-1234 --ticket-page
+Opening https://yourcompany.atlassian.net/browse/PROJ-1234
+
+# Force open the PR
+$ parsec open PROJ-1234 --pr
+Opening https://github.com/org/repo/pull/42
+```
+
+---
+
 ### `parsec config`
 
 ```bash
