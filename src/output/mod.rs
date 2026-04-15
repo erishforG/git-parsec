@@ -147,6 +147,14 @@ pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)], mode: Mod
     }
 }
 
+pub fn print_stack(workspaces: &[Workspace], mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_stack(workspaces),
+        Mode::Human => human::print_stack(workspaces),
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig, mode: Mode) {
     match mode {
         Mode::Quiet => {}

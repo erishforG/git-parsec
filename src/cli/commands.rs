@@ -17,6 +17,7 @@ pub async fn start(
     ticket: &str,
     base: Option<&str>,
     title: Option<String>,
+    on: Option<&str>,
     mode: Mode,
 ) -> Result<()> {
     let config = ParsecConfig::load()?;
@@ -37,7 +38,7 @@ pub async fn start(
     };
 
     let manager = WorktreeManager::new(repo, &config)?;
-    let workspace = manager.create(ticket, base, ticket_title)?;
+    let workspace = manager.create(ticket, base, ticket_title, on)?;
 
     output::print_start(&workspace, mode);
 
@@ -947,7 +948,7 @@ pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
                 ],
             )?;
 
-            // Restore state
+            // Restore state (parent_ticket is lost on undo — acceptable)
             let workspace = crate::worktree::Workspace {
                 ticket: ticket.to_owned(),
                 path: worktree_path,
@@ -956,6 +957,7 @@ pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
                 created_at: chrono::Utc::now(),
                 ticket_title: undo_info.ticket_title.clone(),
                 status: crate::worktree::WorkspaceStatus::Active,
+                parent_ticket: None,
             };
 
             let mut state = crate::worktree::ParsecState::load(&repo_root)?;
@@ -977,6 +979,110 @@ pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
     oplog.save(&repo_root)?;
 
     output::print_undo(&last, mode);
+    Ok(())
+}
+
+pub async fn stack(repo: &Path, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config)?;
+    let workspaces = manager.list()?;
+
+    // Build the set of workspaces that are part of any stack:
+    // either they have a parent, or they ARE a parent of something.
+    let stacked: Vec<_> = workspaces
+        .iter()
+        .filter(|w| {
+            w.parent_ticket.is_some()
+                || workspaces
+                    .iter()
+                    .any(|other| other.parent_ticket.as_deref() == Some(&w.ticket))
+        })
+        .cloned()
+        .collect();
+
+    if stacked.is_empty() {
+        if mode == Mode::Human {
+            println!(
+                "No stacked worktrees. Use `parsec start <ticket> --on <parent>` to create a stack."
+            );
+        }
+        return Ok(());
+    }
+
+    output::print_stack(&stacked, mode);
+    Ok(())
+}
+
+pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config)?;
+    let workspaces = manager.list()?;
+
+    let mut synced = Vec::new();
+    let mut failed = Vec::new();
+
+    // Find roots: workspaces that have children but no parent themselves
+    let roots: Vec<_> = workspaces
+        .iter()
+        .filter(|w| {
+            w.parent_ticket.is_none()
+                && workspaces
+                    .iter()
+                    .any(|other| other.parent_ticket.as_deref() == Some(&w.ticket))
+        })
+        .collect();
+
+    if roots.is_empty() {
+        if mode == Mode::Human {
+            println!(
+                "No stacked worktrees to sync. Use `parsec start <ticket> --on <parent>` to create a stack."
+            );
+        }
+        return Ok(());
+    }
+
+    for root in &roots {
+        // First sync root with its base branch
+        if let Err(e) = git::run(&root.path, &["fetch", "origin", &root.base_branch]) {
+            failed.push((root.ticket.clone(), format!("fetch failed: {e}")));
+            continue;
+        }
+        let remote_base = format!("origin/{}", root.base_branch);
+        if let Err(e) = git::run(&root.path, &["rebase", &remote_base]) {
+            let _ = git::run(&root.path, &["rebase", "--abort"]);
+            failed.push((root.ticket.clone(), format!("rebase failed: {e}")));
+            continue;
+        }
+        synced.push(root.ticket.clone());
+
+        // Then rebase children onto their parent, in topological order
+        let mut queue: Vec<&str> = vec![&root.ticket];
+        while let Some(parent_ticket) = queue.first().copied() {
+            queue.remove(0);
+            let children: Vec<_> = workspaces
+                .iter()
+                .filter(|w| w.parent_ticket.as_deref() == Some(parent_ticket))
+                .collect();
+            for child in &children {
+                let parent_ws = workspaces
+                    .iter()
+                    .find(|w| w.ticket == parent_ticket)
+                    .unwrap();
+                if let Err(e) = git::run(&child.path, &["rebase", &parent_ws.branch]) {
+                    let _ = git::run(&child.path, &["rebase", "--abort"]);
+                    failed.push((
+                        child.ticket.clone(),
+                        format!("rebase onto {} failed: {e}", parent_ticket),
+                    ));
+                } else {
+                    synced.push(child.ticket.clone());
+                    queue.push(&child.ticket);
+                }
+            }
+        }
+    }
+
+    output::print_sync(&synced, &failed, "rebase (stack)", mode);
     Ok(())
 }
 

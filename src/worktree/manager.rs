@@ -42,11 +42,20 @@ impl WorktreeManager {
         ticket: &str,
         base: Option<&str>,
         ticket_title: Option<String>,
+        parent_ticket: Option<&str>,
     ) -> Result<Workspace> {
         let base_branch = match base {
             Some(b) => b.to_owned(),
-            None => git::get_default_branch(&self.repo_root)
-                .context("failed to detect default branch")?,
+            None => {
+                if let Some(parent) = parent_ticket {
+                    // When stacking, use the parent's branch as base
+                    let parent_ws = self.get(parent)?;
+                    parent_ws.branch.clone()
+                } else {
+                    git::get_default_branch(&self.repo_root)
+                        .context("failed to detect default branch")?
+                }
+            }
         };
 
         let branch = format!("{}{}", self.config.workspace.branch_prefix, ticket);
@@ -89,6 +98,7 @@ impl WorktreeManager {
             created_at: Utc::now(),
             ticket_title,
             status: WorkspaceStatus::Active,
+            parent_ticket: parent_ticket.map(|s| s.to_owned()),
         };
 
         let mut state =
@@ -243,6 +253,7 @@ impl WorktreeManager {
             created_at: Utc::now(),
             ticket_title,
             status: WorkspaceStatus::Active,
+            parent_ticket: None,
         };
 
         state.add_workspace(workspace.clone());

@@ -65,6 +65,7 @@ Removed 1 worktree(s):
 - **Status dashboard** -- See all parallel work at a glance
 - **Auto-cleanup** -- Remove worktrees for merged branches automatically
 - **GitHub and GitLab** -- PR and MR creation for both platforms
+- **Stacked PRs** -- Create dependent PR chains with `--on` and sync the entire stack
 
 ## Installation
 
@@ -125,13 +126,14 @@ $ parsec log
 Create an isolated worktree for a ticket. Fetches the ticket title from your configured tracker (Jira, GitHub Issues) or accepts a manual title.
 
 ```
-parsec start <ticket> [--base <branch>] [--title "text"]
+parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `-b, --base <branch>` | Base branch to create from (default: main/master) |
 | `--title "text"` | Set ticket title manually, skip tracker lookup |
+| `--on <ticket>` | Stack on another ticket's branch (for dependent PRs) |
 
 ```bash
 # With Jira integration (title auto-fetched)
@@ -600,6 +602,42 @@ $ parsec diff --name-only
 
 # JSON output (changed files list)
 $ parsec diff PROJ-1234 --json
+```
+
+---
+
+### `parsec stack [--sync]`
+
+View and manage stacked PR dependencies. Worktrees created with `--on` form a dependency chain.
+
+```
+parsec stack [--sync]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--sync` | Rebase the entire stack chain |
+
+```bash
+# Create a stack
+$ parsec start PROJ-1 --title "Add models"
+$ parsec start PROJ-2 --on PROJ-1 --title "Add API endpoints"
+$ parsec start PROJ-3 --on PROJ-2 --title "Add frontend"
+
+# View the dependency graph
+$ parsec stack
+Stack dependency graph:
+└── PROJ-1 Add models
+    └── PROJ-2 Add API endpoints
+        └── PROJ-3 Add frontend
+
+# Sync the entire stack
+$ parsec stack --sync
+
+# Ship creates PRs with correct base branches
+$ parsec ship PROJ-1   # PR to main
+$ parsec ship PROJ-2   # PR to feature/PROJ-1
+$ parsec ship PROJ-3   # PR to feature/PROJ-2
 ```
 ---
 

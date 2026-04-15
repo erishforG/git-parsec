@@ -49,6 +49,10 @@ pub enum Command {
         /// Manually set the ticket title (skips tracker lookup)
         #[arg(long)]
         title: Option<String>,
+
+        /// Create stacked on another ticket's branch
+        #[arg(long)]
+        on: Option<String>,
     },
 
     /// List all active worktrees
@@ -254,6 +258,16 @@ pub enum Command {
         dry_run: bool,
     },
 
+    /// Show or manage stacked PR dependencies
+    ///
+    /// Displays the dependency graph of worktrees created with --on.
+    /// Use `parsec stack --sync` to rebase the entire chain.
+    Stack {
+        /// Sync the entire stack (rebase chain)
+        #[arg(long)]
+        sync: bool,
+    },
+
     /// Configure parsec
     ///
     /// Manage parsec configuration: run interactive setup, view current
@@ -318,7 +332,18 @@ pub async fn run(cli: Cli) -> Result<()> {
             ticket,
             base,
             title,
-        } => commands::start(&repo_path, &ticket, base.as_deref(), title, output_mode).await,
+            on,
+        } => {
+            commands::start(
+                &repo_path,
+                &ticket,
+                base.as_deref(),
+                title,
+                on.as_deref(),
+                output_mode,
+            )
+            .await
+        }
         Command::List => commands::list(&repo_path, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
@@ -381,6 +406,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
         }
         Command::Undo { dry_run } => commands::undo(&repo_path, dry_run, output_mode).await,
+        Command::Stack { sync } => {
+            if sync {
+                commands::stack_sync(&repo_path, output_mode).await
+            } else {
+                commands::stack(&repo_path, output_mode).await
+            }
+        }
         Command::Config { action } => match action {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,
