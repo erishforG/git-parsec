@@ -827,13 +827,16 @@ Token priority: `PARSEC_*_TOKEN` > platform-specific variables.
 | Feature | parsec | GitButler | worktrunk | git worktree | git-town |
 |---------|--------|-----------|-----------|--------------|----------|
 | Ticket tracker integration | Jira + GitHub Issues | No | No | No | No |
-| Physical isolation | Yes (worktrees) | No (virtual branches) | Yes | Yes | No |
+| Physical isolation | Yes (worktrees) | No (virtual branches) | Yes (worktrees) | Yes | No |
 | Conflict detection | Cross-worktree | N/A | No | No | No |
 | One-step ship (push+PR+clean) | Yes | No | No | No | Yes |
-| GitHub + GitLab | Both | Both | No | No | No |
-| Operation history + undo | Yes | Yes | No | No | No |
-| JSON output | Yes | Yes | Yes | No | No |
-| Auto-cleanup merged | Yes | No | Yes | Manual | No |
+| GitHub + GitLab | Both | Both | GitHub | No | GitHub, GitLab, Gitea, Bitbucket |
+| Operation history + undo | Yes | Yes | No | No | Yes (undo) |
+| JSON output | Yes | Yes | No | No | No |
+| CI monitoring | Yes (--watch) | No | No | No | No |
+| Stacked PRs | Yes | Yes | No | No | Yes |
+| Auto-cleanup merged | Yes | No | No | Manual | No |
+| Post-create hooks | Yes | No | Yes | No | No |
 | GUI | CLI only | Desktop + TUI | CLI | CLI | CLI |
 | Zero config start | Yes | No | Yes | No | No |
 

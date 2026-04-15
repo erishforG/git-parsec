@@ -1862,11 +1862,19 @@
           <tbody>
             <tr>
               <td>Ticket tracker integration</td>
-              <td class="highlight"><span class="check">Jira + GitHub</span></td>
+              <td class="highlight"><span class="check">Jira + GitHub Issues</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Physical isolation (worktrees)</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="partial">Virtual branches</span></td>
             </tr>
             <tr>
               <td>Cross-worktree conflict detection</td>
@@ -1881,11 +1889,43 @@
               <td class="highlight"><span class="check">GitHub + GitLab</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
-              <td><span class="partial">Partial</span></td>
-              <td><span class="partial">PR only</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Operation history &amp; undo</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="check">Yes (undo)</span></td>
+              <td><span class="check">Yes</span></td>
             </tr>
             <tr>
               <td>JSON output for AI agents</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="check">Yes</span></td>
+            </tr>
+            <tr>
+              <td>CI monitoring</td>
+              <td class="highlight"><span class="check">Yes (--watch)</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Stacked PRs</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+            </tr>
+            <tr>
+              <td>Post-create hooks</td>
               <td class="highlight"><span class="check">Yes</span></td>
               <td><span class="check">Yes</span></td>
               <td><span class="cross">--</span></td>
@@ -1895,55 +1935,23 @@
             <tr>
               <td>Auto-cleanup merged worktrees</td>
               <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
               <td><span class="partial">Manual</span></td>
               <td><span class="cross">--</span></td>
-              <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
             </tr>
             <tr>
-              <td>Status dashboard</td>
+              <td>Forge support</td>
+              <td class="highlight"><span class="check">GitHub + GitLab</span></td>
+              <td><span class="partial">GitHub</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="check">GH, GL, Gitea, BB</span></td>
+              <td><span class="check">GitHub + GitLab</span></td>
+            </tr>
+            <tr>
+              <td>Zero config start</td>
               <td class="highlight"><span class="check">Yes</span></td>
               <td><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="check">Yes</span></td>
-            </tr>
-            <tr>
-              <td>Post-create hooks</td>
-              <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-            </tr>
-            <tr>
-              <td>Shell integration (cd into worktree)</td>
-              <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-            </tr>
-            <tr>
-              <td>Operation history &amp; undo</td>
-              <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-            </tr>
-            <tr>
-              <td>Adopt existing branches</td>
-              <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-            </tr>
-            <tr>
-              <td>Attach to existing branch</td>
-              <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
