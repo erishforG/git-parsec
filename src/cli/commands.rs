@@ -273,6 +273,70 @@ pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
+pub async fn sync(
+    repo: &Path,
+    ticket: Option<&str>,
+    all: bool,
+    strategy: &str,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config)?;
+
+    let workspaces = if all {
+        let ws = manager.list()?;
+        if ws.is_empty() {
+            anyhow::bail!("no active workspaces to sync");
+        }
+        ws
+    } else if let Some(t) = ticket {
+        vec![manager.get(t)?]
+    } else {
+        // Try to detect which worktree we're in
+        let cwd = std::env::current_dir()?;
+        let all_ws = manager.list()?;
+        let found = all_ws
+            .into_iter()
+            .find(|w| cwd.starts_with(&w.path))
+            .ok_or_else(|| {
+                anyhow::anyhow!("not inside a parsec worktree. Specify a ticket or use --all.")
+            })?;
+        vec![found]
+    };
+
+    let mut synced = Vec::new();
+    let mut failed = Vec::new();
+
+    for ws in &workspaces {
+        let ws_path = std::path::Path::new(&ws.path);
+        // Fetch the base branch from remote
+        if let Err(e) = git::run(ws_path, &["fetch", "origin", &ws.base_branch]) {
+            failed.push((ws.ticket.clone(), format!("fetch failed: {e}")));
+            continue;
+        }
+        let remote_base = format!("origin/{}", ws.base_branch);
+        let result = match strategy {
+            "merge" => git::run(ws_path, &["merge", &remote_base]),
+            _ => git::run(ws_path, &["rebase", &remote_base]),
+        };
+        match result {
+            Ok(()) => synced.push(ws.ticket.clone()),
+            Err(e) => {
+                // Abort failed rebase/merge to leave worktree clean
+                if strategy != "merge" {
+                    let _ = git::run(ws_path, &["rebase", "--abort"]);
+                } else {
+                    let _ = git::run(ws_path, &["merge", "--abort"]);
+                }
+                failed.push((ws.ticket.clone(), format!("{strategy} failed: {e}")));
+            }
+        }
+    }
+
+    output::print_sync(&synced, &failed, strategy, mode);
+    Ok(())
+}
+
 pub async fn switch(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
