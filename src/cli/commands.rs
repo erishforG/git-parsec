@@ -262,6 +262,137 @@ pub async fn clean(repo: &Path, all: bool, dry_run: bool, mode: Mode) -> Result<
     Ok(())
 }
 
+pub async fn open(
+    repo: &Path,
+    ticket: &str,
+    force_pr: bool,
+    force_ticket: bool,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+
+    // Try to find PR URL from oplog
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let pr_url: Option<String> = oplog.get_entries(Some(ticket)).iter().rev().find_map(|e| {
+        if matches!(e.op, crate::oplog::OpKind::Ship) {
+            // PR URL is after " -> " in the detail string
+            e.detail.split(" -> ").nth(1).map(|s| s.to_string())
+        } else {
+            None
+        }
+    });
+
+    // Try to construct ticket tracker URL
+    use crate::config::TrackerProvider;
+    let ticket_url = match config.tracker.provider {
+        TrackerProvider::Jira => config
+            .tracker
+            .jira
+            .as_ref()
+            .map(|j| format!("{}/browse/{}", j.base_url.trim_end_matches('/'), ticket)),
+        TrackerProvider::Github => git::run_output(repo, &["remote", "get-url", "origin"])
+            .ok()
+            .map(|url| {
+                let url = url
+                    .trim_end_matches(".git")
+                    .replace("git@github.com:", "https://github.com/");
+                format!("{}/issues/{}", url, ticket.trim_start_matches('#'))
+            }),
+        TrackerProvider::Gitlab => config.tracker.gitlab.as_ref().map(|g| {
+            let base = g.base_url.trim_end_matches('/');
+            git::run_output(repo, &["remote", "get-url", "origin"])
+                .ok()
+                .and_then(|url| {
+                    let path = url
+                        .trim_end_matches(".git")
+                        .rsplit_once("gitlab.com")
+                        .map(|(_, p)| p.trim_start_matches([':', '/']))?;
+                    Some(format!("{}/{}/-/issues/{}", base, path, ticket))
+                })
+                .unwrap_or_else(|| format!("{}/-/issues/{}", base, ticket))
+        }),
+        TrackerProvider::None => None,
+    };
+
+    // Decide which URL to open
+    let url = if force_pr {
+        pr_url.ok_or_else(|| anyhow::anyhow!("no PR found for ticket {ticket}. Ship it first."))?
+    } else if force_ticket {
+        ticket_url
+            .ok_or_else(|| anyhow::anyhow!("no ticket URL for {ticket}. Configure a tracker."))?
+    } else {
+        // Default: PR if available, otherwise ticket
+        pr_url.or(ticket_url).ok_or_else(|| {
+            anyhow::anyhow!("no URL found for {ticket}. Ship it or configure a tracker.")
+        })?
+    };
+
+    // Open in browser
+    #[cfg(target_os = "macos")]
+    let open_cmd = "open";
+    #[cfg(not(target_os = "macos"))]
+    let open_cmd = "xdg-open";
+
+    std::process::Command::new(open_cmd)
+        .arg(&url)
+        .spawn()
+        .with_context(|| format!("failed to open browser with {open_cmd}"))?;
+
+    if mode == Mode::Json {
+        let value = serde_json::json!({ "action": "open", "ticket": ticket, "url": url });
+        println!("{}", value);
+    } else if mode != Mode::Quiet {
+        println!("Opening {}", url);
+    }
+
+    Ok(())
+}
+
+pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()> {
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
+
+    // Find shipped entries with PR URLs
+    let entries: Vec<_> = oplog
+        .get_entries(ticket)
+        .into_iter()
+        .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+        .filter_map(|e| {
+            let url = e.detail.split(" -> ").nth(1)?;
+            // Extract PR number from URL (e.g. .../pull/42)
+            let number = url.rsplit('/').next()?.parse::<u64>().ok()?;
+            Some((
+                e.ticket.clone().unwrap_or_default(),
+                number,
+                url.to_string(),
+            ))
+        })
+        .collect();
+
+    if entries.is_empty() {
+        if let Some(t) = ticket {
+            anyhow::bail!("no shipped PR found for {t}. Ship it first with `parsec ship {t}`.");
+        } else {
+            anyhow::bail!("no shipped PRs found. Ship a ticket first with `parsec ship`.");
+        }
+    }
+
+    let mut statuses = Vec::new();
+    for (ticket_id, pr_number, _url) in &entries {
+        match crate::github::get_pr_status(&remote_url, *pr_number).await? {
+            Some(status) => statuses.push((ticket_id.clone(), status)),
+            None => {
+                anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
+            }
+        }
+    }
+
+    output::print_pr_status(&statuses, mode);
+    Ok(())
+}
+
 pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
@@ -273,12 +404,102 @@ pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
-pub async fn switch(repo: &Path, ticket: &str, mode: Mode) -> Result<()> {
+pub async fn sync(
+    repo: &Path,
+    ticket: Option<&str>,
+    all: bool,
+    strategy: &str,
+    mode: Mode,
+) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
 
-    let workspace = manager.get(ticket)?;
+    let workspaces = if all {
+        let ws = manager.list()?;
+        if ws.is_empty() {
+            anyhow::bail!("no active workspaces to sync");
+        }
+        ws
+    } else if let Some(t) = ticket {
+        vec![manager.get(t)?]
+    } else {
+        // Try to detect which worktree we're in
+        let cwd = std::env::current_dir()?;
+        let all_ws = manager.list()?;
+        let found = all_ws
+            .into_iter()
+            .find(|w| cwd.starts_with(&w.path))
+            .ok_or_else(|| {
+                anyhow::anyhow!("not inside a parsec worktree. Specify a ticket or use --all.")
+            })?;
+        vec![found]
+    };
 
+    let mut synced = Vec::new();
+    let mut failed = Vec::new();
+
+    for ws in &workspaces {
+        let ws_path = std::path::Path::new(&ws.path);
+        // Fetch the base branch from remote
+        if let Err(e) = git::run(ws_path, &["fetch", "origin", &ws.base_branch]) {
+            failed.push((ws.ticket.clone(), format!("fetch failed: {e}")));
+            continue;
+        }
+        let remote_base = format!("origin/{}", ws.base_branch);
+        let result = match strategy {
+            "merge" => git::run(ws_path, &["merge", &remote_base]),
+            _ => git::run(ws_path, &["rebase", &remote_base]),
+        };
+        match result {
+            Ok(()) => synced.push(ws.ticket.clone()),
+            Err(e) => {
+                // Abort failed rebase/merge to leave worktree clean
+                if strategy != "merge" {
+                    let _ = git::run(ws_path, &["rebase", "--abort"]);
+                } else {
+                    let _ = git::run(ws_path, &["merge", "--abort"]);
+                }
+                failed.push((ws.ticket.clone(), format!("{strategy} failed: {e}")));
+            }
+        }
+    }
+
+    output::print_sync(&synced, &failed, strategy, mode);
+    Ok(())
+}
+
+pub async fn switch(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config)?;
+
+    let ticket = match ticket {
+        Some(t) => t.to_string(),
+        None => {
+            let workspaces = manager.list()?;
+            if workspaces.is_empty() {
+                anyhow::bail!("no active workspaces. Run `parsec start <ticket>` to create one.");
+            }
+            let items: Vec<String> = workspaces
+                .iter()
+                .map(|w| {
+                    let title = w
+                        .ticket_title
+                        .as_deref()
+                        .map(|t| format!(" — {t}"))
+                        .unwrap_or_default();
+                    format!("{}{title}", w.ticket)
+                })
+                .collect();
+            let selection = dialoguer::Select::new()
+                .with_prompt("Switch to workspace")
+                .items(&items)
+                .default(0)
+                .interact()?;
+            workspaces[selection].ticket.clone()
+        }
+    };
+
+    let workspace = manager.get(&ticket)?;
     output::print_switch(&workspace, mode);
     Ok(())
 }
@@ -510,6 +731,13 @@ pub async fn config_man(dir: &Path) -> Result<()> {
 
     println!("Man page installed to {}", path.display());
     println!("Try: man parsec");
+    Ok(())
+}
+
+pub async fn config_completions(shell: clap_complete::Shell) -> Result<()> {
+    use clap::CommandFactory;
+    let mut cmd = super::Cli::command();
+    clap_complete::generate(shell, &mut cmd, "parsec", &mut std::io::stdout());
     Ok(())
 }
 

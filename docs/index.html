@@ -1608,25 +1608,25 @@
           </p>
         </div>
 
-        <!-- Feature 5: Shell Integration -->
+        <!-- Feature 5: Shell Integration & Completions -->
         <div class="feature-card reveal reveal-delay-2">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           </div>
-          <h3>Shell Integration</h3>
+          <h3>Shell Integration & Completions</h3>
           <p>
-            Add <code>eval "$(parsec config shell zsh)"</code> to your shell config and <code>parsec switch</code> teleports you into any worktree.
+            Auto-cd with <code>parsec switch</code>, tab-completions for zsh/bash/fish/powershell, and a man page — all built in.
           </p>
         </div>
 
-        <!-- Feature 6: Post-create Hooks -->
+        <!-- Feature 6: Sync -->
         <div class="feature-card reveal reveal-delay-3">
           <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           </div>
-          <h3>Post-create Hooks</h3>
+          <h3>Branch Sync</h3>
           <p>
-            Automatically run <code>npm install</code>, <code>cargo build</code>, or any setup command after creating a new worktree. Zero manual steps.
+            Keep worktrees fresh with <code>parsec sync</code> — rebase or merge the latest base branch into one or all worktrees at once.
           </p>
         </div>
 
@@ -1678,6 +1678,30 @@
             Made a mistake? <code>parsec undo</code> reverts the most recent operation. Use <code>--dry-run</code> to preview exactly what will be rolled back before committing.
           </p>
           <div class="feature-code">$ parsec undo --dry-run</div>
+        </div>
+
+        <!-- Feature 11: Open in Browser -->
+        <div class="feature-card reveal reveal-delay-2">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </div>
+          <h3>Open in Browser</h3>
+          <p>
+            <code>parsec open</code> launches the PR or ticket page in your browser. Works with GitHub, GitLab, and Jira.
+          </p>
+          <div class="feature-code">$ parsec open PROJ-1234</div>
+        </div>
+
+        <!-- Feature 12: PR Status -->
+        <div class="feature-card reveal reveal-delay-3">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <h3>PR Status Dashboard</h3>
+          <p>
+            <code>parsec pr-status</code> shows CI checks, review approvals, and merge state for all shipped PRs in one color-coded table.
+          </p>
+          <div class="feature-code">$ parsec pr-status PROJ-1234</div>
         </div>
       </div>
     </div>
@@ -1814,8 +1838,8 @@
         <div class="step-card reveal reveal-delay-2">
           <div class="step-number">02</div>
           <h3>Configure</h3>
-          <p>Run interactive setup to connect your Jira or GitHub Issues instance.</p>
-          <div class="step-code">parsec config init</div>
+          <p>Run interactive setup, enable shell integration and tab-completions.</p>
+          <div class="step-code">parsec config init<br>eval "$(parsec config completions zsh)"</div>
         </div>
         <div class="step-card reveal reveal-delay-3">
           <div class="step-number">03</div>

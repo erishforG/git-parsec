@@ -60,6 +60,7 @@ Removed 1 worktree(s):
 - **One-step shipping** -- `parsec ship` pushes, creates a GitHub PR or GitLab MR, and cleans up
 - **Adopt existing branches** -- Import branches already in progress with `parsec adopt`
 - **Operation history and undo** -- `parsec log` shows what happened, `parsec undo` reverts it
+- **Keep branches fresh** -- `parsec sync` rebases or merges the latest base branch into any worktree
 - **Agent-friendly output** -- `--json` flag on every command for machine consumption
 - **Status dashboard** -- See all parallel work at a glance
 - **Auto-cleanup** -- Remove worktrees for merged branches automatically
@@ -313,17 +314,24 @@ $ parsec conflicts
 
 ---
 
-### `parsec switch <ticket>`
+### `parsec switch [ticket]`
 
-Print the absolute path to a ticket's worktree. Designed for `cd $(parsec switch ...)`.
+Print the absolute path to a ticket's worktree. When called without a ticket, shows an interactive picker. Designed for `cd $(parsec switch ...)`.
 
 ```
-parsec switch <ticket>
+parsec switch [ticket]
 ```
 
 ```bash
+# Direct switch
 $ parsec switch PROJ-1234
 /home/user/myapp.PROJ-1234
+
+# Interactive picker (no argument)
+$ parsec switch
+? Switch to workspace ›
+❯ PROJ-1234 — Add user authentication
+  PROJ-5678 — Fix payment timeout
 
 # Use with cd
 $ cd $(parsec switch PROJ-1234)
@@ -398,6 +406,93 @@ Error: nothing to undo. Run `parsec log` to see operation history.
 
 ---
 
+### `parsec sync [ticket]`
+
+Fetch the latest base branch and rebase (or merge) the worktree on top. Detects the current worktree automatically when no ticket is given.
+
+```
+parsec sync [ticket] [--all] [--strategy rebase|merge]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--all` | Sync all active worktrees |
+| `--strategy` | `rebase` (default) or `merge` |
+
+```bash
+# Sync current worktree
+$ parsec sync
+✓ rebase 1 worktree(s):
+  - PROJ-1234
+
+# Sync a specific worktree
+$ parsec sync PROJ-5678
+
+# Sync all worktrees at once
+$ parsec sync --all
+
+# Use merge instead of rebase
+$ parsec sync --strategy merge
+```
+
+---
+
+### `parsec open <ticket>`
+
+Open the associated PR/MR or ticket tracker page in your default browser. If the ticket has been shipped, opens the PR by default; otherwise opens the tracker page.
+
+```
+parsec open <ticket> [--pr] [--ticket-page]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--pr` | Force open the PR/MR page |
+| `--ticket-page` | Force open the ticket tracker page |
+
+```bash
+# Open PR if shipped, otherwise ticket page
+$ parsec open PROJ-1234
+Opening https://github.com/org/repo/pull/42
+
+# Force open the Jira ticket
+$ parsec open PROJ-1234 --ticket-page
+Opening https://yourcompany.atlassian.net/browse/PROJ-1234
+
+# Force open the PR
+$ parsec open PROJ-1234 --pr
+Opening https://github.com/org/repo/pull/42
+```
+
+---
+
+### `parsec pr-status [ticket]`
+
+Check the CI and review status of shipped PRs. Shows CI check results, review approvals, and merge state in a color-coded table.
+
+```
+parsec pr-status [ticket]
+```
+
+```bash
+# Check a specific ticket's PR
+$ parsec pr-status PROJ-1234
+┌───────────┬─────┬────────┬──────────┬──────────────┐
+│ Ticket    │ PR  │ State  │ CI       │ Reviews      │
+├───────────┼─────┼────────┼──────────┼──────────────┤
+│ PROJ-1234 │ #42 │ open   │ ✓ passed │ ✓ approved   │
+└───────────┴─────┴────────┴──────────┴──────────────┘
+
+# Check all shipped PRs
+$ parsec pr-status
+
+# JSON output
+$ parsec pr-status PROJ-1234 --json
+```
+
+Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
+---
+
 ### `parsec config`
 
 ```bash
@@ -422,6 +517,12 @@ $ parsec config show
 
 # Output shell integration script
 $ parsec config shell zsh
+
+# Generate shell completions
+$ parsec config completions zsh
+
+# Install man page
+$ sudo parsec config man
 ```
 
 ---
@@ -461,6 +562,41 @@ After sourcing, `parsec switch <ticket>` will `cd` into the worktree directly:
 ```bash
 $ parsec switch PROJ-1234
 # Now you're in /home/user/myapp.PROJ-1234
+```
+
+---
+
+## Shell Completions
+
+Generate tab-completion scripts for your shell:
+
+```bash
+# Zsh — add to ~/.zshrc
+eval "$(parsec config completions zsh)"
+
+# Bash — add to ~/.bashrc
+eval "$(parsec config completions bash)"
+
+# Fish — add to ~/.config/fish/config.fish
+parsec config completions fish | source
+
+# Other shells
+parsec config completions elvish
+parsec config completions powershell
+```
+
+---
+
+## Man Page
+
+Install the man page so `man parsec` works:
+
+```bash
+sudo parsec config man
+# Man page installed to /usr/local/share/man/man1/parsec.1
+
+# Custom directory
+parsec config man --dir ~/.local/share/man
 ```
 
 ---

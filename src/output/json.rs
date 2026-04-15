@@ -65,6 +65,35 @@ pub fn print_config_show(config: &ParsecConfig) {
     emit(config);
 }
 
+pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str) {
+    let value = json!({
+        "action": "sync",
+        "strategy": strategy,
+        "synced": synced,
+        "failed": failed.iter().map(|(t, r)| json!({"ticket": t, "reason": r})).collect::<Vec<_>>(),
+    });
+    println!("{}", value);
+}
+
+pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)]) {
+    let value: Vec<_> = statuses
+        .iter()
+        .map(|(ticket, s)| {
+            json!({
+                "ticket": ticket,
+                "pr_number": s.number,
+                "title": s.title,
+                "state": s.state,
+                "ci_status": s.ci_status,
+                "review_status": s.review_status,
+                "mergeable": s.mergeable,
+                "url": s.url,
+            })
+        })
+        .collect();
+    emit(&value);
+}
+
 pub fn print_undo(entry: &OpEntry) {
     let value = json!({
         "action": "undo",

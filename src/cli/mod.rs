@@ -104,14 +104,60 @@ pub enum Command {
     /// any files that are being edited in more than one workspace.
     Conflicts,
 
+    /// Check PR/MR CI and review status
+    ///
+    /// Shows CI check results, review approvals, and merge status for
+    /// shipped PRs. Requires a GitHub/GitLab token.
+    PrStatus {
+        /// Ticket identifier (shows all shipped if omitted)
+        ticket: Option<String>,
+    },
+
     /// Print workspace path for a ticket (use with cd)
     ///
     /// Outputs the absolute path to the worktree for a given ticket.
+    /// When called without a ticket, shows an interactive picker.
     /// With shell integration (eval "$(parsec config shell zsh)"),
     /// this command changes your directory automatically.
     Switch {
+        /// Ticket identifier (interactive picker if omitted)
+        ticket: Option<String>,
+    },
+
+    /// Sync worktree with latest base branch changes
+    ///
+    /// Fetches the latest changes from the remote base branch and rebases
+    /// (or merges) the worktree branch on top. Use --all to sync every
+    /// active worktree at once. Strategy is configurable in config.toml.
+    Sync {
+        /// Ticket identifier (syncs current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Sync all active worktrees
+        #[arg(long)]
+        all: bool,
+
+        /// Sync strategy: rebase or merge (default: rebase)
+        #[arg(long, default_value = "rebase")]
+        strategy: String,
+    },
+
+    /// Open PR/MR or ticket page in browser
+    ///
+    /// Opens the associated PR/MR URL (if shipped) or the ticket tracker
+    /// page in your default browser. Use --pr to force opening the PR,
+    /// or --ticket to force opening the tracker page.
+    Open {
         /// Ticket identifier
         ticket: String,
+
+        /// Force open the PR/MR page
+        #[arg(long)]
+        pr: bool,
+
+        /// Force open the ticket tracker page
+        #[arg(long)]
+        ticket_page: bool,
     },
 
     /// Import an existing branch into parsec management
@@ -197,6 +243,14 @@ pub enum ConfigAction {
         #[arg(long, default_value = "/usr/local/share/man")]
         dir: PathBuf,
     },
+    /// Output shell completions
+    ///
+    /// Generates tab-completion scripts for your shell.
+    /// Add eval "$(parsec config completions zsh)" to your ~/.zshrc.
+    Completions {
+        /// Shell type (zsh, bash, fish, elvish, powershell)
+        shell: clap_complete::Shell,
+    },
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -227,13 +281,28 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Clean { all, dry_run } => {
             commands::clean(&repo_path, all, dry_run, output_mode).await
         }
+        Command::Sync {
+            ticket,
+            all,
+            strategy,
+        } => commands::sync(&repo_path, ticket.as_deref(), all, &strategy, output_mode).await,
         Command::Adopt {
             ticket,
             branch,
             title,
         } => commands::adopt(&repo_path, &ticket, branch.as_deref(), title, output_mode).await,
+        Command::Open {
+            ticket,
+            pr,
+            ticket_page,
+        } => commands::open(&repo_path, &ticket, pr, ticket_page, output_mode).await,
+        Command::PrStatus { ticket } => {
+            commands::pr_status(&repo_path, ticket.as_deref(), output_mode).await
+        }
         Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
-        Command::Switch { ticket } => commands::switch(&repo_path, &ticket, output_mode).await,
+        Command::Switch { ticket } => {
+            commands::switch(&repo_path, ticket.as_deref(), output_mode).await
+        }
         Command::Log { ticket, last } => {
             commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
         }
@@ -243,6 +312,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Show => commands::config_show(output_mode).await,
             ConfigAction::Shell { shell } => commands::config_shell(&shell, output_mode).await,
             ConfigAction::Man { dir } => commands::config_man(&dir).await,
+            ConfigAction::Completions { shell } => commands::config_completions(shell).await,
         },
     }
 }
