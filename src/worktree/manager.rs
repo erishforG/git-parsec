@@ -122,16 +122,40 @@ impl WorktreeManager {
             .context("failed to save parsec state")?;
 
         // Run post-create hooks
-        for hook_cmd in &self.config.hooks.post_create {
-            eprintln!("Running post-create hook: {}", hook_cmd);
-            let status = std::process::Command::new("sh")
-                .args(["-c", hook_cmd])
-                .current_dir(&worktree_path)
-                .status();
-            match status {
-                Ok(s) if s.success() => {}
-                Ok(s) => eprintln!("warning: hook '{}' exited with {}", hook_cmd, s),
-                Err(e) => eprintln!("warning: failed to run hook '{}': {}", hook_cmd, e),
+        if !self.config.hooks.post_create.is_empty() {
+            let skip_prompt = std::env::var("PARSEC_YES").map(|v| v == "1").unwrap_or(false);
+
+            let confirmed = if skip_prompt {
+                true
+            } else {
+                eprintln!("The following post-create hooks will be executed:");
+                for hook_cmd in &self.config.hooks.post_create {
+                    eprintln!("  - {}", hook_cmd);
+                }
+                eprint!("Run these hooks? [y/N] ");
+
+                let mut input = String::new();
+                match std::io::stdin().read_line(&mut input) {
+                    Ok(_) => input.trim().eq_ignore_ascii_case("y"),
+                    Err(_) => false,
+                }
+            };
+
+            if confirmed {
+                for hook_cmd in &self.config.hooks.post_create {
+                    eprintln!("Running post-create hook: {}", hook_cmd);
+                    let status = std::process::Command::new("sh")
+                        .args(["-c", hook_cmd])
+                        .current_dir(&worktree_path)
+                        .status();
+                    match status {
+                        Ok(s) if s.success() => {}
+                        Ok(s) => eprintln!("warning: hook '{}' exited with {}", hook_cmd, s),
+                        Err(e) => eprintln!("warning: failed to run hook '{}': {}", hook_cmd, e),
+                    }
+                }
+            } else {
+                eprintln!("Skipping post-create hooks.");
             }
         }
 
