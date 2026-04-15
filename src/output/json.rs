@@ -94,6 +94,22 @@ pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)]) {
     emit(&value);
 }
 
+pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)]) {
+    let value: Vec<_> = statuses
+        .iter()
+        .map(|(ticket, ci)| {
+            json!({
+                "ticket": ticket,
+                "pr_number": ci.pr_number,
+                "head_sha": ci.head_sha,
+                "overall": ci.overall,
+                "checks": ci.checks,
+            })
+        })
+        .collect();
+    emit(&value);
+}
+
 pub fn print_undo(entry: &OpEntry) {
     let value = json!({
         "action": "undo",

@@ -125,6 +125,14 @@ pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)], mode: Mod
     }
 }
 
+pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)], mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_ci_status(statuses),
+        Mode::Human => human::print_ci_status(statuses),
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig, mode: Mode) {
     match mode {
         Mode::Quiet => {}

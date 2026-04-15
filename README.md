@@ -493,6 +493,49 @@ $ parsec pr-status PROJ-1234 --json
 Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
 ---
 
+### `parsec ci [ticket] [--watch] [--all]`
+
+Check CI/CD pipeline status for a ticket's PR. Shows individual check runs with status, duration, and an overall summary.
+
+```
+parsec ci [ticket] [--watch] [--all]
+```
+
+| Option | Description |
+|--------|-------------|
+| `ticket` | Ticket identifier (auto-detects current worktree if omitted) |
+| `--watch` | Poll CI every 5s until all checks complete |
+| `--all` | Show CI for all shipped PRs |
+
+```bash
+# Auto-detect from current worktree
+$ parsec ci
+CI for PROJ-1234 (PR #42, a1b2c3d)
+┌────────────┬───────────┬──────────┐
+│ Check      │ Status    │ Duration │
+├────────────┼───────────┼──────────┤
+│ Tests      │ ✓ passed  │ 2m 15s   │
+│ Build      │ ✓ passed  │ 1m 42s   │
+│ Lint       │ ● running │ running… │
+└────────────┴───────────┴──────────┘
+✓ CI: 2/3 — 2 passed, 1 running
+
+# Check a specific ticket
+$ parsec ci PROJ-1234
+
+# Watch mode — refreshes every 5s until done
+$ parsec ci PROJ-1234 --watch
+
+# All shipped PRs
+$ parsec ci --all
+
+# JSON output
+$ parsec ci PROJ-1234 --json
+```
+
+Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
+---
+
 ### `parsec config`
 
 ```bash

@@ -370,6 +370,128 @@ pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)]) {
     println!("{table}");
 }
 
+pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)]) {
+    use tabled::{Table, Tabled};
+
+    for (ticket, ci) in statuses {
+        println!(
+            "{} {} (PR #{}, {})",
+            "CI for".bold(),
+            ticket.bold().cyan(),
+            ci.pr_number,
+            ci.head_sha[..7].dimmed()
+        );
+
+        if ci.checks.is_empty() {
+            println!("  {}", "No checks found.".dimmed());
+            println!();
+            continue;
+        }
+
+        #[derive(Tabled)]
+        struct CheckRow {
+            #[tabled(rename = "Check")]
+            name: String,
+            #[tabled(rename = "Status")]
+            status: String,
+            #[tabled(rename = "Duration")]
+            duration: String,
+        }
+
+        let rows: Vec<CheckRow> = ci
+            .checks
+            .iter()
+            .map(|c| {
+                let status = match (c.status.as_str(), c.conclusion.as_deref()) {
+                    (_, Some("success")) => "✓ passed".green().to_string(),
+                    (_, Some("failure")) => "✗ failed".red().to_string(),
+                    (_, Some("skipped")) => "- skipped".dimmed().to_string(),
+                    ("in_progress", _) => "● running".yellow().to_string(),
+                    ("queued", _) => "○ queued".dimmed().to_string(),
+                    _ => c.status.clone(),
+                };
+                let duration = match (&c.started_at, &c.completed_at) {
+                    (Some(start), Some(end)) => {
+                        if let (Ok(s), Ok(e)) = (
+                            chrono::DateTime::parse_from_rfc3339(start),
+                            chrono::DateTime::parse_from_rfc3339(end),
+                        ) {
+                            let secs = (e - s).num_seconds();
+                            if secs >= 60 {
+                                format!("{}m {}s", secs / 60, secs % 60)
+                            } else {
+                                format!("{}s", secs)
+                            }
+                        } else {
+                            "-".to_string()
+                        }
+                    }
+                    (Some(_), None) => "running...".to_string(),
+                    _ => "-".to_string(),
+                };
+                CheckRow {
+                    name: c.name.clone(),
+                    status,
+                    duration,
+                }
+            })
+            .collect();
+
+        let table = Table::new(rows)
+            .with(tabled::settings::Style::modern())
+            .to_string();
+        println!("{table}");
+
+        // Summary line
+        let passed = ci
+            .checks
+            .iter()
+            .filter(|c| c.conclusion.as_deref() == Some("success"))
+            .count();
+        let failed = ci
+            .checks
+            .iter()
+            .filter(|c| c.conclusion.as_deref() == Some("failure"))
+            .count();
+        let running = ci
+            .checks
+            .iter()
+            .filter(|c| c.status == "in_progress")
+            .count();
+        let queued = ci.checks.iter().filter(|c| c.status == "queued").count();
+        let total = ci.checks.len();
+
+        let mut parts = Vec::new();
+        if passed > 0 {
+            parts.push(format!("{passed} passed").green().to_string());
+        }
+        if failed > 0 {
+            parts.push(format!("{failed} failed").red().to_string());
+        }
+        if running > 0 {
+            parts.push(format!("{running} running").yellow().to_string());
+        }
+        if queued > 0 {
+            parts.push(format!("{queued} queued"));
+        }
+
+        let overall_icon = match ci.overall.as_str() {
+            "passing" => "✓".green().to_string(),
+            "failing" => "✗".red().to_string(),
+            _ => "●".yellow().to_string(),
+        };
+
+        println!(
+            "{} CI: {}/{} — {}",
+            overall_icon,
+            passed,
+            total,
+            parts.join(", ")
+        );
+        println!();
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);

@@ -113,6 +113,22 @@ pub enum Command {
         ticket: Option<String>,
     },
 
+    /// Check CI/CD pipeline status for a ticket's PR
+    ///
+    /// Shows individual check runs with status, duration, and overall
+    /// summary. Auto-detects the current worktree if no ticket is given.
+    /// Use --watch to poll until all checks complete.
+    Ci {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+        /// Watch CI in real-time until completion (refresh every 5s)
+        #[arg(long)]
+        watch: bool,
+        /// Show CI for all shipped PRs
+        #[arg(long)]
+        all: bool,
+    },
+
     /// Print workspace path for a ticket (use with cd)
     ///
     /// Outputs the absolute path to the worktree for a given ticket.
@@ -298,6 +314,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         } => commands::open(&repo_path, &ticket, pr, ticket_page, output_mode).await,
         Command::PrStatus { ticket } => {
             commands::pr_status(&repo_path, ticket.as_deref(), output_mode).await
+        }
+        Command::Ci { ticket, watch, all } => {
+            commands::ci(&repo_path, ticket.as_deref(), watch, all, output_mode).await
         }
         Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
         Command::Switch { ticket } => {
