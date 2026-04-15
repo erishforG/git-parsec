@@ -104,6 +104,15 @@ pub enum Command {
     /// any files that are being edited in more than one workspace.
     Conflicts,
 
+    /// Check PR/MR CI and review status
+    ///
+    /// Shows CI check results, review approvals, and merge status for
+    /// shipped PRs. Requires a GitHub/GitLab token.
+    PrStatus {
+        /// Ticket identifier (shows all shipped if omitted)
+        ticket: Option<String>,
+    },
+
     /// Print workspace path for a ticket (use with cd)
     ///
     /// Outputs the absolute path to the worktree for a given ticket.
@@ -287,6 +296,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             pr,
             ticket_page,
         } => commands::open(&repo_path, &ticket, pr, ticket_page, output_mode).await,
+        Command::PrStatus { ticket } => {
+            commands::pr_status(&repo_path, ticket.as_deref(), output_mode).await
+        }
         Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
         Command::Switch { ticket } => {
             commands::switch(&repo_path, ticket.as_deref(), output_mode).await

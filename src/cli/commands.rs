@@ -349,6 +349,50 @@ pub async fn open(
     Ok(())
 }
 
+pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()> {
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
+
+    // Find shipped entries with PR URLs
+    let entries: Vec<_> = oplog
+        .get_entries(ticket)
+        .into_iter()
+        .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+        .filter_map(|e| {
+            let url = e.detail.split(" -> ").nth(1)?;
+            // Extract PR number from URL (e.g. .../pull/42)
+            let number = url.rsplit('/').next()?.parse::<u64>().ok()?;
+            Some((
+                e.ticket.clone().unwrap_or_default(),
+                number,
+                url.to_string(),
+            ))
+        })
+        .collect();
+
+    if entries.is_empty() {
+        if let Some(t) = ticket {
+            anyhow::bail!("no shipped PR found for {t}. Ship it first with `parsec ship {t}`.");
+        } else {
+            anyhow::bail!("no shipped PRs found. Ship a ticket first with `parsec ship`.");
+        }
+    }
+
+    let mut statuses = Vec::new();
+    for (ticket_id, pr_number, _url) in &entries {
+        match crate::github::get_pr_status(&remote_url, *pr_number).await? {
+            Some(status) => statuses.push((ticket_id.clone(), status)),
+            None => {
+                anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
+            }
+        }
+    }
+
+    output::print_pr_status(&statuses, mode);
+    Ok(())
+}
+
 pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;

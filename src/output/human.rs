@@ -311,6 +311,65 @@ pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str
     }
 }
 
+pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)]) {
+    use tabled::{Table, Tabled};
+
+    #[derive(Tabled)]
+    struct Row {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "PR")]
+        pr: String,
+        #[tabled(rename = "State")]
+        state: String,
+        #[tabled(rename = "CI")]
+        ci: String,
+        #[tabled(rename = "Reviews")]
+        reviews: String,
+    }
+
+    let rows: Vec<Row> = statuses
+        .iter()
+        .map(|(ticket, s)| {
+            let ci = match s.ci_status.as_str() {
+                "success" => "✓ passed".green().to_string(),
+                "failure" | "error" => "✗ failed".red().to_string(),
+                "pending" => "● pending".yellow().to_string(),
+                _ => s.ci_status.clone(),
+            };
+            let reviews = match s.review_status.as_str() {
+                "approved" => "✓ approved".green().to_string(),
+                "changes_requested" => "✗ changes requested".red().to_string(),
+                "pending" => "● pending".yellow().to_string(),
+                _ => s.review_status.clone(),
+            };
+            let state = match s.state.as_str() {
+                "open" => "open".green().to_string(),
+                "closed" => "closed".red().to_string(),
+                "merged" => "merged".cyan().to_string(),
+                _ => s.state.clone(),
+            };
+            Row {
+                ticket: ticket.clone(),
+                pr: format!("#{}", s.number),
+                state,
+                ci,
+                reviews,
+            }
+        })
+        .collect();
+
+    if rows.is_empty() {
+        println!("No shipped PRs found.");
+        return;
+    }
+
+    let table = Table::new(rows)
+        .with(tabled::settings::Style::modern())
+        .to_string();
+    println!("{table}");
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);
