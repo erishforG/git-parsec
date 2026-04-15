@@ -534,6 +534,44 @@ $ parsec ci PROJ-1234 --json
 ```
 
 Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
+
+---
+
+### `parsec merge [ticket] [--rebase] [--no-wait] [--no-delete-branch]`
+
+Merge a ticket's PR directly from the terminal. Waits for CI to pass before merging, then cleans up the local worktree.
+
+```
+parsec merge [ticket] [--rebase] [--no-wait] [--no-delete-branch]
+```
+
+| Option | Description |
+|--------|-------------|
+| `ticket` | Ticket identifier (auto-detects current worktree if omitted) |
+| `--rebase` | Use rebase merge instead of squash (default: squash) |
+| `--no-wait` | Skip CI check before merging |
+| `--no-delete-branch` | Keep remote branch after merge |
+
+```bash
+# Squash merge (default)
+$ parsec merge PROJ-1234
+Waiting for CI to pass... ✓
+Merged PR #42 for PROJ-1234!
+  Method: squash
+  SHA:    a1b2c3d
+
+# Rebase merge
+$ parsec merge PROJ-1234 --rebase
+
+# Skip CI wait
+$ parsec merge PROJ-1234 --no-wait
+
+# JSON output
+$ parsec merge PROJ-1234 --json
+```
+
+Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
+
 ---
 
 ### `parsec config`

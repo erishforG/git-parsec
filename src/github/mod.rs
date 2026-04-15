@@ -349,6 +349,105 @@ pub async fn find_pr_by_branch(remote_url: &str, branch: &str) -> Result<Option<
     Ok(resp.first().and_then(|pr| pr["number"].as_u64()))
 }
 
+/// Result of merging a PR
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergeResult {
+    pub sha: String,
+    pub message: String,
+    pub merged: bool,
+}
+
+/// Merge a GitHub PR.
+/// `method` should be "squash", "rebase", or "merge".
+/// Returns None if no token, Some(MergeResult) on success.
+pub async fn merge_pr(
+    remote_url: &str,
+    pr_number: u64,
+    method: &str,
+    delete_branch: bool,
+) -> Result<Option<MergeResult>> {
+    let token = match resolve_github_token() {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+
+    let remote = parse_github_remote(remote_url).ok_or_else(|| {
+        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
+    })?;
+
+    let api_base = remote.api_base();
+    let client = Client::new();
+
+    // Merge the PR
+    let url = format!(
+        "{}/repos/{}/{}/pulls/{}/merge",
+        api_base, remote.owner, remote.repo, pr_number
+    );
+    let payload = serde_json::json!({
+        "merge_method": method,
+    });
+
+    let response = client
+        .put(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "git-parsec")
+        .bearer_auth(&token)
+        .json(&payload)
+        .send()
+        .await
+        .context("Failed to send merge request to GitHub")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        bail!("GitHub merge API returned {}: {}", status, body);
+    }
+
+    let resp: serde_json::Value = response.json().await?;
+    let sha = resp["sha"].as_str().unwrap_or("").to_string();
+    let message = resp["message"].as_str().unwrap_or("").to_string();
+
+    // Delete remote branch if requested
+    if delete_branch {
+        let branch_url = format!(
+            "{}/repos/{}/{}/pulls/{}",
+            api_base, remote.owner, remote.repo, pr_number
+        );
+        let pr_resp: serde_json::Value = client
+            .get(&branch_url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "git-parsec")
+            .bearer_auth(&token)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(branch_name) = pr_resp["head"]["ref"].as_str() {
+            let del_url = format!(
+                "{}/repos/{}/{}/git/refs/heads/{}",
+                api_base, remote.owner, remote.repo, branch_name
+            );
+            let _ = client
+                .delete(&del_url)
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .header("User-Agent", "git-parsec")
+                .bearer_auth(&token)
+                .send()
+                .await;
+        }
+    }
+
+    Ok(Some(MergeResult {
+        sha,
+        message,
+        merged: true,
+    }))
+}
+
 /// Create a GitHub pull request.
 /// Returns None if no GitHub token is available.
 pub async fn create_pr(
