@@ -125,6 +125,20 @@ pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)], mode: Mod
     }
 }
 
+pub fn print_merge(
+    ticket: &str,
+    pr_number: u64,
+    result: &crate::github::MergeResult,
+    method: &str,
+    mode: Mode,
+) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_merge(ticket, pr_number, result, method),
+        Mode::Human => human::print_merge(ticket, pr_number, result, method),
+    }
+}
+
 pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)], mode: Mode) {
     match mode {
         Mode::Quiet => {}

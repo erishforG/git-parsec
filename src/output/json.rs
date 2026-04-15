@@ -94,6 +94,24 @@ pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)]) {
     emit(&value);
 }
 
+pub fn print_merge(
+    ticket: &str,
+    pr_number: u64,
+    result: &crate::github::MergeResult,
+    method: &str,
+) {
+    let value = json!({
+        "action": "merge",
+        "ticket": ticket,
+        "pr_number": pr_number,
+        "method": method,
+        "sha": result.sha,
+        "message": result.message,
+        "merged": result.merged,
+    });
+    println!("{}", value);
+}
+
 pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)]) {
     let value: Vec<_> = statuses
         .iter()

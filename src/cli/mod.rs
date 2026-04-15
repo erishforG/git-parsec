@@ -113,6 +113,25 @@ pub enum Command {
         ticket: Option<String>,
     },
 
+    /// Merge a ticket's PR on GitHub and clean up
+    ///
+    /// Merges the PR via the GitHub API. By default uses squash merge
+    /// and waits for CI to pass before merging. Cleans up the local
+    /// worktree after a successful merge.
+    Merge {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+        /// Use rebase merge instead of squash
+        #[arg(long)]
+        rebase: bool,
+        /// Skip waiting for CI to pass
+        #[arg(long)]
+        no_wait: bool,
+        /// Keep remote branch after merge (default: delete)
+        #[arg(long)]
+        no_delete_branch: bool,
+    },
+
     /// Check CI/CD pipeline status for a ticket's PR
     ///
     /// Shows individual check runs with status, duration, and overall
@@ -314,6 +333,22 @@ pub async fn run(cli: Cli) -> Result<()> {
         } => commands::open(&repo_path, &ticket, pr, ticket_page, output_mode).await,
         Command::PrStatus { ticket } => {
             commands::pr_status(&repo_path, ticket.as_deref(), output_mode).await
+        }
+        Command::Merge {
+            ticket,
+            rebase,
+            no_wait,
+            no_delete_branch,
+        } => {
+            commands::merge(
+                &repo_path,
+                ticket.as_deref(),
+                rebase,
+                no_wait,
+                no_delete_branch,
+                output_mode,
+            )
+            .await
         }
         Command::Ci { ticket, watch, all } => {
             commands::ci(&repo_path, ticket.as_deref(), watch, all, output_mode).await

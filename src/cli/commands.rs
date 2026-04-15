@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use colored::Colorize;
 
 use crate::config::ParsecConfig;
 use crate::conflict;
@@ -390,6 +391,148 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
     }
 
     output::print_pr_status(&statuses, mode);
+    Ok(())
+}
+
+pub async fn merge(
+    repo: &Path,
+    ticket: Option<&str>,
+    rebase: bool,
+    no_wait: bool,
+    no_delete_branch: bool,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let manager = WorktreeManager::new(repo, &config)?;
+
+    // Resolve ticket
+    let ticket_id = if let Some(t) = ticket {
+        t.to_string()
+    } else {
+        let cwd = std::env::current_dir()?;
+        let all_ws = manager.list()?;
+        let found = all_ws
+            .into_iter()
+            .find(|w| cwd.starts_with(&w.path))
+            .ok_or_else(|| anyhow::anyhow!("not inside a parsec worktree. Specify a ticket."))?;
+        found.ticket
+    };
+
+    // Find PR number: check oplog first, then try open PR by branch
+    let pr_number = {
+        let shipped_pr = oplog
+            .get_entries(Some(&ticket_id))
+            .into_iter()
+            .rev()
+            .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+            .find_map(|e| {
+                let url = e.detail.split(" -> ").nth(1)?;
+                url.rsplit('/').next()?.parse::<u64>().ok()
+            });
+
+        if let Some(pr) = shipped_pr {
+            pr
+        } else {
+            let ws = manager.get(&ticket_id).with_context(|| {
+                format!("ticket {ticket_id} not found in active workspaces or oplog")
+            })?;
+            github::find_pr_by_branch(&remote_url, &ws.branch)
+                .await?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no PR found for {ticket_id}. Ship it first with `parsec ship {ticket_id}`."
+                    )
+                })?
+        }
+    };
+
+    // Wait for CI to pass (unless --no-wait)
+    if !no_wait {
+        if mode == Mode::Human {
+            eprint!("Waiting for CI to pass...");
+        }
+        loop {
+            match github::get_check_runs(&remote_url, pr_number).await? {
+                Some(ci) => {
+                    if ci.overall == "passing" {
+                        if mode == Mode::Human {
+                            eprintln!(" {}", "✓".green());
+                        }
+                        break;
+                    } else if ci.overall == "failing" {
+                        if mode == Mode::Human {
+                            eprintln!(" {}", "✗".red());
+                        }
+                        anyhow::bail!(
+                            "CI is failing for PR #{}. Fix CI or use --no-wait to merge anyway.",
+                            pr_number
+                        );
+                    }
+                    // Still pending — wait and retry
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+                None => {
+                    anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
+                }
+            }
+        }
+    }
+
+    // Determine merge method
+    let method = if rebase { "rebase" } else { "squash" };
+    let delete_branch = !no_delete_branch;
+
+    // Merge the PR
+    match github::merge_pr(&remote_url, pr_number, method, delete_branch).await? {
+        Some(result) => {
+            output::print_merge(&ticket_id, pr_number, &result, method, mode);
+
+            // Clean up local worktree if it exists
+            if let Ok(ws) = manager.get(&ticket_id) {
+                if ws.path.exists() {
+                    if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
+                        eprintln!("warning: failed to remove worktree: {e}");
+                    }
+                }
+                // Update state
+                let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+                state.remove_workspace(&ticket_id);
+                state.save(&repo_root)?;
+
+                // Delete local branch
+                if let Some(branch) = &oplog
+                    .get_entries(Some(&ticket_id))
+                    .last()
+                    .and_then(|e| e.undo_info.as_ref())
+                    .and_then(|u| u.branch.clone())
+                {
+                    let _ = git::delete_branch(&repo_root, branch);
+                }
+
+                if mode == Mode::Human {
+                    println!("  {}", "Local worktree cleaned up.".dimmed());
+                }
+            }
+
+            // Record in oplog
+            if let Err(e) = crate::oplog::record(
+                &repo_root,
+                crate::oplog::OpKind::Clean,
+                Some(&ticket_id),
+                &format!("Merged PR #{} ({})", pr_number, method),
+                None,
+            ) {
+                eprintln!("warning: failed to write oplog: {e}");
+            }
+        }
+        None => {
+            anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
+        }
+    }
+
     Ok(())
 }
 

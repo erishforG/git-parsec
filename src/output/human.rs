@@ -370,6 +370,25 @@ pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)]) {
     println!("{table}");
 }
 
+pub fn print_merge(
+    ticket: &str,
+    pr_number: u64,
+    result: &crate::github::MergeResult,
+    method: &str,
+) {
+    println!(
+        "{}",
+        format!("Merged PR #{} for {}!", pr_number, ticket)
+            .green()
+            .bold()
+    );
+    println!("  {} {}", "Method:".bold(), method);
+    println!("  {} {}", "SHA:".bold(), result.sha.dimmed());
+    if !result.message.is_empty() {
+        println!("  {} {}", "Message:".bold(), result.message);
+    }
+}
+
 pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)]) {
     use tabled::{Table, Tabled};
 
