@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 
@@ -493,7 +493,7 @@ function parsec() {
 }
 "#;
 
-pub async fn config_man(dir: &PathBuf) -> Result<()> {
+pub async fn config_man(dir: &Path) -> Result<()> {
     use clap::CommandFactory;
     let cmd = super::Cli::command();
     let man = clap_mangen::Man::new(cmd);
