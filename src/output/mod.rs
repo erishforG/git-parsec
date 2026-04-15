@@ -3,6 +3,7 @@ mod json;
 
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
+use crate::oplog::OpEntry;
 use crate::worktree::{ShipResult, Workspace};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -81,6 +82,14 @@ pub fn print_config_init(mode: Mode) {
         Mode::Quiet => {}
         Mode::Json => json::print_config_init(),
         Mode::Human => human::print_config_init(),
+    }
+}
+
+pub fn print_log(entries: &[&OpEntry], mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_log(entries),
+        Mode::Human => human::print_log(entries),
     }
 }
 

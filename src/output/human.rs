@@ -4,6 +4,7 @@ use tabled::{Table, Tabled};
 
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
+use crate::oplog::OpEntry;
 use crate::worktree::{ShipResult, Workspace, WorkspaceStatus};
 
 // ---------------------------------------------------------------------------
@@ -184,6 +185,47 @@ pub fn print_switch(workspace: &Workspace) {
 
 pub fn print_config_init() {
     println!("{}", "Configuration saved!".green().bold());
+}
+
+pub fn print_log(entries: &[&OpEntry]) {
+    if entries.is_empty() {
+        println!("{}", "No operations recorded.".dimmed());
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct LogRow {
+        #[tabled(rename = "#")]
+        id: u64,
+        #[tabled(rename = "Op")]
+        op: String,
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "Detail")]
+        detail: String,
+        #[tabled(rename = "Time")]
+        time: String,
+    }
+
+    let rows: Vec<LogRow> = entries
+        .iter()
+        .rev()
+        .map(|e| LogRow {
+            id: e.id,
+            op: match &e.op {
+                crate::oplog::OpKind::Start => "start".green().to_string(),
+                crate::oplog::OpKind::Adopt => "adopt".cyan().to_string(),
+                crate::oplog::OpKind::Ship => "ship".yellow().to_string(),
+                crate::oplog::OpKind::Clean => "clean".red().to_string(),
+            },
+            ticket: e.ticket.clone().unwrap_or_else(|| "-".to_string()),
+            detail: e.detail.clone(),
+            time: e.timestamp.format("%Y-%m-%d %H:%M").to_string(),
+        })
+        .collect();
+
+    let table = Table::new(rows).with(Style::rounded()).to_string();
+    println!("{}", table);
 }
 
 pub fn print_config_show(config: &ParsecConfig) {
