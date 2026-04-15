@@ -11,6 +11,7 @@ pub enum OpKind {
     Adopt,
     Ship,
     Clean,
+    Undo,
 }
 
 impl std::fmt::Display for OpKind {
@@ -20,6 +21,7 @@ impl std::fmt::Display for OpKind {
             OpKind::Adopt => write!(f, "adopt"),
             OpKind::Ship => write!(f, "ship"),
             OpKind::Clean => write!(f, "clean"),
+            OpKind::Undo => write!(f, "undo"),
         }
     }
 }
@@ -106,8 +108,7 @@ impl OpLog {
             .collect()
     }
 
-    /// Get the last entry (for future undo)
-    #[allow(dead_code)]
+    /// Get the last entry (for undo)
     pub fn last_entry(&self) -> Option<&OpEntry> {
         self.entries.last()
     }

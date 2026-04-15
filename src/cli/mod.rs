@@ -113,6 +113,13 @@ pub enum Command {
         last: usize,
     },
 
+    /// Undo the last parsec operation
+    Undo {
+        /// Preview what would be undone without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Configure parsec
     Config {
         #[command(subcommand)]
@@ -172,6 +179,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Log { ticket, last } => {
             commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
         }
+        Command::Undo { dry_run } => commands::undo(&repo_path, dry_run, output_mode).await,
         Command::Config { action } => match action {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,

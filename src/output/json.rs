@@ -64,3 +64,22 @@ pub fn print_config_init() {
 pub fn print_config_show(config: &ParsecConfig) {
     emit(config);
 }
+
+pub fn print_undo(entry: &OpEntry) {
+    let value = json!({
+        "action": "undo",
+        "undone_op": format!("{}", entry.op),
+        "ticket": entry.ticket,
+    });
+    println!("{}", value);
+}
+
+pub fn print_undo_preview(entry: &OpEntry) {
+    let value = json!({
+        "action": "undo_preview",
+        "would_undo": format!("{}", entry.op),
+        "ticket": entry.ticket,
+        "undo_info": entry.undo_info,
+    });
+    println!("{}", value);
+}

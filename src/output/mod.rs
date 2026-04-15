@@ -93,6 +93,22 @@ pub fn print_log(entries: &[&OpEntry], mode: Mode) {
     }
 }
 
+pub fn print_undo(entry: &OpEntry, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_undo(entry),
+        Mode::Human => human::print_undo(entry),
+    }
+}
+
+pub fn print_undo_preview(entry: &OpEntry, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_undo_preview(entry),
+        Mode::Human => human::print_undo_preview(entry),
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig, mode: Mode) {
     match mode {
         Mode::Quiet => {}
