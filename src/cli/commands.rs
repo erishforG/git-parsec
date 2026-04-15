@@ -393,6 +393,130 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
     Ok(())
 }
 
+pub async fn ci(
+    repo: &Path,
+    ticket: Option<&str>,
+    watch: bool,
+    all: bool,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let manager = WorktreeManager::new(repo, &config)?;
+
+    // Collect (ticket_id, pr_number) pairs to check
+    let mut targets: Vec<(String, u64)> = Vec::new();
+
+    if all {
+        // All shipped entries with PR numbers from oplog
+        let entries: Vec<_> = oplog
+            .get_entries(None)
+            .into_iter()
+            .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+            .filter_map(|e| {
+                let url = e.detail.split(" -> ").nth(1)?;
+                let number = url.rsplit('/').next()?.parse::<u64>().ok()?;
+                Some((e.ticket.clone().unwrap_or_default(), number))
+            })
+            .collect();
+        if entries.is_empty() {
+            anyhow::bail!("no shipped PRs found. Ship a ticket first with `parsec ship`.");
+        }
+        targets = entries;
+    } else {
+        // Resolve which ticket to look up
+        let ticket_id = if let Some(t) = ticket {
+            t.to_string()
+        } else {
+            // Auto-detect from current worktree
+            let cwd = std::env::current_dir()?;
+            let all_ws = manager.list()?;
+            let found = all_ws
+                .into_iter()
+                .find(|w| cwd.starts_with(&w.path))
+                .ok_or_else(|| {
+                    anyhow::anyhow!("not inside a parsec worktree. Specify a ticket or use --all.")
+                })?;
+            found.ticket
+        };
+
+        // First check if there's a shipped PR in the oplog
+        let shipped_pr = oplog
+            .get_entries(Some(&ticket_id))
+            .into_iter()
+            .rev()
+            .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+            .find_map(|e| {
+                let url = e.detail.split(" -> ").nth(1)?;
+                url.rsplit('/').next()?.parse::<u64>().ok()
+            });
+
+        if let Some(pr_number) = shipped_pr {
+            targets.push((ticket_id, pr_number));
+        } else {
+            // Not shipped yet — try to find an open PR by branch name
+            let ws = manager.get(&ticket_id).with_context(|| {
+                format!("ticket {ticket_id} not found in active workspaces or oplog")
+            })?;
+            match github::find_pr_by_branch(&remote_url, &ws.branch).await? {
+                Some(pr_number) => targets.push((ticket_id, pr_number)),
+                None => {
+                    anyhow::bail!(
+                        "no PR found for {ticket_id}. Push and create a PR first, or ship with `parsec ship {ticket_id}`."
+                    );
+                }
+            }
+        }
+    }
+
+    loop {
+        let mut statuses: Vec<(String, crate::github::CiStatus)> = Vec::new();
+
+        for (ticket_id, pr_number) in &targets {
+            match github::get_check_runs(&remote_url, *pr_number).await? {
+                Some(ci) => statuses.push((ticket_id.clone(), ci)),
+                None => {
+                    anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
+                }
+            }
+        }
+
+        // In watch + human mode, clear screen before redraw
+        if watch && mode == Mode::Human {
+            print!("\x1B[2J\x1B[H");
+        }
+
+        output::print_ci_status(&statuses, mode);
+
+        if !watch || mode != Mode::Human {
+            // JSON/quiet mode prints once even with --watch
+            // Determine exit code based on overall status
+            let has_failure = statuses.iter().any(|(_t, ci)| ci.overall == "failing");
+            if has_failure {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+
+        // Check if all checks are completed
+        let all_completed = statuses
+            .iter()
+            .all(|(_t, ci)| ci.checks.iter().all(|c| c.status == "completed"));
+
+        if all_completed {
+            let has_failure = statuses.iter().any(|(_t, ci)| ci.overall == "failing");
+            if has_failure {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
 pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
