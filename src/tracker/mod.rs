@@ -33,6 +33,12 @@ fn load_atlassian_env() {
             if let Some((key, value)) = line.split_once('=') {
                 let key = key.trim();
                 let value = value.trim();
+                // Only allow specific prefixes for security
+                let allowed_prefixes = ["JIRA_", "PARSEC_", "CONFLUENCE_", "ATLASSIAN_"];
+                if !allowed_prefixes.iter().any(|p| key.starts_with(p)) {
+                    eprintln!("warning: ignoring disallowed env var '{}' in .atlassian-env (allowed prefixes: JIRA_, PARSEC_, CONFLUENCE_, ATLASSIAN_)", key);
+                    continue;
+                }
                 // Only set if not already in environment (env vars take precedence)
                 if std::env::var(key).is_err() {
                     std::env::set_var(key, value);
