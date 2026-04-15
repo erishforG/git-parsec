@@ -297,6 +297,9 @@ pub fn print_config_show(config: &ParsecConfig) {
             println!("  jira.email     = {}", email);
         }
     }
+    if let Some(gitlab) = &config.tracker.gitlab {
+        println!("  gitlab.base_url = {}", gitlab.base_url);
+    }
     println!();
     println!("{}", "[ship]".bold());
     println!("  auto_pr         = {}", config.ship.auto_pr);

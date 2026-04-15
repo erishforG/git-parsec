@@ -3,6 +3,7 @@ mod config;
 mod conflict;
 mod git;
 mod github;
+mod gitlab;
 mod oplog;
 mod output;
 mod tracker;
