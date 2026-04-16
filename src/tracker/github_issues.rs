@@ -18,14 +18,7 @@ impl GithubIssueTracker {
     }
 
     fn resolve_token() -> Option<String> {
-        for var in &["PARSEC_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] {
-            if let Ok(token) = std::env::var(var) {
-                if !token.is_empty() {
-                    return Some(token);
-                }
-            }
-        }
-        None
+        crate::env::github_token()
     }
 
     pub async fn fetch_ticket(&self, id: &str) -> Result<Ticket> {

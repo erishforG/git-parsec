@@ -1,9 +1,11 @@
 use serde::Serialize;
 use serde_json::json;
 
+use super::BoardTicketDisplay;
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
+use crate::tracker::jira::SprintInfo;
 use crate::worktree::{ShipResult, Workspace};
 
 fn emit<T: Serialize>(value: &T) {
@@ -177,6 +179,56 @@ pub fn print_undo_preview(entry: &OpEntry) {
         "would_undo": format!("{}", entry.op),
         "ticket": entry.ticket,
         "undo_info": entry.undo_info,
+    });
+    println!("{}", value);
+}
+
+pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTicketDisplay>)]) {
+    let sprint_json = sprint.map(|s| {
+        json!({
+            "id": s.id,
+            "name": s.name,
+            "start": s.start_date,
+            "end": s.end_date,
+        })
+    });
+
+    let total_count: usize = columns.iter().map(|(_, tickets)| tickets.len()).sum();
+
+    let columns_json: serde_json::Map<String, serde_json::Value> = columns
+        .iter()
+        .map(|(name, tickets)| {
+            let ticket_list: Vec<serde_json::Value> = tickets
+                .iter()
+                .map(|t| {
+                    let mut obj = json!({
+                        "key": t.key,
+                        "summary": t.summary,
+                        "status": name,
+                    });
+                    if let Some(ref assignee) = t.assignee {
+                        obj["assignee"] = json!(assignee);
+                    }
+                    if let Some(ref url) = t.url {
+                        obj["url"] = json!(url);
+                    }
+                    if t.has_worktree {
+                        obj["worktree"] = json!(true);
+                    }
+                    if t.has_pr {
+                        obj["pr"] = json!(true);
+                    }
+                    obj
+                })
+                .collect();
+            (name.clone(), json!(ticket_list))
+        })
+        .collect();
+
+    let value = json!({
+        "sprint": sprint_json,
+        "total_count": total_count,
+        "columns": columns_json,
     });
     println!("{}", value);
 }

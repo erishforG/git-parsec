@@ -4,7 +4,18 @@ mod json;
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
+use crate::tracker::jira::SprintInfo;
 use crate::worktree::{ShipResult, Workspace};
+
+/// A ticket annotated with parsec-specific indicators for board display.
+pub struct BoardTicketDisplay {
+    pub key: String,
+    pub summary: String,
+    pub assignee: Option<String>,
+    pub has_worktree: bool,
+    pub has_pr: bool,
+    pub url: Option<String>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -181,4 +192,16 @@ pub fn print_diff_stat(stat: &str, ticket: &str, mode: Mode) {
 
 pub fn print_diff_full_json(files: &[(String, String)], ticket: &str) {
     json::print_diff_full(files, ticket);
+}
+
+pub fn print_board(
+    sprint: Option<&SprintInfo>,
+    columns: &[(String, Vec<BoardTicketDisplay>)],
+    mode: Mode,
+) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_board(sprint, columns),
+        Mode::Human => human::print_board(sprint, columns),
+    }
 }
