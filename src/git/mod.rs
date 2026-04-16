@@ -153,7 +153,10 @@ pub fn get_remote_url(repo: &Path) -> Result<String> {
 
 /// Push `branch` to origin and set the upstream tracking reference.
 pub fn push_branch(repo: &Path, branch: &str) -> Result<()> {
-    run(repo, &["push", "-u", "origin", branch])
+    run(
+        repo,
+        &["push", "--force-with-lease", "-u", "origin", branch],
+    )
 }
 
 /// Return the name of the currently checked-out branch.

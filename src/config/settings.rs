@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input, Select};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
@@ -208,6 +209,17 @@ pub struct AutoTransitionConfig {
 }
 
 // ---------------------------------------------------------------------------
+// GithubHostConfig
+// ---------------------------------------------------------------------------
+
+/// Per-host GitHub configuration (e.g. token for github.com or a GHE instance).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GithubHostConfig {
+    /// Personal access token for this host.
+    pub token: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // ParsecConfig
 // ---------------------------------------------------------------------------
 
@@ -221,6 +233,10 @@ pub struct ParsecConfig {
     pub ship: ShipConfig,
     #[serde(default)]
     pub hooks: HooksConfig,
+    /// Per-host GitHub tokens. Keys are hostnames like "github.com" or
+    /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
+    #[serde(default)]
+    pub github: HashMap<String, GithubHostConfig>,
 }
 
 impl ParsecConfig {
