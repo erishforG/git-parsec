@@ -363,9 +363,25 @@ pub async fn ship(
     Ok(())
 }
 
-pub async fn clean(repo: &Path, all: bool, dry_run: bool, mode: Mode) -> Result<()> {
+pub async fn clean(repo: &Path, all: bool, dry_run: bool, orphans: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
+
+    if orphans {
+        // Orphan-only mode: just clean state entries without existing directories
+        let orphan_list = manager.clean_orphans(dry_run)?;
+        output::print_clean(&orphan_list, dry_run, mode);
+        return Ok(());
+    }
+
+    // Regular clean — also report orphans as a hint
+    let orphan_list = manager.clean_orphans(true)?; // dry-run detection only
+    if !orphan_list.is_empty() {
+        eprintln!(
+            "note: {} orphan state entry(ies) found (directory missing). Use `parsec clean --orphans` to remove.",
+            orphan_list.len()
+        );
+    }
 
     let removed = manager.clean(all, dry_run)?;
 
