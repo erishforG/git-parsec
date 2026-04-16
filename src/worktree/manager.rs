@@ -349,7 +349,35 @@ impl WorktreeManager {
         git::push_branch(&workspace.path, &workspace.branch)
             .with_context(|| format!("failed to push branch '{}'", workspace.branch))?;
 
-        // Optionally clean up the worktree and local branch.
+        // Mark workspace as shipped (cleanup happens later, after PR creation).
+        if let Some(ws) = state.workspaces.get_mut(ticket) {
+            ws.status = WorkspaceStatus::Shipped;
+        }
+        state
+            .save(&self.repo_root)
+            .context("failed to save parsec state after ship")?;
+
+        Ok(ShipResult {
+            ticket: ticket.to_owned(),
+            branch: workspace.branch,
+            base_branch: workspace.base_branch,
+            ticket_title: workspace.ticket_title,
+            pr_url: None, // Set by commands.rs after async PR creation
+            cleaned_up: false,
+        })
+    }
+
+    /// Remove the worktree and local branch after a successful ship.
+    /// Called only when PR creation succeeded (or no PR was requested).
+    pub fn ship_cleanup(&self, ticket: &str) -> Result<bool> {
+        let mut state =
+            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
+
+        let workspace = match state.get_workspace(ticket).cloned() {
+            Some(ws) => ws,
+            None => return Ok(false),
+        };
+
         let cleaned_up = if self.config.ship.auto_cleanup {
             match git::worktree_remove(&self.repo_root, &workspace.path) {
                 Ok(()) => {
@@ -365,24 +393,14 @@ impl WorktreeManager {
             false
         };
 
-        // Update persisted state.
         if cleaned_up {
             state.remove_workspace(ticket);
-        } else if let Some(ws) = state.workspaces.get_mut(ticket) {
-            ws.status = WorkspaceStatus::Shipped;
+            state
+                .save(&self.repo_root)
+                .context("failed to save parsec state after cleanup")?;
         }
-        state
-            .save(&self.repo_root)
-            .context("failed to save parsec state after ship")?;
 
-        Ok(ShipResult {
-            ticket: ticket.to_owned(),
-            branch: workspace.branch,
-            base_branch: workspace.base_branch,
-            ticket_title: workspace.ticket_title,
-            pr_url: None, // Set by commands.rs after async PR creation
-            cleaned_up,
-        })
+        Ok(cleaned_up)
     }
 
     // -----------------------------------------------------------------------

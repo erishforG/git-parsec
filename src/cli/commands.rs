@@ -204,7 +204,30 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
                     eprintln!("warning: PR creation failed: {e}");
                 }
             }
+        } else {
+            eprintln!("warning: could not detect remote URL — PR creation skipped");
         }
+    }
+
+    // Phase 3: Cleanup only if PR succeeded (or no PR was requested)
+    let pr_expected = !no_pr && config.ship.auto_pr;
+    let pr_succeeded = result.pr_url.is_some();
+
+    if !pr_expected || pr_succeeded {
+        match manager.ship_cleanup(ticket) {
+            Ok(cleaned_up) => result.cleaned_up = cleaned_up,
+            Err(e) => eprintln!("warning: cleanup failed: {e}"),
+        }
+    } else {
+        // PR was expected but not created — preserve worktree for retry
+        eprintln!(
+            "note: worktree preserved at {} — fix the issue and retry `parsec ship {}`",
+            manager
+                .get(ticket)
+                .map(|ws| ws.path.display().to_string())
+                .unwrap_or_default(),
+            ticket
+        );
     }
 
     output::print_ship(&result, mode);
