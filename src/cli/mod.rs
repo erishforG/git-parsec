@@ -90,6 +90,10 @@ pub enum Command {
         /// Skip PR creation, only push
         #[arg(long)]
         no_pr: bool,
+
+        /// Target base branch for PR (default from config or worktree base)
+        #[arg(long)]
+        base: Option<String>,
     },
 
     /// Remove merged or stale worktrees
@@ -381,7 +385,8 @@ pub async fn run(cli: Cli) -> Result<()> {
             ticket,
             draft,
             no_pr,
-        } => commands::ship(&repo_path, &ticket, draft, no_pr, output_mode).await,
+            base,
+        } => commands::ship(&repo_path, &ticket, draft, no_pr, base, output_mode).await,
         Command::Clean { all, dry_run } => {
             commands::clean(&repo_path, all, dry_run, output_mode).await
         }

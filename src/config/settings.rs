@@ -157,6 +157,8 @@ pub struct ShipConfig {
     pub auto_cleanup: bool,
     #[serde(default)]
     pub draft: bool,
+    #[serde(default)]
+    pub default_base: Option<String>,
 }
 
 impl Default for ShipConfig {
@@ -165,6 +167,7 @@ impl Default for ShipConfig {
             auto_pr: true,
             auto_cleanup: true,
             draft: false,
+            default_base: None,
         }
     }
 }

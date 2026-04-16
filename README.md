@@ -291,13 +291,14 @@ $ parsec status PROJ-1234
 Push the branch, create a PR (GitHub) or MR (GitLab), and clean up the worktree. The forge is auto-detected from the remote URL.
 
 ```
-parsec ship <ticket> [--draft] [--no-pr]
+parsec ship <ticket> [--draft] [--no-pr] [--base <branch>]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--draft` | Create the PR/MR as a draft |
 | `--no-pr` | Push only, skip PR/MR creation |
+| `--base <branch>` | Target base branch for PR (overrides config `default_base` and worktree base) |
 
 ```bash
 # Push + PR + cleanup
@@ -764,6 +765,7 @@ $ parsec config show
   auto_pr         = true
   auto_cleanup    = true
   draft           = false
+  # default_base  = "develop"  # Target branch for PRs (default: worktree base)
 
 # Output shell integration script
 $ parsec config shell zsh
