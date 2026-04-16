@@ -113,6 +113,33 @@ pub async fn adopt(
         eprintln!("warning: failed to write oplog: {e}");
     }
 
+    // Auto-detect existing PR for the adopted branch
+    if let Ok(remote_url) = git::run_output(manager.repo_root(), &["remote", "get-url", "origin"]) {
+        if let Ok(Some(pr_number)) = github::find_pr_by_branch(&remote_url, &workspace.branch).await
+        {
+            // Record synthetic Ship entry so merge/pr-status can find the PR
+            let pr_url = if let Some(remote) = github::parse_github_remote(&remote_url) {
+                format!(
+                    "https://{}/{}/{}/pull/{}",
+                    remote.host, remote.owner, remote.repo, pr_number
+                )
+            } else {
+                format!("pull/{}", pr_number)
+            };
+            if let Err(e) = crate::oplog::record(
+                manager.repo_root(),
+                crate::oplog::OpKind::Ship,
+                Some(ticket),
+                &format!("Adopted branch '{}' -> {}", workspace.branch, pr_url),
+                None,
+            ) {
+                eprintln!("warning: failed to record PR in oplog: {e}");
+            } else if mode != Mode::Quiet {
+                eprintln!("  Detected existing PR #{}", pr_number);
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -431,16 +458,33 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
         })
         .collect();
 
-    if entries.is_empty() {
-        if let Some(t) = ticket {
-            anyhow::bail!("no shipped PR found for {t}. Ship it first with `parsec ship {t}`.");
-        } else {
-            anyhow::bail!("no shipped PRs found. Ship a ticket first with `parsec ship`.");
+    // Fallback: search active workspaces for PRs by branch name
+    let mut all_entries = entries;
+    if all_entries.is_empty() {
+        let config = ParsecConfig::load()?;
+        let manager = WorktreeManager::new(repo, &config)?;
+        let workspaces = match ticket {
+            Some(t) => vec![manager.get(t)?],
+            None => manager.list()?,
+        };
+
+        for ws in &workspaces {
+            if let Ok(Some(pr_number)) = github::find_pr_by_branch(&remote_url, &ws.branch).await {
+                all_entries.push((ws.ticket.clone(), pr_number, String::new()));
+            }
+        }
+
+        if all_entries.is_empty() {
+            if let Some(t) = ticket {
+                anyhow::bail!("no PR found for {t}. Ship it first with `parsec ship {t}`, or check your GitHub token.");
+            } else {
+                anyhow::bail!("no PRs found. Ship a ticket first with `parsec ship`, or check your GitHub token.");
+            }
         }
     }
 
     let mut statuses = Vec::new();
-    for (ticket_id, pr_number, _url) in &entries {
+    for (ticket_id, pr_number, _url) in &all_entries {
         match crate::github::get_pr_status(&remote_url, *pr_number).await? {
             Some(status) => statuses.push((ticket_id.clone(), status)),
             None => {
@@ -502,7 +546,8 @@ pub async fn merge(
                 .await?
                 .ok_or_else(|| {
                     anyhow::anyhow!(
-                        "no PR found for {ticket_id}. Ship it first with `parsec ship {ticket_id}`."
+                        "no open PR found for {ticket_id} (branch '{}'). Either ship it with `parsec ship {ticket_id}`, or check that PARSEC_GITHUB_TOKEN is set.",
+                        ws.branch
                     )
                 })?
         }
