@@ -133,7 +133,16 @@ pub fn print_status(workspaces: &[Workspace]) {
 }
 
 pub fn print_ship(result: &ShipResult) {
-    println!("{}", format!("Shipped {}!", result.ticket).green().bold());
+    if result.pr_url.is_some() || result.cleaned_up {
+        println!("{}", format!("Shipped {}!", result.ticket).green().bold());
+    } else {
+        println!(
+            "{}",
+            format!("Shipped {} (partial — PR failed)", result.ticket)
+                .yellow()
+                .bold()
+        );
+    }
     if let Some(url) = &result.pr_url {
         println!("  {} {}", "PR:".bold(), url.cyan());
     }
