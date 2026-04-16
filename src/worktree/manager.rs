@@ -52,6 +52,8 @@ impl WorktreeManager {
                     // When stacking, use the parent's branch as base
                     let parent_ws = self.get(parent)?;
                     parent_ws.branch.clone()
+                } else if let Some(ref default_base) = self.config.workspace.default_base {
+                    default_base.clone()
                 } else {
                     git::get_default_branch(&self.repo_root)
                         .context("failed to detect default branch")?
