@@ -713,7 +713,9 @@ pub async fn merge(
                         .and_then(|e| e.undo_info.as_ref())
                         .and_then(|u| u.branch.clone())
                     {
-                        let _ = git::delete_branch(&repo_root, branch);
+                        if let Err(e) = git::delete_branch(&repo_root, branch) {
+                            eprintln!("warning: failed to delete local branch '{}': {}", branch, e);
+                        }
                     }
 
                     if mode == Mode::Human {
@@ -1085,7 +1087,9 @@ pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
                 }
             }
             if let Some(branch) = &undo_info.branch {
-                let _ = git::delete_branch(&repo_root, branch);
+                if let Err(e) = git::delete_branch(&repo_root, branch) {
+                    eprintln!("warning: failed to delete branch '{}': {e}", branch);
+                }
             }
 
             // Remove from state
