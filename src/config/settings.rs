@@ -87,6 +87,9 @@ pub struct WorkspaceConfig {
     pub base_dir: String, // only used for Internal layout
     #[serde(default = "default_branch_prefix")]
     pub branch_prefix: String,
+    /// Default base branch for worktree creation (e.g. "develop")
+    #[serde(default)]
+    pub default_base: Option<String>,
 }
 
 impl Default for WorkspaceConfig {
@@ -95,6 +98,7 @@ impl Default for WorkspaceConfig {
             layout: default_layout(),
             base_dir: default_base_dir(),
             branch_prefix: default_branch_prefix(),
+            default_base: None,
         }
     }
 }

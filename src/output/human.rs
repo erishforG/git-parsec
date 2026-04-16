@@ -684,6 +684,9 @@ pub fn print_config_show(config: &ParsecConfig) {
     println!("  layout          = {}", config.workspace.layout);
     println!("  base_dir        = {}", config.workspace.base_dir);
     println!("  branch_prefix   = {}", config.workspace.branch_prefix);
+    if let Some(ref default_base) = config.workspace.default_base {
+        println!("  default_base    = {}", default_base);
+    }
     println!();
     println!("{}", "[tracker]".bold());
     println!("  provider       = {}", config.tracker.provider);
