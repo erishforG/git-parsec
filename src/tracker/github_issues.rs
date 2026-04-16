@@ -80,6 +80,57 @@ impl GithubIssueTracker {
         })
     }
 
+    /// Post a comment on a GitHub issue.
+    /// Endpoint: POST /repos/{owner}/{repo}/issues/{number}/comments
+    pub async fn add_comment(&self, id: &str, body: &str) -> Result<()> {
+        let issue_num = id.trim_start_matches('#');
+
+        let token = Self::resolve_token().ok_or_else(|| {
+            anyhow::anyhow!("No GitHub token found. Set GITHUB_TOKEN or GH_TOKEN.")
+        })?;
+
+        let remote = self
+            .resolve_remote()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine GitHub remote from repository."))?;
+
+        let url = format!(
+            "{}/repos/{}/{}/issues/{}/comments",
+            remote.api_base(),
+            remote.owner,
+            remote.repo,
+            issue_num
+        );
+
+        let payload = serde_json::json!({
+            "body": body
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "git-parsec")
+            .bearer_auth(&token)
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to send comment request to GitHub Issues API")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let resp_body = response.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "GitHub Issues comment API returned {} for #{}: {}",
+                status,
+                issue_num,
+                resp_body
+            );
+        }
+
+        Ok(())
+    }
+
     fn resolve_remote(&self) -> Option<crate::github::GitHubRemote> {
         let repo_root = self.repo_root.as_ref()?;
         let remote_url = crate::git::get_remote_url(repo_root).ok()?;

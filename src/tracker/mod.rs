@@ -139,6 +139,75 @@ pub async fn try_transition(config: &ParsecConfig, ticket: &str, target_status: 
     }
 }
 
+/// Post a comment on a ticket via the configured tracker.
+///
+/// Follows the same auto-detection logic as `fetch_ticket`: explicit provider
+/// first, then Jira env-var auto-detect, then GitHub remote auto-detect.
+pub async fn post_comment(
+    config: &ParsecConfig,
+    id: &str,
+    body: &str,
+    repo_root: Option<&Path>,
+) -> Result<()> {
+    load_atlassian_env();
+
+    match config.tracker.provider {
+        TrackerProvider::Jira => {
+            let base_url = config
+                .tracker
+                .jira
+                .as_ref()
+                .map(|j| j.base_url.clone())
+                .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Jira base URL not found. Set it in config or {} env var.",
+                        crate::env::JIRA_BASE_URL,
+                    )
+                })?;
+            let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
+            let tracker = jira::JiraTracker::new(&base_url, email.as_deref());
+            tracker.add_comment(id, body).await
+        }
+        TrackerProvider::Github => {
+            let tracker = github_issues::GithubIssueTracker::new(repo_root);
+            tracker.add_comment(id, body).await
+        }
+        TrackerProvider::Gitlab | TrackerProvider::None => {
+            // Auto-detect Jira
+            if std::env::var(crate::env::JIRA_BASE_URL).is_ok()
+                && (std::env::var(crate::env::JIRA_PAT).is_ok()
+                    || std::env::var(crate::env::PARSEC_JIRA_TOKEN).is_ok())
+            {
+                let base_url = std::env::var(crate::env::JIRA_BASE_URL)?;
+                let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
+                let tracker = jira::JiraTracker::new(&base_url, email.as_deref());
+                if tracker.add_comment(id, body).await.is_ok() {
+                    return Ok(());
+                }
+            }
+
+            // Auto-detect GitHub
+            if let Some(root) = repo_root {
+                if let Ok(remote_url) = crate::git::get_remote_url(root) {
+                    if crate::github::parse_github_remote(&remote_url).is_some() {
+                        let clean_id = id.trim_start_matches('#');
+                        if clean_id.chars().all(|c| c.is_ascii_digit()) {
+                            let tracker = github_issues::GithubIssueTracker::new(repo_root);
+                            return tracker.add_comment(id, body).await;
+                        }
+                    }
+                }
+            }
+
+            anyhow::bail!(
+                "No tracker configured to post comments. \
+                 Set tracker.provider in config or configure environment variables."
+            )
+        }
+    }
+}
+
 /// Internal: fetch from Jira, resolving base_url from config or env var.
 async fn fetch_jira_ticket(config: &ParsecConfig, id: &str) -> Result<Option<Ticket>> {
     // Resolve base_url: config > JIRA_BASE_URL env var

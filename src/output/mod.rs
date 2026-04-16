@@ -218,3 +218,11 @@ pub fn print_ticket(ticket: &TrackerTicket, mode: Mode) {
         Mode::Human => human::print_ticket(ticket),
     }
 }
+
+pub fn print_comment(ticket_id: &str, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_comment(ticket_id),
+        Mode::Human => human::print_comment(ticket_id),
+    }
+}

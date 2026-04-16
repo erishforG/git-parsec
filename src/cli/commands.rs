@@ -324,6 +324,19 @@ pub async fn ship(
         }
     }
 
+    // Auto-comment PR link on the ticket if configured
+    if config.tracker.comment_on_ship {
+        if let Some(ref pr_url) = result.pr_url {
+            let comment_body = format!("PR opened: {}", pr_url);
+            if let Err(e) =
+                tracker::post_comment(&config, ticket, &comment_body, Some(manager.repo_root()))
+                    .await
+            {
+                eprintln!("warning: failed to post comment on ticket: {e}");
+            }
+        }
+    }
+
     // Phase 3: Cleanup only if PR succeeded (or no PR requested)
     if !pr_failed {
         let cleaned_up = manager.ship_cleanup(ticket)?;
@@ -1278,8 +1291,14 @@ pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
-pub async fn ticket(repo: &Path, ticket_override: Option<&str>, mode: Mode) -> Result<()> {
+pub async fn ticket(
+    repo: &Path,
+    ticket_override: Option<&str>,
+    comment: Option<String>,
+    mode: Mode,
+) -> Result<()> {
     let config = ParsecConfig::load()?;
+    let repo_root = git::get_repo_root(repo)?;
 
     // Resolve ticket: explicit arg > auto-detect from current worktree
     let ticket_id = if let Some(t) = ticket_override {
@@ -1300,6 +1319,13 @@ pub async fn ticket(repo: &Path, ticket_override: Option<&str>, mode: Mode) -> R
                 )
             })?
     };
+
+    // If --comment is provided, post the comment and return
+    if let Some(comment_text) = comment {
+        tracker::post_comment(&config, &ticket_id, &comment_text, Some(&repo_root)).await?;
+        output::print_comment(&ticket_id, mode);
+        return Ok(());
+    }
 
     // Fetch ticket from tracker
     let ticket = tracker::fetch_ticket(&config, &ticket_id, Some(repo))

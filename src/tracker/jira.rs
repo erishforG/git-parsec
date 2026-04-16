@@ -311,6 +311,47 @@ impl JiraTracker {
         Ok(())
     }
 
+    /// Post a comment on a Jira issue.
+    /// Endpoint: POST /rest/api/2/issue/{key}/comment
+    pub async fn add_comment(&self, key: &str, body: &str) -> Result<()> {
+        let token = Self::resolve_token()?;
+        let url = format!("{}/rest/api/2/issue/{}/comment", self.base_url, key);
+
+        let payload = serde_json::json!({
+            "body": body
+        });
+
+        let mut request = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&payload);
+
+        if let Some(ref email) = self.email {
+            request = request.basic_auth(email, Some(&token));
+        } else {
+            request = request.bearer_auth(&token);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("Failed to send comment request to Jira")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let resp_body = response.text().await.unwrap_or_default();
+            bail!(
+                "Jira comment API returned {} for {}: {}",
+                status,
+                key,
+                resp_body
+            );
+        }
+
+        Ok(())
+    }
+
     /// Fetch all issues in a sprint via Jira Agile REST API v1.0.
     /// Requires: Jira Software (Cloud or Server/DC 7.x+)
     /// Endpoint: GET /rest/agile/1.0/sprint/{id}/issue?fields=summary,status,assignee

@@ -87,6 +87,10 @@ pub enum Command {
     Ticket {
         /// Ticket identifier (auto-detects from current worktree if omitted)
         ticket: Option<String>,
+
+        /// Post a comment on the ticket
+        #[arg(long)]
+        comment: Option<String>,
     },
 
     /// Push, create PR/MR, and clean up a workspace
@@ -400,8 +404,8 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
         }
-        Command::Ticket { ticket } => {
-            commands::ticket(&repo_path, ticket.as_deref(), output_mode).await
+        Command::Ticket { ticket, comment } => {
+            commands::ticket(&repo_path, ticket.as_deref(), comment, output_mode).await
         }
         Command::Ship {
             ticket,
