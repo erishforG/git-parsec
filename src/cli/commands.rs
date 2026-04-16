@@ -1609,6 +1609,21 @@ pub async fn config_show(mode: Mode) -> Result<()> {
     Ok(())
 }
 
+pub async fn root(repo_path: &Path) -> Result<()> {
+    let repo_root = git::get_main_repo_root(repo_path)?;
+    print!("{}", repo_root.display());
+    Ok(())
+}
+
+pub async fn init_shell(shell: &str) -> Result<()> {
+    let script = match shell {
+        "bash" => INIT_SHELL_BASH,
+        _ => INIT_SHELL_ZSH,
+    };
+    print!("{}", script);
+    Ok(())
+}
+
 pub async fn config_shell(shell: &str, _mode: Mode) -> Result<()> {
     let script = match shell {
         "bash" => SHELL_INTEGRATION_BASH,
@@ -1652,6 +1667,72 @@ function parsec() {
         fi
     else
         command parsec "$@"
+    fi
+}
+"#;
+
+const INIT_SHELL_ZSH: &str = r#"
+# parsec shell integration - add to ~/.zshrc
+# eval "$(parsec init zsh)"
+function parsec() {
+    if [[ "$1" == "switch" && -n "$2" ]]; then
+        local dir
+        dir=$(command parsec switch "${@:2}" 2>&1)
+        if [[ $? -eq 0 && -d "$dir" ]]; then
+            cd "$dir"
+        else
+            echo "$dir" >&2
+            return 1
+        fi
+    else
+        # Save repo root before merge (CWD may be deleted after)
+        local saved_root=""
+        if [[ "$1" == "merge" ]]; then
+            saved_root=$(command parsec root 2>/dev/null)
+        fi
+        command parsec "$@"
+        local exit_code=$?
+        # After merge, if CWD was deleted (worktree cleaned up), cd to main repo
+        if [[ "$1" == "merge" && $exit_code -eq 0 ]] && [[ ! -d "$(pwd)" ]]; then
+            if [[ -n "$saved_root" && -d "$saved_root" ]]; then
+                cd "$saved_root"
+                echo "  cd $saved_root"
+            fi
+        fi
+        return $exit_code
+    fi
+}
+"#;
+
+const INIT_SHELL_BASH: &str = r#"
+# parsec shell integration - add to ~/.bashrc
+# eval "$(parsec init bash)"
+function parsec() {
+    if [[ "$1" == "switch" && -n "$2" ]]; then
+        local dir
+        dir=$(command parsec switch "${@:2}" 2>&1)
+        if [[ $? -eq 0 && -d "$dir" ]]; then
+            cd "$dir"
+        else
+            echo "$dir" >&2
+            return 1
+        fi
+    else
+        # Save repo root before merge (CWD may be deleted after)
+        local saved_root=""
+        if [[ "$1" == "merge" ]]; then
+            saved_root=$(command parsec root 2>/dev/null)
+        fi
+        command parsec "$@"
+        local exit_code=$?
+        # After merge, if CWD was deleted (worktree cleaned up), cd to main repo
+        if [[ "$1" == "merge" && $exit_code -eq 0 ]] && [[ ! -d "$(pwd)" ]]; then
+            if [[ -n "$saved_root" && -d "$saved_root" ]]; then
+                cd "$saved_root"
+                echo "  cd $saved_root"
+            fi
+        fi
+        return $exit_code
     fi
 }
 "#;
