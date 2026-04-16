@@ -258,51 +258,67 @@ pub async fn ship(
 
         let remote_url = git::get_remote_url(manager.repo_root());
         if let Ok(ref remote_url) = remote_url {
-            match github::create_pr(
-                remote_url,
-                &result.branch,
-                &result.base_branch,
-                &pr_title,
-                &pr_body,
-                draft || config.ship.draft,
-                &config,
-            )
-            .await
+            // Check if a PR already exists for this branch (#98)
+            if let Ok(Some(existing_pr)) =
+                github::find_pr_by_branch(remote_url, &result.branch, &config).await
             {
-                Ok(Some(pr)) => {
-                    result.pr_url = Some(pr.url);
-                }
-                Ok(None) => {
-                    // GitHub had no token — try GitLab
-                    match gitlab::create_mr(
-                        remote_url,
-                        &result.branch,
-                        &result.base_branch,
-                        &pr_title,
-                        &pr_body,
-                        draft || config.ship.draft,
+                let remote = github::parse_github_remote(remote_url);
+                let pr_url = if let Some(r) = remote {
+                    format!(
+                        "https://{}/{}/{}/pull/{}",
+                        r.host, r.owner, r.repo, existing_pr
                     )
-                    .await
-                    {
-                        Ok(Some(mr)) => {
-                            result.pr_url = Some(mr.url);
-                        }
-                        Ok(None) => {
-                            eprintln!(
-                                "note: PR/MR creation skipped — no token found.\n      \
-                                 Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
-                            );
-                            pr_failed = true;
-                        }
-                        Err(e) => {
-                            eprintln!("error: GitLab MR creation failed: {e}");
-                            pr_failed = true;
+                } else {
+                    format!("PR #{}", existing_pr)
+                };
+                result.pr_url = Some(pr_url);
+            } else {
+                match github::create_pr(
+                    remote_url,
+                    &result.branch,
+                    &result.base_branch,
+                    &pr_title,
+                    &pr_body,
+                    draft || config.ship.draft,
+                    &config,
+                )
+                .await
+                {
+                    Ok(Some(pr)) => {
+                        result.pr_url = Some(pr.url);
+                    }
+                    Ok(None) => {
+                        // GitHub had no token — try GitLab
+                        match gitlab::create_mr(
+                            remote_url,
+                            &result.branch,
+                            &result.base_branch,
+                            &pr_title,
+                            &pr_body,
+                            draft || config.ship.draft,
+                        )
+                        .await
+                        {
+                            Ok(Some(mr)) => {
+                                result.pr_url = Some(mr.url);
+                            }
+                            Ok(None) => {
+                                eprintln!(
+                                    "note: PR/MR creation skipped — no token found.\n      \
+                                     Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
+                                );
+                                pr_failed = true;
+                            }
+                            Err(e) => {
+                                eprintln!("error: GitLab MR creation failed: {e}");
+                                pr_failed = true;
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    eprintln!("error: PR creation failed: {e}");
-                    pr_failed = true;
+                    Err(e) => {
+                        eprintln!("error: PR creation failed: {e}");
+                        pr_failed = true;
+                    }
                 }
             }
         }
