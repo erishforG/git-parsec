@@ -107,6 +107,9 @@ impl Default for WorkspaceConfig {
 pub struct JiraConfig {
     pub base_url: String,
     pub email: Option<String>,
+    pub project: Option<String>,
+    pub board_id: Option<u64>,
+    pub assignee: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +285,9 @@ impl ParsecConfig {
                 } else {
                     Some(email_input)
                 },
+                project: None,
+                board_id: None,
+                assignee: None,
             });
         }
 

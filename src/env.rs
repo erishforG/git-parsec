@@ -1,0 +1,70 @@
+//! Centralized environment variable definitions for parsec.
+//!
+//! All env var names and token resolution logic live here so that
+//! adding or renaming a variable only requires touching one file.
+
+// ---------------------------------------------------------------------------
+// Jira
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_JIRA_TOKEN: &str = "PARSEC_JIRA_TOKEN";
+pub const JIRA_PAT: &str = "JIRA_PAT";
+pub const JIRA_BASE_URL: &str = "JIRA_BASE_URL";
+pub const PARSEC_JIRA_PROJECT: &str = "PARSEC_JIRA_PROJECT";
+pub const PARSEC_JIRA_BOARD_ID: &str = "PARSEC_JIRA_BOARD_ID";
+pub const PARSEC_JIRA_ASSIGNEE: &str = "PARSEC_JIRA_ASSIGNEE";
+
+// ---------------------------------------------------------------------------
+// GitHub
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_GITHUB_TOKEN: &str = "PARSEC_GITHUB_TOKEN";
+pub const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
+pub const GH_TOKEN: &str = "GH_TOKEN";
+
+// ---------------------------------------------------------------------------
+// GitLab
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_GITLAB_TOKEN: &str = "PARSEC_GITLAB_TOKEN";
+pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
+
+// ---------------------------------------------------------------------------
+// Token resolvers
+// ---------------------------------------------------------------------------
+
+/// Resolve Jira API token. Priority: PARSEC_JIRA_TOKEN > JIRA_PAT
+pub fn jira_token() -> Option<String> {
+    for var in [PARSEC_JIRA_TOKEN, JIRA_PAT] {
+        if let Ok(token) = std::env::var(var) {
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+    }
+    None
+}
+
+/// Resolve GitHub token. Priority: PARSEC_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN
+pub fn github_token() -> Option<String> {
+    for var in [PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN] {
+        if let Ok(token) = std::env::var(var) {
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+    }
+    None
+}
+
+/// Resolve GitLab token. Priority: PARSEC_GITLAB_TOKEN > GITLAB_TOKEN
+pub fn gitlab_token() -> Option<String> {
+    for var in [PARSEC_GITLAB_TOKEN, GITLAB_TOKEN] {
+        if let Ok(token) = std::env::var(var) {
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+    }
+    None
+}

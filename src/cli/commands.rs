@@ -1,15 +1,17 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use colored::Colorize;
 
-use crate::config::ParsecConfig;
+use crate::config::{ParsecConfig, TrackerProvider};
 use crate::conflict;
 use crate::git;
 use crate::github;
 use crate::gitlab;
-use crate::output::{self, Mode};
+use crate::output::{self, BoardTicketDisplay, Mode};
 use crate::tracker;
+use crate::tracker::jira::JiraTracker;
 use crate::worktree::WorktreeManager;
 
 pub async fn start(
@@ -1084,6 +1086,164 @@ pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
     }
 
     output::print_sync(&synced, &failed, "rebase (stack)", mode);
+    Ok(())
+}
+
+pub async fn board(
+    repo: &Path,
+    board_id_override: Option<u64>,
+    project_override: Option<String>,
+    assignee_override: Option<String>,
+    show_all: bool,
+    mode: Mode,
+) -> Result<()> {
+    let config = ParsecConfig::load()?;
+
+    // Board view currently supports Jira only
+    if !matches!(
+        config.tracker.provider,
+        TrackerProvider::Jira | TrackerProvider::None
+    ) {
+        anyhow::bail!("Board view currently supports Jira only.");
+    }
+
+    // Load atlassian env for auto-detection
+    tracker::load_atlassian_env();
+
+    // Resolve Jira base URL and email
+    let base_url = config
+        .tracker
+        .jira
+        .as_ref()
+        .map(|j| j.base_url.clone())
+        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Jira not configured. Run `parsec config init` or set {}.",
+                crate::env::JIRA_BASE_URL,
+            )
+        })?;
+    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
+    let jira = JiraTracker::new(&base_url, email.as_deref());
+
+    // Resolve project key: --project CLI > PARSEC_JIRA_PROJECT env > config > worktree inference
+    let project = if let Some(p) = project_override {
+        p
+    } else if let Ok(p) = std::env::var(crate::env::PARSEC_JIRA_PROJECT) {
+        p
+    } else if let Some(p) = config.tracker.jira.as_ref().and_then(|j| j.project.clone()) {
+        p
+    } else {
+        let config2 = ParsecConfig::load()?;
+        let manager = WorktreeManager::new(repo, &config2)?;
+        let workspaces = manager.list()?;
+        workspaces
+            .iter()
+            .find_map(|ws| ws.ticket.split('-').next().map(String::from))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Could not infer project key. Use --project <KEY>, set {}, or start a worktree first.",
+                    crate::env::PARSEC_JIRA_PROJECT,
+                )
+            })?
+    };
+
+    // Resolve board ID: --board-id CLI > PARSEC_JIRA_BOARD_ID env > config > API fetch
+    let board_id = if let Some(id) = board_id_override {
+        id
+    } else if let Ok(id_str) = std::env::var(crate::env::PARSEC_JIRA_BOARD_ID) {
+        id_str.parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "{} must be a valid number, got: {}",
+                crate::env::PARSEC_JIRA_BOARD_ID,
+                id_str,
+            )
+        })?
+    } else if let Some(id) = config.tracker.jira.as_ref().and_then(|j| j.board_id) {
+        id
+    } else {
+        jira.fetch_board_id(&project).await?
+    };
+
+    // Resolve assignee filter: --assignee CLI > PARSEC_JIRA_ASSIGNEE env > config > none
+    let assignee_filter = if show_all {
+        None
+    } else if let Some(a) = assignee_override {
+        Some(a)
+    } else if let Ok(a) = std::env::var(crate::env::PARSEC_JIRA_ASSIGNEE) {
+        Some(a)
+    } else {
+        config
+            .tracker
+            .jira
+            .as_ref()
+            .and_then(|j| j.assignee.clone())
+    };
+
+    // Fetch active sprint
+    let sprint = jira.fetch_active_sprint(board_id).await?;
+
+    // Fetch sprint issues
+    let tickets = jira.fetch_sprint_issues(sprint.id).await?;
+
+    // Collect active worktree ticket set
+    let config3 = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config3)?;
+    let active_worktree_tickets: HashSet<String> =
+        manager.list()?.iter().map(|ws| ws.ticket.clone()).collect();
+
+    // Collect shipped PR ticket set from oplog
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let shipped_tickets: HashSet<String> = oplog
+        .entries
+        .iter()
+        .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+        .filter_map(|e| e.ticket.clone())
+        .collect();
+
+    // Annotate tickets and group by status
+    let mut column_map: Vec<(String, Vec<BoardTicketDisplay>)> = Vec::new();
+
+    // Preserve unique status order as encountered
+    let mut seen_statuses: Vec<String> = Vec::new();
+    for ticket in &tickets {
+        if !seen_statuses.contains(&ticket.status) {
+            seen_statuses.push(ticket.status.clone());
+        }
+    }
+
+    for status in &seen_statuses {
+        let col_tickets: Vec<BoardTicketDisplay> = tickets
+            .iter()
+            .filter(|t| &t.status == status)
+            .filter(|t| {
+                // Apply assignee filter if set
+                if let Some(ref filter) = assignee_filter {
+                    t.assignee.as_deref() == Some(filter.as_str())
+                } else {
+                    true
+                }
+            })
+            .map(|t| BoardTicketDisplay {
+                key: t.key.clone(),
+                summary: t.summary.clone(),
+                assignee: t.assignee.clone(),
+                has_worktree: active_worktree_tickets.contains(&t.key),
+                has_pr: shipped_tickets.contains(&t.key),
+                url: Some(format!(
+                    "{}/browse/{}",
+                    base_url.trim_end_matches('/'),
+                    t.key
+                )),
+            })
+            .collect();
+        if !col_tickets.is_empty() {
+            column_map.push((status.clone(), col_tickets));
+        }
+    }
+
+    output::print_board(Some(&sprint), &column_map, mode);
     Ok(())
 }
 
