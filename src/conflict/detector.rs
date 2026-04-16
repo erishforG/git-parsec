@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::git;
 use crate::worktree::Workspace;
@@ -26,30 +26,31 @@ pub fn detect(workspaces: &[Workspace]) -> Result<Vec<FileConflict>> {
             continue;
         }
 
-        // Get merge-base between workspace branch and base branch
-        // Run from the workspace path
-        let merge_base = match git::get_merge_base(&ws.path, &ws.base_branch, "HEAD") {
-            Ok(base) => base,
-            Err(_) => {
-                skipped.push(ws.ticket.clone());
-                continue;
-            }
-        };
+        // Try origin/base first (more reliable in worktrees), fall back to local base
+        let origin_base = format!("origin/{}", ws.base_branch);
+        let merge_base = git::get_merge_base(&ws.path, &origin_base, "HEAD")
+            .or_else(|_| git::get_merge_base(&ws.path, &ws.base_branch, "HEAD"));
 
-        // Get changed files
-        let changed = match git::get_changed_files(&ws.path, &merge_base, "HEAD") {
-            Ok(files) => files,
-            Err(_) => {
-                skipped.push(ws.ticket.clone());
-                continue;
-            }
-        };
+        let mut all_changed: HashSet<String> = HashSet::new();
 
-        if changed.is_empty() {
-            skipped.push(ws.ticket.clone());
+        // Committed changes (merge_base..HEAD)
+        if let Ok(ref base) = merge_base {
+            if let Ok(files) = git::get_changed_files(&ws.path, base, "HEAD") {
+                all_changed.extend(files);
+            }
         }
 
-        for file in changed {
+        // Uncommitted changes (staged + unstaged)
+        if let Ok(files) = git::get_uncommitted_files(&ws.path) {
+            all_changed.extend(files);
+        }
+
+        if all_changed.is_empty() {
+            skipped.push(ws.ticket.clone());
+            continue;
+        }
+
+        for file in all_changed {
             file_map.entry(file).or_default().push(ws.ticket.clone());
         }
     }
