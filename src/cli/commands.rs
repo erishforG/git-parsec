@@ -132,12 +132,27 @@ pub async fn status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()>
     Ok(())
 }
 
-pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mode) -> Result<()> {
+pub async fn ship(
+    repo: &Path,
+    ticket: &str,
+    draft: bool,
+    no_pr: bool,
+    base_override: Option<String>,
+    mode: Mode,
+) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
 
     // Phase 1: Push only (don't clean up yet)
     let mut result = manager.ship_push(ticket)?;
+
+    // Resolve base branch: --base CLI > config default_base > worktree's base_branch
+    if let Some(base) = base_override {
+        result.base_branch = base;
+    } else if let Some(ref default_base) = config.ship.default_base {
+        result.base_branch = default_base.clone();
+    }
+    // else: keep the worktree's original base_branch
 
     // Phase 2: Create PR/MR (async)
     let mut pr_failed = false;
