@@ -4,7 +4,19 @@ mod json;
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
+use crate::tracker::jira::{InboxTicket, SprintInfo};
+use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace};
+
+/// A ticket annotated with parsec-specific indicators for board display.
+pub struct BoardTicketDisplay {
+    pub key: String,
+    pub summary: String,
+    pub assignee: Option<String>,
+    pub has_worktree: bool,
+    pub has_pr: bool,
+    pub url: Option<String>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -29,11 +41,15 @@ pub fn print_adopt(workspace: &Workspace, mode: Mode) {
     }
 }
 
-pub fn print_list(workspaces: &[Workspace], mode: Mode) {
+pub fn print_list(
+    workspaces: &[Workspace],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+    mode: Mode,
+) {
     match mode {
         Mode::Quiet => {}
-        Mode::Json => json::print_list(workspaces),
-        Mode::Human => human::print_list(workspaces),
+        Mode::Json => json::print_list(workspaces, pr_map),
+        Mode::Human => human::print_list(workspaces, pr_map),
     }
 }
 
@@ -181,4 +197,40 @@ pub fn print_diff_stat(stat: &str, ticket: &str, mode: Mode) {
 
 pub fn print_diff_full_json(files: &[(String, String)], ticket: &str) {
     json::print_diff_full(files, ticket);
+}
+
+pub fn print_board(
+    sprint: Option<&SprintInfo>,
+    columns: &[(String, Vec<BoardTicketDisplay>)],
+    mode: Mode,
+) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_board(sprint, columns),
+        Mode::Human => human::print_board(sprint, columns),
+    }
+}
+
+pub fn print_ticket(ticket: &TrackerTicket, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_ticket(ticket),
+        Mode::Human => human::print_ticket(ticket),
+    }
+}
+
+pub fn print_comment(ticket_id: &str, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_comment(ticket_id),
+        Mode::Human => human::print_comment(ticket_id),
+    }
+}
+
+pub fn print_inbox(tickets: &[InboxTicket], mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_inbox(tickets),
+        Mode::Human => human::print_inbox(tickets),
+    }
 }

@@ -52,6 +52,8 @@ impl WorktreeManager {
                     // When stacking, use the parent's branch as base
                     let parent_ws = self.get(parent)?;
                     parent_ws.branch.clone()
+                } else if let Some(ref default_base) = self.config.workspace.default_base {
+                    default_base.clone()
                 } else {
                     git::get_default_branch(&self.repo_root)
                         .context("failed to detect default branch")?
@@ -122,16 +124,42 @@ impl WorktreeManager {
             .context("failed to save parsec state")?;
 
         // Run post-create hooks
-        for hook_cmd in &self.config.hooks.post_create {
-            eprintln!("Running post-create hook: {}", hook_cmd);
-            let status = std::process::Command::new("sh")
-                .args(["-c", hook_cmd])
-                .current_dir(&worktree_path)
-                .status();
-            match status {
-                Ok(s) if s.success() => {}
-                Ok(s) => eprintln!("warning: hook '{}' exited with {}", hook_cmd, s),
-                Err(e) => eprintln!("warning: failed to run hook '{}': {}", hook_cmd, e),
+        if !self.config.hooks.post_create.is_empty() {
+            let skip_prompt = std::env::var("PARSEC_YES")
+                .map(|v| v == "1")
+                .unwrap_or(false);
+
+            let confirmed = if skip_prompt {
+                true
+            } else {
+                eprintln!("The following post-create hooks will be executed:");
+                for hook_cmd in &self.config.hooks.post_create {
+                    eprintln!("  - {}", hook_cmd);
+                }
+                eprint!("Run these hooks? [y/N] ");
+
+                let mut input = String::new();
+                match std::io::stdin().read_line(&mut input) {
+                    Ok(_) => input.trim().eq_ignore_ascii_case("y"),
+                    Err(_) => false,
+                }
+            };
+
+            if confirmed {
+                for hook_cmd in &self.config.hooks.post_create {
+                    eprintln!("Running post-create hook: {}", hook_cmd);
+                    let status = std::process::Command::new("sh")
+                        .args(["-c", hook_cmd])
+                        .current_dir(&worktree_path)
+                        .status();
+                    match status {
+                        Ok(s) if s.success() => {}
+                        Ok(s) => eprintln!("warning: hook '{}' exited with {}", hook_cmd, s),
+                        Err(e) => eprintln!("warning: failed to run hook '{}': {}", hook_cmd, e),
+                    }
+                }
+            } else {
+                eprintln!("Skipping post-create hooks.");
             }
         }
 
@@ -331,9 +359,9 @@ impl WorktreeManager {
     // ship (push + cleanup only, PR creation is in commands.rs)
     // -----------------------------------------------------------------------
 
-    pub fn ship(&self, ticket: &str) -> Result<ShipResult> {
-        let mut state =
-            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
+    /// Phase 1: Push the branch only, don't clean up yet.
+    pub fn ship_push(&self, ticket: &str) -> Result<ShipResult> {
+        let state = ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
 
         let workspace = state
             .get_workspace(ticket)
@@ -349,23 +377,48 @@ impl WorktreeManager {
         git::push_branch(&workspace.path, &workspace.branch)
             .with_context(|| format!("failed to push branch '{}'", workspace.branch))?;
 
-        // Optionally clean up the worktree and local branch.
-        let cleaned_up = if self.config.ship.auto_cleanup {
-            match git::worktree_remove(&self.repo_root, &workspace.path) {
-                Ok(()) => {
-                    let _ = git::delete_branch(&self.repo_root, &workspace.branch);
-                    true
-                }
-                Err(e) => {
-                    eprintln!("warning: failed to remove worktree: {e}");
-                    false
-                }
-            }
-        } else {
-            false
+        Ok(ShipResult {
+            ticket: ticket.to_owned(),
+            branch: workspace.branch,
+            base_branch: workspace.base_branch,
+            ticket_title: workspace.ticket_title,
+            pr_url: None,
+            cleaned_up: false,
+        })
+    }
+
+    /// Phase 2: Clean up worktree and branch after successful PR creation.
+    pub fn ship_cleanup(&self, ticket: &str) -> Result<bool> {
+        if !self.config.ship.auto_cleanup {
+            return Ok(false);
+        }
+
+        let state = ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
+
+        let workspace = match state.get_workspace(ticket) {
+            Some(ws) => ws.clone(),
+            None => return Ok(false), // Already cleaned up
         };
 
-        // Update persisted state.
+        let cleaned_up = match git::worktree_remove(&self.repo_root, &workspace.path) {
+            Ok(()) => {
+                if let Err(e) = git::delete_branch(&self.repo_root, &workspace.branch) {
+                    eprintln!(
+                        "warning: failed to delete branch '{}': {e}",
+                        workspace.branch
+                    );
+                }
+                true
+            }
+            Err(e) => {
+                eprintln!("warning: failed to remove worktree: {e}");
+                false
+            }
+        };
+
+        // Update persisted state
+        let mut state =
+            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
         if cleaned_up {
             state.remove_workspace(ticket);
         } else if let Some(ws) = state.workspaces.get_mut(ticket) {
@@ -373,16 +426,18 @@ impl WorktreeManager {
         }
         state
             .save(&self.repo_root)
-            .context("failed to save parsec state after ship")?;
+            .context("failed to save parsec state after ship cleanup")?;
 
-        Ok(ShipResult {
-            ticket: ticket.to_owned(),
-            branch: workspace.branch,
-            base_branch: workspace.base_branch,
-            ticket_title: workspace.ticket_title,
-            pr_url: None, // Set by commands.rs after async PR creation
-            cleaned_up,
-        })
+        Ok(cleaned_up)
+    }
+
+    /// Combined push + cleanup (backwards compat).
+    #[allow(dead_code)]
+    pub fn ship(&self, ticket: &str) -> Result<ShipResult> {
+        let mut result = self.ship_push(ticket)?;
+        let cleaned_up = self.ship_cleanup(ticket)?;
+        result.cleaned_up = cleaned_up;
+        Ok(result)
     }
 
     // -----------------------------------------------------------------------
@@ -409,7 +464,9 @@ impl WorktreeManager {
             for ws in &candidates {
                 match git::worktree_remove(&self.repo_root, &ws.path) {
                     Ok(()) => {
-                        let _ = git::delete_branch(&self.repo_root, &ws.branch);
+                        if let Err(e) = git::delete_branch(&self.repo_root, &ws.branch) {
+                            eprintln!("warning: failed to delete branch '{}': {e}", ws.branch);
+                        }
                     }
                     Err(e) => {
                         eprintln!(
@@ -427,5 +484,33 @@ impl WorktreeManager {
         }
 
         Ok(candidates)
+    }
+
+    // -----------------------------------------------------------------------
+    // clean_orphans
+    // -----------------------------------------------------------------------
+
+    /// Remove state entries whose worktree directory no longer exists on disk.
+    pub fn clean_orphans(&self, dry_run: bool) -> Result<Vec<Workspace>> {
+        let mut state =
+            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
+
+        let orphans: Vec<Workspace> = state
+            .workspaces
+            .values()
+            .filter(|ws| !ws.path.exists())
+            .cloned()
+            .collect();
+
+        if !dry_run {
+            for ws in &orphans {
+                state.remove_workspace(&ws.ticket);
+            }
+            state
+                .save(&self.repo_root)
+                .context("failed to save parsec state after orphan cleanup")?;
+        }
+
+        Ok(orphans)
     }
 }

@@ -1,5 +1,9 @@
 # git-parsec
 
+[![Crates.io](https://img.shields.io/crates/v/git-parsec.svg)](https://crates.io/crates/git-parsec)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/erishforG/git-parsec/actions/workflows/ci.yml/badge.svg)](https://github.com/erishforG/git-parsec/actions)
+
 > Git worktree lifecycle manager for parallel AI agent workflows
 
 **parsec** manages isolated git worktrees tied to tickets (Jira, GitHub Issues), enabling multiple AI agents or developers to work on the same repository in parallel without lock conflicts.
@@ -79,6 +83,41 @@ Removed 1 worktree(s):
 - **Auto-cleanup** -- Remove worktrees for merged branches automatically
 - **GitHub and GitLab** -- PR and MR creation for both platforms
 - **Stacked PRs** -- Create dependent PR chains with `--on` and sync the entire stack
+- **Sprint board view** -- See the active sprint as a Kanban board with `parsec board`
+
+## Why AI-Native?
+
+Traditional AI agents waste tokens calling raw APIs. Each Jira or GitHub API call costs dozens of tokens for auth setup, pagination, and response parsing. **parsec packages git + tracker operations into single commands with structured output.**
+
+### Before: Raw API Calls
+
+```bash
+# Agent needs: sprint tickets + status + worktree info + PR status
+# Step 1: Authenticate with Jira API
+# Step 2: Find active sprint (GET /rest/agile/1.0/board/{id}/sprint?state=active)
+# Step 3: Fetch sprint issues (GET /rest/agile/1.0/sprint/{id}/issue)
+# Step 4: For each ticket, check local worktrees (git worktree list, parse output)
+# Step 5: For each ticket, check PR status (GitHub API)
+# → 5+ API calls, 100+ tokens, custom parsing logic
+```
+
+### After: One parsec Command
+
+```bash
+parsec board --json
+# → Sprint + status-grouped tickets + worktree/PR flags in one structured JSON
+```
+
+### Key Benefits for AI Agents
+
+| Capability | What it means |
+|------------|---------------|
+| `--json` on every command | Structured output AI can parse instantly |
+| `parsec start` | git worktree + Jira fetch + state management in one call |
+| `parsec board --json` | Sprint + tickets + worktree/PR status in one call |
+| `parsec ship` | Push + PR creation + cleanup in one call |
+| Env var defaults | Zero-arg commands after one-time setup |
+| Conflict detection | AI agents can check before parallel edits |
 
 ## Installation
 
@@ -247,18 +286,45 @@ $ parsec status PROJ-1234
 
 ---
 
+### `parsec ticket [ticket]`
+
+View ticket details from the configured tracker. Auto-detects the ticket from the current worktree if no argument is given.
+
+```
+parsec ticket [ticket]
+```
+
+```bash
+# Auto-detect from current worktree
+$ parsec ticket
+CL-2283: Implement rate limiting for API endpoints
+  Status: In Progress
+  Assignee: eric.signal
+  URL: https://jira.example.com/browse/CL-2283
+
+# Explicit ticket
+$ parsec ticket CL-2283
+
+# JSON output
+$ parsec ticket CL-2283 --json
+{"id":"CL-2283","title":"Implement rate limiting","status":"In Progress","assignee":"eric.signal","url":"https://jira.example.com/browse/CL-2283"}
+```
+
+---
+
 ### `parsec ship <ticket>`
 
 Push the branch, create a PR (GitHub) or MR (GitLab), and clean up the worktree. The forge is auto-detected from the remote URL.
 
 ```
-parsec ship <ticket> [--draft] [--no-pr]
+parsec ship <ticket> [--draft] [--no-pr] [--base <branch>]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--draft` | Create the PR/MR as a draft |
 | `--no-pr` | Push only, skip PR/MR creation |
+| `--base <branch>` | Target base branch for PR (overrides config `default_base` and worktree base) |
 
 ```bash
 # Push + PR + cleanup
@@ -659,6 +725,49 @@ $ parsec ship PROJ-1   # PR to main
 $ parsec ship PROJ-2   # PR to feature/PROJ-1
 $ parsec ship PROJ-3   # PR to feature/PROJ-2
 ```
+
+---
+
+### `parsec board`
+
+Show the active sprint as a vertical board view. Fetches tickets from Jira grouped by status column, with worktree and PR indicators.
+
+```
+parsec board [--project <KEY>] [--board-id <ID>] [--assignee <name>] [--all]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-p, --project <KEY>` | Jira project key (default from env/config) |
+| `--board-id <ID>` | Jira board ID (auto-detected from project) |
+| `--assignee <name>` | Filter by assignee (default from env/config) |
+| `--all` | Show all tickets (ignore assignee filter) |
+
+```bash
+# Show your tickets (with PARSEC_JIRA_ASSIGNEE configured)
+$ parsec board
+
+26.04.06 ~ 26.04.20
+
+In Progress (3)
+  CL-2283 [wt]  로그 분석 서비스 개발
+  CL-2284 [wt]  FDE 대시보드 관련
+  CL-2291       반품 요청 API 개발
+
+In Review (2)
+  CL-2281 [pr]  ai 커피챗 준비
+  CL-2280       이관 요청할 API 정리
+
+# Show all team tickets
+$ parsec board --all
+
+# JSON output for AI agents
+$ parsec board --json
+{"sprint":{"id":123,"name":"...","start":"...","end":"..."},"total_count":48,"columns":{"In Progress":[...],...}}
+```
+
+Defaults can be set via environment variables or config file (see below).
+
 ---
 
 ### `parsec config`
@@ -682,6 +791,7 @@ $ parsec config show
   auto_pr         = true
   auto_cleanup    = true
   draft           = false
+  # default_base  = "develop"  # Target branch for PRs (default: worktree base)
 
 # Output shell integration script
 $ parsec config shell zsh
@@ -788,6 +898,9 @@ provider = "jira"
 [tracker.jira]
 base_url = "https://yourcompany.atlassian.net"
 # Auth: PARSEC_JIRA_TOKEN or JIRA_PAT env var
+# project = "CL"            # Default project for board
+# board_id = 123            # Default board ID
+# assignee = "eric.signal"  # Default assignee filter
 
 [tracker.gitlab]
 base_url = "https://gitlab.com"
@@ -801,6 +914,11 @@ draft = false         # Create PRs as drafts
 [hooks]
 # Commands to run in new worktrees after creation
 post_create = ["npm install"]
+
+[tracker.auto_transition]
+# on_start = "In Progress"   # Transition when `parsec start` runs
+# on_ship = "In Review"      # Transition when `parsec ship` runs
+# on_merge = "Done"           # Transition when `parsec merge` runs
 ```
 
 ---
@@ -817,6 +935,9 @@ post_create = ["npm install"]
 | `GH_TOKEN` | Fallback GitHub token |
 | `PARSEC_GITLAB_TOKEN` | GitLab token for MR creation |
 | `GITLAB_TOKEN` | Fallback GitLab token |
+| `PARSEC_JIRA_PROJECT` | Default Jira project key for `board` |
+| `PARSEC_JIRA_BOARD_ID` | Default Jira board ID for `board` |
+| `PARSEC_JIRA_ASSIGNEE` | Default assignee filter for `board` |
 
 Token priority: `PARSEC_*_TOKEN` > platform-specific variables.
 
@@ -837,6 +958,7 @@ Token priority: `PARSEC_*_TOKEN` > platform-specific variables.
 | Stacked PRs | Yes | Yes | No | No | Yes |
 | Auto-cleanup merged | Yes | No | No | Manual | No |
 | Post-create hooks | Yes | No | Yes | No | No |
+| AI token efficiency | Single-command ops | N/A | N/A | N/A | N/A |
 | GUI | CLI only | Desktop + TUI | CLI | CLI | CLI |
 | Zero config start | Yes | No | Yes | No | No |
 

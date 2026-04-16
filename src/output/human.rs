@@ -2,28 +2,17 @@ use colored::Colorize;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
 
+use super::BoardTicketDisplay;
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
+use crate::tracker::jira::{InboxTicket, SprintInfo};
+use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace, WorkspaceStatus};
 
 // ---------------------------------------------------------------------------
 // Table row types
 // ---------------------------------------------------------------------------
-
-#[derive(Tabled)]
-struct WorkspaceRow {
-    #[tabled(rename = "Ticket")]
-    ticket: String,
-    #[tabled(rename = "Branch")]
-    branch: String,
-    #[tabled(rename = "Status")]
-    status: String,
-    #[tabled(rename = "Created")]
-    created: String,
-    #[tabled(rename = "Path")]
-    path: String,
-}
 
 #[derive(Tabled)]
 struct ConflictRow {
@@ -42,16 +31,6 @@ fn status_label(status: &WorkspaceStatus) -> String {
         WorkspaceStatus::Active => "active".green().to_string(),
         WorkspaceStatus::Shipped => "shipped".yellow().to_string(),
         WorkspaceStatus::Merged => "merged".blue().to_string(),
-    }
-}
-
-fn workspace_to_row(ws: &Workspace) -> WorkspaceRow {
-    WorkspaceRow {
-        ticket: ws.ticket.clone(),
-        branch: ws.branch.clone(),
-        status: status_label(&ws.status),
-        created: ws.created_at.format("%Y-%m-%d %H:%M").to_string(),
-        path: ws.path.display().to_string(),
     }
 }
 
@@ -96,12 +75,55 @@ pub fn print_adopt(workspace: &Workspace) {
     );
 }
 
-pub fn print_list(workspaces: &[Workspace]) {
+pub fn print_list(
+    workspaces: &[Workspace],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+) {
     if workspaces.is_empty() {
         println!("{}", "No active workspaces.".dimmed());
         return;
     }
-    let rows: Vec<WorkspaceRow> = workspaces.iter().map(workspace_to_row).collect();
+
+    #[derive(Tabled)]
+    struct WorkspaceRowWithPr {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "Branch")]
+        branch: String,
+        #[tabled(rename = "Status")]
+        status: String,
+        #[tabled(rename = "PR")]
+        pr: String,
+        #[tabled(rename = "Created")]
+        created: String,
+        #[tabled(rename = "Path")]
+        path: String,
+    }
+
+    let rows: Vec<WorkspaceRowWithPr> = workspaces
+        .iter()
+        .map(|ws| {
+            let pr = if let Some((num, state)) = pr_map.get(&ws.ticket) {
+                let label = format!("#{}", num);
+                match state.as_str() {
+                    "open" => label.green().to_string(),
+                    "closed" => label.red().to_string(),
+                    "merged" => label.cyan().to_string(),
+                    _ => label,
+                }
+            } else {
+                "-".dimmed().to_string()
+            };
+            WorkspaceRowWithPr {
+                ticket: ws.ticket.clone(),
+                branch: ws.branch.clone(),
+                status: status_label(&ws.status),
+                pr,
+                created: ws.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                path: ws.path.display().to_string(),
+            }
+        })
+        .collect();
     let table = Table::new(rows).with(Style::modern()).to_string();
     println!("{}", table);
 }
@@ -131,7 +153,16 @@ pub fn print_status(workspaces: &[Workspace]) {
 }
 
 pub fn print_ship(result: &ShipResult) {
-    println!("{}", format!("Shipped {}!", result.ticket).green().bold());
+    if result.pr_url.is_some() || result.cleaned_up {
+        println!("{}", format!("Shipped {}!", result.ticket).green().bold());
+    } else {
+        println!(
+            "{}",
+            format!("Shipped {} (partial — PR failed)", result.ticket)
+                .yellow()
+                .bold()
+        );
+    }
     if let Some(url) = &result.pr_url {
         println!("  {} {}", "PR:".bold(), url.cyan());
     }
@@ -594,11 +625,151 @@ pub fn print_stack(workspaces: &[Workspace]) {
     }
 }
 
+pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTicketDisplay>)]) {
+    // Sprint header: show dates in compact form
+    if let Some(s) = sprint {
+        let start = s
+            .start_date
+            .as_deref()
+            .and_then(|d| d.get(..10))
+            .unwrap_or("");
+        let end = s
+            .end_date
+            .as_deref()
+            .and_then(|d| d.get(..10))
+            .unwrap_or("");
+        // Use short date format: strip leading "20" → "26.04.06"
+        let fmt_date = |d: &str| -> String {
+            if d.len() >= 10 {
+                let without_century = &d[2..];
+                without_century.replace('-', ".")
+            } else {
+                d.to_string()
+            }
+        };
+        if !start.is_empty() && !end.is_empty() {
+            println!(
+                "{}",
+                format!("{} ~ {}", fmt_date(start), fmt_date(end)).dimmed()
+            );
+        }
+        println!();
+    }
+
+    if columns.is_empty() {
+        println!("{}", "No tickets in sprint.".dimmed());
+        return;
+    }
+
+    for (i, (status, tickets)) in columns.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        // Status header: bold name + dimmed count
+        println!(
+            "{} {}",
+            status.bold(),
+            format!("({})", tickets.len()).dimmed()
+        );
+
+        for ticket in tickets {
+            let indicator = if ticket.has_worktree {
+                format!(" {}", "[wt]".green())
+            } else if ticket.has_pr {
+                format!(" {}", "[pr]".blue())
+            } else {
+                "     ".to_string()
+            };
+            println!("  {}{}  {}", ticket.key, indicator, ticket.summary.dimmed());
+        }
+    }
+}
+
+pub fn print_ticket(ticket: &TrackerTicket) {
+    println!("{}: {}", ticket.id.yellow().bold(), ticket.title.bold());
+    if let Some(ref status) = ticket.status {
+        println!("  {} {}", "Status:".bold(), status);
+    }
+    if let Some(ref assignee) = ticket.assignee {
+        println!("  {} {}", "Assignee:".bold(), assignee);
+    }
+    if let Some(ref url) = ticket.url {
+        println!("  {} {}", "URL:".bold(), url.cyan());
+    }
+}
+
+fn mask_token(token: &str) -> String {
+    if token.len() <= 8 {
+        return "*".repeat(token.len());
+    }
+    let prefix = &token[..4];
+    let suffix = &token[token.len() - 4..];
+    format!("{}****...{}", prefix, suffix)
+}
+
+pub fn print_comment(ticket_id: &str) {
+    println!("{} Comment posted on {}", "✓".green(), ticket_id.bold());
+}
+
+pub fn print_inbox(tickets: &[InboxTicket]) {
+    if tickets.is_empty() {
+        println!(
+            "{}",
+            "No assigned tickets without active worktrees.".dimmed()
+        );
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct InboxRow {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "Title")]
+        title: String,
+        #[tabled(rename = "Priority")]
+        priority: String,
+        #[tabled(rename = "Status")]
+        status: String,
+    }
+
+    let rows: Vec<InboxRow> = tickets
+        .iter()
+        .map(|t| {
+            let priority = match t.priority.as_str() {
+                "Highest" | "Critical" => t.priority.clone().red().bold().to_string(),
+                "High" => t.priority.clone().red().to_string(),
+                "Medium" => t.priority.clone().yellow().to_string(),
+                "Low" => t.priority.clone().green().to_string(),
+                "Lowest" => t.priority.clone().dimmed().to_string(),
+                _ => t.priority.clone(),
+            };
+            // Truncate long titles for table readability
+            let title = if t.summary.len() > 60 {
+                format!("{}...", &t.summary[..57])
+            } else {
+                t.summary.clone()
+            };
+            InboxRow {
+                ticket: t.key.clone(),
+                title,
+                priority,
+                status: t.status.clone(),
+            }
+        })
+        .collect();
+
+    let table = Table::new(rows).with(Style::modern()).to_string();
+    println!("{}", table);
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);
     println!("  base_dir        = {}", config.workspace.base_dir);
     println!("  branch_prefix   = {}", config.workspace.branch_prefix);
+    if let Some(ref default_base) = config.workspace.default_base {
+        println!("  default_base    = {}", default_base);
+    }
     println!();
     println!("{}", "[tracker]".bold());
     println!("  provider       = {}", config.tracker.provider);
@@ -611,16 +782,49 @@ pub fn print_config_show(config: &ParsecConfig) {
     if let Some(gitlab) = &config.tracker.gitlab {
         println!("  gitlab.base_url = {}", gitlab.base_url);
     }
+    println!("  comment_on_ship = {}", config.tracker.comment_on_ship);
     println!();
     println!("{}", "[ship]".bold());
     println!("  auto_pr         = {}", config.ship.auto_pr);
     println!("  auto_cleanup    = {}", config.ship.auto_cleanup);
     println!("  draft           = {}", config.ship.draft);
+    if !config.github.is_empty() {
+        println!();
+        let mut hosts: Vec<&String> = config.github.keys().collect();
+        hosts.sort();
+        for host in hosts {
+            let host_cfg = &config.github[host];
+            println!("{}", format!("[github.\"{}\"]", host).bold());
+            if let Some(ref token) = host_cfg.token {
+                println!("  token           = {}", mask_token(token).dimmed());
+            }
+        }
+    }
     if !config.hooks.post_create.is_empty() {
         println!();
         println!("{}", "[hooks]".bold());
         for cmd in &config.hooks.post_create {
             println!("  post_create     = {}", cmd);
+        }
+    }
+    if !config.repos.is_empty() {
+        println!();
+        let mut repo_keys: Vec<&String> = config.repos.keys().collect();
+        repo_keys.sort();
+        for key in repo_keys {
+            let repo_cfg = &config.repos[key];
+            if let Some(ref tracker) = repo_cfg.tracker {
+                println!("{}", format!("[repos.\"{}\".tracker]", key).bold());
+                if let Some(ref provider) = tracker.provider {
+                    println!("  provider       = {}", provider);
+                }
+                if let Some(ref jira) = tracker.jira {
+                    println!("  jira.base_url  = {}", jira.base_url);
+                }
+                if let Some(ref gitlab) = tracker.gitlab {
+                    println!("  gitlab.base_url = {}", gitlab.base_url);
+                }
+            }
         }
     }
 }

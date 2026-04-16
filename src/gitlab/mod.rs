@@ -51,14 +51,7 @@ pub fn parse_gitlab_remote(url: &str) -> Option<GitLabRemote> {
 /// Resolve a GitLab token from environment variables.
 /// Checks: PARSEC_GITLAB_TOKEN > GITLAB_TOKEN
 fn resolve_gitlab_token() -> Option<String> {
-    for var in &["PARSEC_GITLAB_TOKEN", "GITLAB_TOKEN"] {
-        if let Ok(token) = std::env::var(var) {
-            if !token.is_empty() {
-                return Some(token);
-            }
-        }
-    }
-    None
+    crate::env::gitlab_token()
 }
 
 /// Create a GitLab merge request.

@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod conflict;
+mod env;
 mod git;
 mod github;
 mod gitlab;

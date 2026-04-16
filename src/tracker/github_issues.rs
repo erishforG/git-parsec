@@ -3,35 +3,32 @@ use reqwest::Client;
 use std::path::{Path, PathBuf};
 
 use super::Ticket;
+use crate::config::ParsecConfig;
 
 pub struct GithubIssueTracker {
     repo_root: Option<PathBuf>,
+    config: ParsecConfig,
     client: Client,
 }
 
 impl GithubIssueTracker {
-    pub fn new(repo_root: Option<&Path>) -> Self {
+    pub fn new(repo_root: Option<&Path>, config: &ParsecConfig) -> Self {
         Self {
             repo_root: repo_root.map(|p| p.to_path_buf()),
+            config: config.clone(),
             client: Client::new(),
         }
     }
 
-    fn resolve_token() -> Option<String> {
-        for var in &["PARSEC_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] {
-            if let Ok(token) = std::env::var(var) {
-                if !token.is_empty() {
-                    return Some(token);
-                }
-            }
-        }
-        None
+    fn resolve_token(&self) -> Option<String> {
+        let remote = self.resolve_remote()?;
+        crate::github::resolve_github_token(&remote.host, &self.config)
     }
 
     pub async fn fetch_ticket(&self, id: &str) -> Result<Ticket> {
         let issue_num = id.trim_start_matches('#');
 
-        let token = match Self::resolve_token() {
+        let token = match self.resolve_token() {
             Some(t) => t,
             None => return Ok(self.fallback_ticket(id)),
         };
@@ -85,6 +82,60 @@ impl GithubIssueTracker {
             assignee,
             url: html_url,
         })
+    }
+
+    /// Post a comment on a GitHub issue.
+    /// Endpoint: POST /repos/{owner}/{repo}/issues/{number}/comments
+    pub async fn add_comment(&self, id: &str, body: &str) -> Result<()> {
+        let issue_num = id.trim_start_matches('#');
+
+        let token = self.resolve_token().ok_or_else(|| {
+            anyhow::anyhow!(
+                "No GitHub token found. Configure [github.\"<host>\"] in parsec config \
+                 or set GITHUB_TOKEN."
+            )
+        })?;
+
+        let remote = self
+            .resolve_remote()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine GitHub remote from repository."))?;
+
+        let url = format!(
+            "{}/repos/{}/{}/issues/{}/comments",
+            remote.api_base(),
+            remote.owner,
+            remote.repo,
+            issue_num
+        );
+
+        let payload = serde_json::json!({
+            "body": body
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "git-parsec")
+            .bearer_auth(&token)
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to send comment request to GitHub Issues API")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let resp_body = response.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "GitHub Issues comment API returned {} for #{}: {}",
+                status,
+                issue_num,
+                resp_body
+            );
+        }
+
+        Ok(())
     }
 
     fn resolve_remote(&self) -> Option<crate::github::GitHubRemote> {

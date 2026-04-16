@@ -2,6 +2,8 @@ use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::config::ParsecConfig;
+
 /// Result of PR creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrResult {
@@ -76,16 +78,27 @@ pub fn parse_github_remote(url: &str) -> Option<GitHubRemote> {
     })
 }
 
-/// Resolve a GitHub token from environment variables.
-/// Checks: PARSEC_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN
-fn resolve_github_token() -> Option<String> {
-    for var in &["PARSEC_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] {
-        if let Ok(token) = std::env::var(var) {
+/// Resolve a GitHub token for the given host.
+///
+/// Resolution priority:
+/// 1. `config.github.<host>.token` — host-specific config
+/// 2. `PARSEC_GITHUB_TOKEN` env var — explicit override
+/// 3. `GITHUB_TOKEN` / `GH_TOKEN` — generic fallback
+pub fn resolve_github_token(host: &str, config: &ParsecConfig) -> Option<String> {
+    // 1. Host-specific config token
+    if let Some(host_cfg) = config.github.get(host) {
+        if let Some(ref token) = host_cfg.token {
             if !token.is_empty() {
-                return Some(token);
+                return Some(token.clone());
             }
         }
     }
+
+    // 2 & 3. Environment variables (PARSEC_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN)
+    if let Some(token) = crate::env::github_token() {
+        return Some(token);
+    }
+
     None
 }
 
@@ -102,15 +115,19 @@ pub struct PrStatus {
 }
 
 /// Fetch the status of a GitHub PR by number.
-pub async fn get_pr_status(remote_url: &str, pr_number: u64) -> Result<Option<PrStatus>> {
-    let token = match resolve_github_token() {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
+pub async fn get_pr_status(
+    remote_url: &str,
+    pr_number: u64,
+    config: &ParsecConfig,
+) -> Result<Option<PrStatus>> {
     let remote = parse_github_remote(remote_url).ok_or_else(|| {
         anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
     })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
 
     let api_base = remote.api_base();
     let client = Client::new();
@@ -227,15 +244,19 @@ pub struct CiStatus {
 
 /// Fetch check runs for a PR by number.
 /// Returns None if no GitHub token is available.
-pub async fn get_check_runs(remote_url: &str, pr_number: u64) -> Result<Option<CiStatus>> {
-    let token = match resolve_github_token() {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
+pub async fn get_check_runs(
+    remote_url: &str,
+    pr_number: u64,
+    config: &ParsecConfig,
+) -> Result<Option<CiStatus>> {
     let remote = parse_github_remote(remote_url).ok_or_else(|| {
         anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
     })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
 
     let api_base = remote.api_base();
     let client = Client::new();
@@ -318,15 +339,19 @@ pub async fn get_check_runs(remote_url: &str, pr_number: u64) -> Result<Option<C
 
 /// Find an open PR by branch name.
 /// Returns the PR number if found, None if no token or no matching PR.
-pub async fn find_pr_by_branch(remote_url: &str, branch: &str) -> Result<Option<u64>> {
-    let token = match resolve_github_token() {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
+pub async fn find_pr_by_branch(
+    remote_url: &str,
+    branch: &str,
+    config: &ParsecConfig,
+) -> Result<Option<u64>> {
     let remote = parse_github_remote(remote_url).ok_or_else(|| {
         anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
     })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
 
     let api_base = remote.api_base();
     let client = Client::new();
@@ -365,15 +390,16 @@ pub async fn merge_pr(
     pr_number: u64,
     method: &str,
     delete_branch: bool,
+    config: &ParsecConfig,
 ) -> Result<Option<MergeResult>> {
-    let token = match resolve_github_token() {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
     let remote = parse_github_remote(remote_url).ok_or_else(|| {
         anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
     })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
 
     let api_base = remote.api_base();
     let client = Client::new();
@@ -430,14 +456,31 @@ pub async fn merge_pr(
                 "{}/repos/{}/{}/git/refs/heads/{}",
                 api_base, remote.owner, remote.repo, branch_name
             );
-            let _ = client
+            match client
                 .delete(&del_url)
                 .header("Accept", "application/vnd.github+json")
                 .header("X-GitHub-Api-Version", "2022-11-28")
                 .header("User-Agent", "git-parsec")
                 .bearer_auth(&token)
                 .send()
-                .await;
+                .await
+            {
+                Ok(resp) if !resp.status().is_success() => {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    eprintln!(
+                        "warning: failed to delete remote branch '{}': {} {}",
+                        branch_name, status, body
+                    );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "warning: failed to delete remote branch '{}': {}",
+                        branch_name, e
+                    );
+                }
+                _ => {} // success
+            }
         }
     }
 
@@ -457,15 +500,16 @@ pub async fn create_pr(
     title: &str,
     body: &str,
     draft: bool,
+    config: &ParsecConfig,
 ) -> Result<Option<PrResult>> {
-    let token = match resolve_github_token() {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
     let remote = parse_github_remote(remote_url).ok_or_else(|| {
         anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
     })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
 
     let api_url = format!(
         "{}/repos/{}/{}/pulls",

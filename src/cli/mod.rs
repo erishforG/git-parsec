@@ -63,7 +63,12 @@ pub enum Command {
     ///
     /// Shows a table of all parsec-managed worktrees with ticket, branch,
     /// status, creation time, and path. Use --json for machine-readable output.
-    List,
+    /// PR status is fetched automatically; use --no-pr to skip API calls.
+    List {
+        /// Skip PR status lookup (faster, works offline)
+        #[arg(long)]
+        no_pr: bool,
+    },
 
     /// Show detailed status of a workspace
     ///
@@ -72,6 +77,20 @@ pub enum Command {
     Status {
         /// Ticket identifier (optional, shows all if omitted)
         ticket: Option<String>,
+    },
+
+    /// View ticket details from tracker
+    ///
+    /// Fetches and displays ticket information (title, status, assignee)
+    /// from the configured tracker. Auto-detects the ticket from the
+    /// current worktree if no ticket is specified.
+    Ticket {
+        /// Ticket identifier (auto-detects from current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Post a comment on the ticket
+        #[arg(long)]
+        comment: Option<String>,
     },
 
     /// Push, create PR/MR, and clean up a workspace
@@ -90,6 +109,10 @@ pub enum Command {
         /// Skip PR creation, only push
         #[arg(long)]
         no_pr: bool,
+
+        /// Target base branch for PR (default from config or worktree base)
+        #[arg(long)]
+        base: Option<String>,
     },
 
     /// Remove merged or stale worktrees
@@ -104,6 +127,10 @@ pub enum Command {
         /// Dry run - show what would be removed
         #[arg(long)]
         dry_run: bool,
+
+        /// Remove orphan entries (state entries without existing directory)
+        #[arg(long)]
+        orphans: bool,
     },
 
     /// Detect file conflicts across active worktrees
@@ -175,7 +202,7 @@ pub enum Command {
     ///
     /// Outputs the absolute path to the worktree for a given ticket.
     /// When called without a ticket, shows an interactive picker.
-    /// With shell integration (eval "$(parsec config shell zsh)"),
+    /// With shell integration (eval "$(parsec init zsh)"),
     /// this command changes your directory automatically.
     Switch {
         /// Ticket identifier (interactive picker if omitted)
@@ -262,6 +289,41 @@ pub enum Command {
         dry_run: bool,
     },
 
+    /// List assigned tickets without active worktrees
+    ///
+    /// Fetches tickets assigned to you from Jira that don't yet have a
+    /// parsec worktree. Shows a table of ticket key, title, priority,
+    /// and status. Use --pick to interactively select one and auto-start
+    /// a workspace.
+    Inbox {
+        /// Interactively pick a ticket and run `parsec start`
+        #[arg(long)]
+        pick: bool,
+    },
+
+    /// Show the sprint board as a Kanban view
+    ///
+    /// Fetches the active sprint from Jira and displays tickets grouped
+    /// by status column. Active worktrees are marked with [wt] and
+    /// shipped PRs with [pr]. Currently supports Jira only.
+    Board {
+        /// Jira board ID (auto-detected from project if omitted)
+        #[arg(long)]
+        board_id: Option<u64>,
+
+        /// Jira project key (inferred from active worktrees if omitted)
+        #[arg(long, short)]
+        project: Option<String>,
+
+        /// Filter by assignee (default from config/env)
+        #[arg(long)]
+        assignee: Option<String>,
+
+        /// Show all tickets (ignore assignee filter)
+        #[arg(long)]
+        all: bool,
+    },
+
     /// Show or manage stacked PR dependencies
     ///
     /// Displays the dependency graph of worktrees created with --on.
@@ -270,6 +332,23 @@ pub enum Command {
         /// Sync the entire stack (rebase chain)
         #[arg(long)]
         sync: bool,
+    },
+
+    /// Print the main repository root path
+    ///
+    /// Outputs the absolute path to the main (non-worktree) repository root.
+    /// Useful for scripting and shell integration after worktree cleanup.
+    Root,
+
+    /// Output shell integration script
+    ///
+    /// Prints a shell function that wraps parsec for auto-cd on switch
+    /// and auto-recovery after merge cleanup. Supports zsh and bash.
+    /// Add eval "$(parsec init zsh)" to your ~/.zshrc.
+    Init {
+        /// Shell type (zsh or bash)
+        #[arg(default_value = "zsh")]
+        shell: String,
     },
 
     /// Configure parsec
@@ -293,10 +372,10 @@ pub enum ConfigAction {
     ///
     /// Prints the active configuration from ~/.config/parsec/config.toml.
     Show,
-    /// Output shell integration script
+    /// Output shell integration script (deprecated: use `parsec init` instead)
     ///
     /// Prints a shell function that wraps parsec switch to auto-cd.
-    /// Add eval "$(parsec config shell zsh)" to your ~/.zshrc.
+    /// Prefer `parsec init zsh` which also handles merge CWD recovery.
     Shell {
         /// Shell type (zsh or bash)
         #[arg(default_value = "zsh")]
@@ -350,18 +429,24 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
-        Command::List => commands::list(&repo_path, output_mode).await,
+        Command::List { no_pr } => commands::list(&repo_path, no_pr, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
+        }
+        Command::Ticket { ticket, comment } => {
+            commands::ticket(&repo_path, ticket.as_deref(), comment, output_mode).await
         }
         Command::Ship {
             ticket,
             draft,
             no_pr,
-        } => commands::ship(&repo_path, &ticket, draft, no_pr, output_mode).await,
-        Command::Clean { all, dry_run } => {
-            commands::clean(&repo_path, all, dry_run, output_mode).await
-        }
+            base,
+        } => commands::ship(&repo_path, &ticket, draft, no_pr, base, output_mode).await,
+        Command::Clean {
+            all,
+            dry_run,
+            orphans,
+        } => commands::clean(&repo_path, all, dry_run, orphans, output_mode).await,
         Command::Sync {
             ticket,
             all,
@@ -412,6 +497,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
         }
         Command::Undo { dry_run } => commands::undo(&repo_path, dry_run, output_mode).await,
+        Command::Inbox { pick } => commands::inbox(&repo_path, pick, output_mode).await,
+        Command::Board {
+            board_id,
+            project,
+            assignee,
+            all,
+        } => commands::board(&repo_path, board_id, project, assignee, all, output_mode).await,
         Command::Stack { sync } => {
             if sync {
                 commands::stack_sync(&repo_path, output_mode).await
@@ -419,6 +511,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::stack(&repo_path, output_mode).await
             }
         }
+        Command::Root => commands::root(&repo_path).await,
+        Command::Init { shell } => commands::init_shell(&shell).await,
         Command::Config { action } => match action {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,

@@ -1,15 +1,17 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use colored::Colorize;
 
-use crate::config::ParsecConfig;
+use crate::config::{ParsecConfig, TrackerProvider};
 use crate::conflict;
 use crate::git;
 use crate::github;
 use crate::gitlab;
-use crate::output::{self, Mode};
+use crate::output::{self, BoardTicketDisplay, Mode};
 use crate::tracker;
+use crate::tracker::jira::JiraTracker;
 use crate::worktree::WorktreeManager;
 
 pub async fn start(
@@ -21,8 +23,9 @@ pub async fn start(
     existing_branch: Option<&str>,
     mode: Mode,
 ) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
     let repo_root = git::get_repo_root(repo)?;
+    config.resolve_for_repo(&repo_root);
 
     let ticket_title = if let Some(t) = title {
         // Manual title provided — skip tracker lookup
@@ -42,6 +45,13 @@ pub async fn start(
     let workspace = manager.create(ticket, base, ticket_title, on, existing_branch)?;
 
     output::print_start(&workspace, mode);
+
+    // Auto-transition ticket status
+    if let Some(ref auto) = config.tracker.auto_transition {
+        if let Some(ref status) = auto.on_start {
+            tracker::try_transition(&config, ticket, status).await;
+        }
+    }
 
     if let Err(e) = crate::oplog::record(
         manager.repo_root(),
@@ -68,8 +78,9 @@ pub async fn adopt(
     title: Option<String>,
     mode: Mode,
 ) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
     let repo_root = git::get_repo_root(repo)?;
+    config.resolve_for_repo(&repo_root);
 
     let ticket_title = if let Some(t) = title {
         Some(t)
@@ -104,17 +115,91 @@ pub async fn adopt(
         eprintln!("warning: failed to write oplog: {e}");
     }
 
+    // Auto-detect existing PR for the adopted branch
+    if let Ok(remote_url) = git::run_output(manager.repo_root(), &["remote", "get-url", "origin"]) {
+        if let Ok(Some(pr_number)) =
+            github::find_pr_by_branch(&remote_url, &workspace.branch, &config).await
+        {
+            // Record synthetic Ship entry so merge/pr-status can find the PR
+            let pr_url = if let Some(remote) = github::parse_github_remote(&remote_url) {
+                format!(
+                    "https://{}/{}/{}/pull/{}",
+                    remote.host, remote.owner, remote.repo, pr_number
+                )
+            } else {
+                format!("pull/{}", pr_number)
+            };
+            if let Err(e) = crate::oplog::record(
+                manager.repo_root(),
+                crate::oplog::OpKind::Ship,
+                Some(ticket),
+                &format!("Adopted branch '{}' -> {}", workspace.branch, pr_url),
+                None,
+            ) {
+                eprintln!("warning: failed to record PR in oplog: {e}");
+            } else if mode != Mode::Quiet {
+                eprintln!("  Detected existing PR #{}", pr_number);
+            }
+        }
+    }
+
     Ok(())
 }
 
-pub async fn list(repo: &Path, mode: Mode) -> Result<()> {
+pub async fn list(repo: &Path, no_pr: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
-
     let workspaces = manager.list()?;
 
-    output::print_list(&workspaces, mode);
+    // Build PR info map from oplog Ship entries
+    let mut pr_map: std::collections::HashMap<String, (u64, String)> =
+        std::collections::HashMap::new();
+    if !no_pr {
+        if let Ok(oplog) = crate::oplog::OpLog::load(manager.repo_root()) {
+            let remote_url = git::get_remote_url(manager.repo_root()).ok();
+            for entry in &oplog.entries {
+                if matches!(entry.op, crate::oplog::OpKind::Ship) {
+                    if let Some(ref ticket) = entry.ticket {
+                        if let Some(pr_url) = extract_pr_url(&entry.detail) {
+                            if let Some(pr_num) = extract_pr_number(&pr_url) {
+                                pr_map
+                                    .entry(ticket.clone())
+                                    .or_insert((pr_num, "open".to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fetch live PR status from GitHub
+            if let Some(ref remote_url) = remote_url {
+                for (_ticket, (pr_num, state)) in pr_map.iter_mut() {
+                    if let Ok(Some(status)) =
+                        github::get_pr_status(remote_url, *pr_num, &config).await
+                    {
+                        *state = status.state;
+                    }
+                }
+            }
+        }
+    }
+
+    output::print_list(&workspaces, &pr_map, mode);
     Ok(())
+}
+
+fn extract_pr_url(detail: &str) -> Option<String> {
+    // Oplog detail for Ship contains the PR URL after " -> "
+    detail
+        .split(" -> ")
+        .nth(1)
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.starts_with("http"))
+}
+
+fn extract_pr_number(url: &str) -> Option<u64> {
+    // Extract PR number from URL like "https://github.com/owner/repo/pull/123"
+    url.rsplit('/').next().and_then(|s| s.parse().ok())
 }
 
 pub async fn status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()> {
@@ -130,97 +215,165 @@ pub async fn status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()>
     Ok(())
 }
 
-pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mode) -> Result<()> {
-    let config = ParsecConfig::load()?;
+pub async fn ship(
+    repo: &Path,
+    ticket: &str,
+    draft: bool,
+    no_pr: bool,
+    base_override: Option<String>,
+    mode: Mode,
+) -> Result<()> {
+    let mut config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
+    config.resolve_for_repo(manager.repo_root());
 
-    // Push + cleanup (sync git operations)
-    let mut result = manager.ship(ticket)?;
+    // Phase 1: Push only (don't clean up yet)
+    let mut result = manager.ship_push(ticket)?;
 
-    // Create GitHub PR (async, uses reqwest)
+    // Resolve base branch: --base CLI > config default_base > worktree's base_branch
+    if let Some(base) = base_override {
+        result.base_branch = base;
+    } else if let Some(ref default_base) = config.ship.default_base {
+        result.base_branch = default_base.clone();
+    }
+    // else: keep the worktree's original base_branch
+
+    // Phase 2: Create PR/MR (async)
+    let mut pr_failed = false;
     if !no_pr && config.ship.auto_pr {
-        // Fetch ticket info for URL (works for any tracker)
-        let ticket_url =
+        let (ticket_title, ticket_url) =
             match tracker::fetch_ticket(&config, ticket, Some(manager.repo_root())).await {
-                Ok(Some(t)) => t.url,
-                _ => None,
+                Ok(Some(t)) => (Some(t.title), t.url),
+                _ => (None, None),
             };
 
-        let pr_title = result
-            .ticket_title
-            .as_ref()
+        // Prefer freshly fetched title over stored one
+        let effective_title = ticket_title.as_deref().or(result.ticket_title.as_deref());
+
+        let pr_title = effective_title
             .map(|t| format!("{}: {}", result.ticket, t))
             .unwrap_or_else(|| result.ticket.clone());
 
-        let pr_body = build_pr_body(
-            &result.ticket,
-            result.ticket_title.as_deref(),
-            ticket_url.as_deref(),
-        );
+        let pr_body = build_pr_body(&result.ticket, effective_title, ticket_url.as_deref());
 
         let remote_url = git::get_remote_url(manager.repo_root());
         if let Ok(ref remote_url) = remote_url {
-            // Try GitHub first
-            match github::create_pr(
-                remote_url,
-                &result.branch,
-                &result.base_branch,
-                &pr_title,
-                &pr_body,
-                draft || config.ship.draft,
-            )
-            .await
+            // Check if a PR already exists for this branch (#98)
+            if let Ok(Some(existing_pr)) =
+                github::find_pr_by_branch(remote_url, &result.branch, &config).await
             {
-                Ok(Some(pr)) => {
-                    result.pr_url = Some(pr.url);
-                }
-                Ok(None) => {
-                    // GitHub had no token — try GitLab
-                    match gitlab::create_mr(
-                        remote_url,
-                        &result.branch,
-                        &result.base_branch,
-                        &pr_title,
-                        &pr_body,
-                        draft || config.ship.draft,
+                let remote = github::parse_github_remote(remote_url);
+                let pr_url = if let Some(r) = remote {
+                    format!(
+                        "https://{}/{}/{}/pull/{}",
+                        r.host, r.owner, r.repo, existing_pr
                     )
-                    .await
-                    {
-                        Ok(Some(mr)) => {
-                            result.pr_url = Some(mr.url);
-                        }
-                        Ok(None) => {
-                            eprintln!(
-                                "note: PR/MR creation skipped — no token found.\n      \
-                                 Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
-                            );
-                        }
-                        Err(e) => {
-                            eprintln!("warning: GitLab MR creation failed: {e}");
+                } else {
+                    format!("PR #{}", existing_pr)
+                };
+                result.pr_url = Some(pr_url);
+            } else {
+                match github::create_pr(
+                    remote_url,
+                    &result.branch,
+                    &result.base_branch,
+                    &pr_title,
+                    &pr_body,
+                    draft || config.ship.draft,
+                    &config,
+                )
+                .await
+                {
+                    Ok(Some(pr)) => {
+                        result.pr_url = Some(pr.url);
+                    }
+                    Ok(None) => {
+                        // GitHub had no token — try GitLab
+                        match gitlab::create_mr(
+                            remote_url,
+                            &result.branch,
+                            &result.base_branch,
+                            &pr_title,
+                            &pr_body,
+                            draft || config.ship.draft,
+                        )
+                        .await
+                        {
+                            Ok(Some(mr)) => {
+                                result.pr_url = Some(mr.url);
+                            }
+                            Ok(None) => {
+                                eprintln!(
+                                    "note: PR/MR creation skipped — no token found.\n      \
+                                     Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
+                                );
+                                pr_failed = true;
+                            }
+                            Err(e) => {
+                                eprintln!("error: GitLab MR creation failed: {e}");
+                                pr_failed = true;
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    eprintln!("warning: PR creation failed: {e}");
+                    Err(e) => {
+                        eprintln!("error: PR creation failed: {e}");
+                        pr_failed = true;
+                    }
                 }
             }
         }
     }
 
+    // Auto-comment PR link on the ticket if configured
+    if config.tracker.comment_on_ship {
+        if let Some(ref pr_url) = result.pr_url {
+            let comment_body = format!("PR opened: {}", pr_url);
+            if let Err(e) =
+                tracker::post_comment(&config, ticket, &comment_body, Some(manager.repo_root()))
+                    .await
+            {
+                eprintln!("warning: failed to post comment on ticket: {e}");
+            }
+        }
+    }
+
+    if pr_failed {
+        eprintln!(
+            "note: worktree preserved at {} — fix the issue and retry `parsec ship {}`",
+            manager
+                .get(ticket)
+                .map(|ws| ws.path.display().to_string())
+                .unwrap_or_default(),
+            ticket
+        );
+    }
+
     output::print_ship(&result, mode);
+
+    // Auto-transition ticket status
+    if let Some(ref auto) = config.tracker.auto_transition {
+        if let Some(ref status) = auto.on_ship {
+            tracker::try_transition(&config, ticket, status).await;
+        }
+    }
 
     if let Err(e) = crate::oplog::record(
         manager.repo_root(),
         crate::oplog::OpKind::Ship,
         Some(ticket),
         &format!(
-            "Shipped branch '{}'{}",
+            "Shipped branch '{}'{}{}",
             result.branch,
             result
                 .pr_url
                 .as_ref()
                 .map(|u| format!(" -> {}", u))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            if pr_failed {
+                " (partial: PR failed)"
+            } else {
+                ""
+            },
         ),
         Some(crate::oplog::UndoInfo {
             branch: Some(result.branch.clone()),
@@ -232,12 +385,32 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
         eprintln!("warning: failed to write oplog: {e}");
     }
 
+    if pr_failed {
+        anyhow::bail!("Ship partial: branch pushed but PR/MR creation failed. Worktree preserved.");
+    }
+
     Ok(())
 }
 
-pub async fn clean(repo: &Path, all: bool, dry_run: bool, mode: Mode) -> Result<()> {
+pub async fn clean(repo: &Path, all: bool, dry_run: bool, orphans: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
+
+    if orphans {
+        // Orphan-only mode: just clean state entries without existing directories
+        let orphan_list = manager.clean_orphans(dry_run)?;
+        output::print_clean(&orphan_list, dry_run, mode);
+        return Ok(());
+    }
+
+    // Regular clean — also report orphans as a hint
+    let orphan_list = manager.clean_orphans(true)?; // dry-run detection only
+    if !orphan_list.is_empty() {
+        eprintln!(
+            "note: {} orphan state entry(ies) found (directory missing). Use `parsec clean --orphans` to remove.",
+            orphan_list.len()
+        );
+    }
 
     let removed = manager.clean(all, dry_run)?;
 
@@ -272,10 +445,11 @@ pub async fn open(
     force_ticket: bool,
     mode: Mode,
 ) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
 
     // Try to find PR URL from oplog
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    config.resolve_for_repo(&repo_root);
     let oplog = crate::oplog::OpLog::load(&repo_root)?;
     let pr_url: Option<String> = oplog.get_entries(Some(ticket)).iter().rev().find_map(|e| {
         if matches!(e.op, crate::oplog::OpKind::Ship) {
@@ -353,6 +527,7 @@ pub async fn open(
 }
 
 pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let oplog = crate::oplog::OpLog::load(&repo_root)?;
     let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
@@ -374,17 +549,35 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
         })
         .collect();
 
-    if entries.is_empty() {
-        if let Some(t) = ticket {
-            anyhow::bail!("no shipped PR found for {t}. Ship it first with `parsec ship {t}`.");
-        } else {
-            anyhow::bail!("no shipped PRs found. Ship a ticket first with `parsec ship`.");
+    // Fallback: search active workspaces for PRs by branch name
+    let mut all_entries = entries;
+    if all_entries.is_empty() {
+        let manager = WorktreeManager::new(repo, &config)?;
+        let workspaces = match ticket {
+            Some(t) => vec![manager.get(t)?],
+            None => manager.list()?,
+        };
+
+        for ws in &workspaces {
+            if let Ok(Some(pr_number)) =
+                github::find_pr_by_branch(&remote_url, &ws.branch, &config).await
+            {
+                all_entries.push((ws.ticket.clone(), pr_number, String::new()));
+            }
+        }
+
+        if all_entries.is_empty() {
+            if let Some(t) = ticket {
+                anyhow::bail!("no PR found for {t}. Ship it first with `parsec ship {t}`, or check your GitHub token.");
+            } else {
+                anyhow::bail!("no PRs found. Ship a ticket first with `parsec ship`, or check your GitHub token.");
+            }
         }
     }
 
     let mut statuses = Vec::new();
-    for (ticket_id, pr_number, _url) in &entries {
-        match crate::github::get_pr_status(&remote_url, *pr_number).await? {
+    for (ticket_id, pr_number, _url) in &all_entries {
+        match crate::github::get_pr_status(&remote_url, *pr_number, &config).await? {
             Some(status) => statuses.push((ticket_id.clone(), status)),
             None => {
                 anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
@@ -441,11 +634,12 @@ pub async fn merge(
             let ws = manager.get(&ticket_id).with_context(|| {
                 format!("ticket {ticket_id} not found in active workspaces or oplog")
             })?;
-            github::find_pr_by_branch(&remote_url, &ws.branch)
+            github::find_pr_by_branch(&remote_url, &ws.branch, &config)
                 .await?
                 .ok_or_else(|| {
                     anyhow::anyhow!(
-                        "no PR found for {ticket_id}. Ship it first with `parsec ship {ticket_id}`."
+                        "no open PR found for {ticket_id} (branch '{}'). Either ship it with `parsec ship {ticket_id}`, or check that PARSEC_GITHUB_TOKEN is set.",
+                        ws.branch
                     )
                 })?
         }
@@ -457,7 +651,7 @@ pub async fn merge(
             eprint!("Waiting for CI to pass...");
         }
         loop {
-            match github::get_check_runs(&remote_url, pr_number).await? {
+            match github::get_check_runs(&remote_url, pr_number, &config).await? {
                 Some(ci) => {
                     if ci.overall == "passing" {
                         if mode == Mode::Human {
@@ -488,34 +682,52 @@ pub async fn merge(
     let delete_branch = !no_delete_branch;
 
     // Merge the PR
-    match github::merge_pr(&remote_url, pr_number, method, delete_branch).await? {
+    match github::merge_pr(&remote_url, pr_number, method, delete_branch, &config).await? {
         Some(result) => {
             output::print_merge(&ticket_id, pr_number, &result, method, mode);
 
-            // Clean up local worktree if it exists
-            if let Ok(ws) = manager.get(&ticket_id) {
-                if ws.path.exists() {
-                    if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
-                        eprintln!("warning: failed to remove worktree: {e}");
+            // Prune stale remote-tracking references after remote branch deletion
+            if delete_branch {
+                if let Err(e) = git::fetch(&repo_root) {
+                    eprintln!("warning: failed to prune remote-tracking references: {e}");
+                }
+            }
+
+            // Auto-transition ticket status
+            if let Some(ref auto) = config.tracker.auto_transition {
+                if let Some(ref status) = auto.on_merge {
+                    tracker::try_transition(&config, &ticket_id, status).await;
+                }
+            }
+
+            // Clean up local worktree if it exists and auto_cleanup is enabled
+            if config.ship.auto_cleanup {
+                if let Ok(ws) = manager.get(&ticket_id) {
+                    if ws.path.exists() {
+                        if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
+                            eprintln!("warning: failed to remove worktree: {e}");
+                        }
                     }
-                }
-                // Update state
-                let mut state = crate::worktree::ParsecState::load(&repo_root)?;
-                state.remove_workspace(&ticket_id);
-                state.save(&repo_root)?;
+                    // Update state
+                    let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+                    state.remove_workspace(&ticket_id);
+                    state.save(&repo_root)?;
 
-                // Delete local branch
-                if let Some(branch) = &oplog
-                    .get_entries(Some(&ticket_id))
-                    .last()
-                    .and_then(|e| e.undo_info.as_ref())
-                    .and_then(|u| u.branch.clone())
-                {
-                    let _ = git::delete_branch(&repo_root, branch);
-                }
+                    // Delete local branch
+                    if let Some(branch) = &oplog
+                        .get_entries(Some(&ticket_id))
+                        .last()
+                        .and_then(|e| e.undo_info.as_ref())
+                        .and_then(|u| u.branch.clone())
+                    {
+                        if let Err(e) = git::delete_branch(&repo_root, branch) {
+                            eprintln!("warning: failed to delete local branch '{}': {}", branch, e);
+                        }
+                    }
 
-                if mode == Mode::Human {
-                    println!("  {}", "Local worktree cleaned up.".dimmed());
+                    if mode == Mode::Human {
+                        println!("  {}", "Local worktree cleaned up.".dimmed());
+                    }
                 }
             }
 
@@ -605,7 +817,7 @@ pub async fn ci(
             let ws = manager.get(&ticket_id).with_context(|| {
                 format!("ticket {ticket_id} not found in active workspaces or oplog")
             })?;
-            match github::find_pr_by_branch(&remote_url, &ws.branch).await? {
+            match github::find_pr_by_branch(&remote_url, &ws.branch, &config).await? {
                 Some(pr_number) => targets.push((ticket_id, pr_number)),
                 None => {
                     anyhow::bail!(
@@ -620,7 +832,7 @@ pub async fn ci(
         let mut statuses: Vec<(String, crate::github::CiStatus)> = Vec::new();
 
         for (ticket_id, pr_number) in &targets {
-            match github::get_check_runs(&remote_url, *pr_number).await? {
+            match github::get_check_runs(&remote_url, *pr_number, &config).await? {
                 Some(ci) => statuses.push((ticket_id.clone(), ci)),
                 None => {
                     anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
@@ -882,7 +1094,9 @@ pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
                 }
             }
             if let Some(branch) = &undo_info.branch {
-                let _ = git::delete_branch(&repo_root, branch);
+                if let Err(e) = git::delete_branch(&repo_root, branch) {
+                    eprintln!("warning: failed to delete branch '{}': {e}", branch);
+                }
             }
 
             // Remove from state
@@ -1087,6 +1301,299 @@ pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
+pub async fn ticket(
+    repo: &Path,
+    ticket_override: Option<&str>,
+    comment: Option<String>,
+    mode: Mode,
+) -> Result<()> {
+    let mut config = ParsecConfig::load()?;
+    let repo_root = git::get_repo_root(repo)?;
+    config.resolve_for_repo(&repo_root);
+
+    // Resolve ticket: explicit arg > auto-detect from current worktree
+    let ticket_id = if let Some(t) = ticket_override {
+        t.to_string()
+    } else {
+        // Try to detect from current worktree
+        let manager = WorktreeManager::new(repo, &config)?;
+        let workspaces = manager.list()?;
+        let current_dir = std::env::current_dir()?;
+
+        workspaces
+            .iter()
+            .find(|ws| current_dir.starts_with(&ws.path))
+            .map(|ws| ws.ticket.clone())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Not inside a parsec worktree. Specify a ticket: `parsec ticket <TICKET>`"
+                )
+            })?
+    };
+
+    // If --comment is provided, post the comment and return
+    if let Some(comment_text) = comment {
+        tracker::post_comment(&config, &ticket_id, &comment_text, Some(&repo_root)).await?;
+        output::print_comment(&ticket_id, mode);
+        return Ok(());
+    }
+
+    // Fetch ticket from tracker
+    let ticket = tracker::fetch_ticket(&config, &ticket_id, Some(repo))
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Could not fetch ticket '{}'. Check your tracker configuration.",
+                ticket_id
+            )
+        })?;
+
+    output::print_ticket(&ticket, mode);
+    Ok(())
+}
+
+pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
+    let mut config = ParsecConfig::load()?;
+    if let Ok(repo_root) = git::get_repo_root(repo) {
+        config.resolve_for_repo(&repo_root);
+    }
+
+    // Inbox currently supports Jira only
+    if !matches!(
+        config.tracker.provider,
+        TrackerProvider::Jira | TrackerProvider::None
+    ) {
+        anyhow::bail!("Inbox currently supports Jira only.");
+    }
+
+    // Load atlassian env for auto-detection
+    tracker::load_atlassian_env();
+
+    // Resolve Jira base URL and email
+    let base_url = config
+        .tracker
+        .jira
+        .as_ref()
+        .map(|j| j.base_url.clone())
+        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Jira not configured. Run `parsec config init` or set {}.",
+                crate::env::JIRA_BASE_URL,
+            )
+        })?;
+    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
+    let jira = JiraTracker::new(&base_url, email.as_deref());
+
+    // JQL: assigned to current user, open statuses, ordered by priority
+    let jql =
+        "assignee = currentUser() AND status in (\"To Do\", \"In Progress\") ORDER BY priority DESC";
+
+    let tickets = jira.search_assigned_issues(jql).await?;
+
+    // Filter out tickets that already have an active parsec worktree
+    let manager = WorktreeManager::new(repo, &config)?;
+    let active_tickets: HashSet<String> =
+        manager.list()?.iter().map(|ws| ws.ticket.clone()).collect();
+
+    let inbox_tickets: Vec<_> = tickets
+        .into_iter()
+        .filter(|t| !active_tickets.contains(&t.key))
+        .collect();
+
+    if pick {
+        if inbox_tickets.is_empty() {
+            anyhow::bail!("No assigned tickets without active worktrees.");
+        }
+        let items: Vec<String> = inbox_tickets
+            .iter()
+            .map(|t| format!("{} — {} [{}]", t.key, t.summary, t.priority))
+            .collect();
+        let selection = dialoguer::Select::new()
+            .with_prompt("Pick a ticket to start")
+            .items(&items)
+            .default(0)
+            .interact()?;
+        let chosen = &inbox_tickets[selection];
+        eprintln!("Starting workspace for {} ...", chosen.key.bold());
+        // Delegate to `start` command
+        return start(
+            repo,
+            &chosen.key,
+            None,
+            Some(chosen.summary.clone()),
+            None,
+            None,
+            mode,
+        )
+        .await;
+    }
+
+    output::print_inbox(&inbox_tickets, mode);
+    Ok(())
+}
+
+pub async fn board(
+    repo: &Path,
+    board_id_override: Option<u64>,
+    project_override: Option<String>,
+    assignee_override: Option<String>,
+    show_all: bool,
+    mode: Mode,
+) -> Result<()> {
+    let mut config = ParsecConfig::load()?;
+    if let Ok(repo_root) = git::get_repo_root(repo) {
+        config.resolve_for_repo(&repo_root);
+    }
+
+    // Board view currently supports Jira only
+    if !matches!(
+        config.tracker.provider,
+        TrackerProvider::Jira | TrackerProvider::None
+    ) {
+        anyhow::bail!("Board view currently supports Jira only.");
+    }
+
+    // Load atlassian env for auto-detection
+    tracker::load_atlassian_env();
+
+    // Resolve Jira base URL and email
+    let base_url = config
+        .tracker
+        .jira
+        .as_ref()
+        .map(|j| j.base_url.clone())
+        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Jira not configured. Run `parsec config init` or set {}.",
+                crate::env::JIRA_BASE_URL,
+            )
+        })?;
+    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
+    let jira = JiraTracker::new(&base_url, email.as_deref());
+
+    // Resolve project key: --project CLI > PARSEC_JIRA_PROJECT env > config > worktree inference
+    let project = if let Some(p) = project_override {
+        p
+    } else if let Ok(p) = std::env::var(crate::env::PARSEC_JIRA_PROJECT) {
+        p
+    } else if let Some(p) = config.tracker.jira.as_ref().and_then(|j| j.project.clone()) {
+        p
+    } else {
+        let config2 = ParsecConfig::load()?;
+        let manager = WorktreeManager::new(repo, &config2)?;
+        let workspaces = manager.list()?;
+        workspaces
+            .iter()
+            .find_map(|ws| ws.ticket.split('-').next().map(String::from))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Could not infer project key. Use --project <KEY>, set {}, or start a worktree first.",
+                    crate::env::PARSEC_JIRA_PROJECT,
+                )
+            })?
+    };
+
+    // Resolve board ID: --board-id CLI > PARSEC_JIRA_BOARD_ID env > config > API fetch
+    let board_id = if let Some(id) = board_id_override {
+        id
+    } else if let Ok(id_str) = std::env::var(crate::env::PARSEC_JIRA_BOARD_ID) {
+        id_str.parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "{} must be a valid number, got: {}",
+                crate::env::PARSEC_JIRA_BOARD_ID,
+                id_str,
+            )
+        })?
+    } else if let Some(id) = config.tracker.jira.as_ref().and_then(|j| j.board_id) {
+        id
+    } else {
+        jira.fetch_board_id(&project).await?
+    };
+
+    // Resolve assignee filter: --assignee CLI > PARSEC_JIRA_ASSIGNEE env > config > none
+    let assignee_filter = if show_all {
+        None
+    } else if let Some(a) = assignee_override {
+        Some(a)
+    } else if let Ok(a) = std::env::var(crate::env::PARSEC_JIRA_ASSIGNEE) {
+        Some(a)
+    } else {
+        config
+            .tracker
+            .jira
+            .as_ref()
+            .and_then(|j| j.assignee.clone())
+    };
+
+    // Fetch active sprint
+    let sprint = jira.fetch_active_sprint(board_id).await?;
+
+    // Fetch sprint issues
+    let tickets = jira.fetch_sprint_issues(sprint.id).await?;
+
+    // Collect active worktree ticket set
+    let config3 = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config3)?;
+    let active_worktree_tickets: HashSet<String> =
+        manager.list()?.iter().map(|ws| ws.ticket.clone()).collect();
+
+    // Collect shipped PR ticket set from oplog
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let oplog = crate::oplog::OpLog::load(&repo_root)?;
+    let shipped_tickets: HashSet<String> = oplog
+        .entries
+        .iter()
+        .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+        .filter_map(|e| e.ticket.clone())
+        .collect();
+
+    // Annotate tickets and group by status
+    let mut column_map: Vec<(String, Vec<BoardTicketDisplay>)> = Vec::new();
+
+    // Preserve unique status order as encountered
+    let mut seen_statuses: Vec<String> = Vec::new();
+    for ticket in &tickets {
+        if !seen_statuses.contains(&ticket.status) {
+            seen_statuses.push(ticket.status.clone());
+        }
+    }
+
+    for status in &seen_statuses {
+        let col_tickets: Vec<BoardTicketDisplay> = tickets
+            .iter()
+            .filter(|t| &t.status == status)
+            .filter(|t| {
+                // Apply assignee filter if set
+                if let Some(ref filter) = assignee_filter {
+                    t.assignee.as_deref() == Some(filter.as_str())
+                } else {
+                    true
+                }
+            })
+            .map(|t| BoardTicketDisplay {
+                key: t.key.clone(),
+                summary: t.summary.clone(),
+                assignee: t.assignee.clone(),
+                has_worktree: active_worktree_tickets.contains(&t.key),
+                has_pr: shipped_tickets.contains(&t.key),
+                url: Some(format!(
+                    "{}/browse/{}",
+                    base_url.trim_end_matches('/'),
+                    t.key
+                )),
+            })
+            .collect();
+        if !col_tickets.is_empty() {
+            column_map.push((status.clone(), col_tickets));
+        }
+    }
+
+    output::print_board(Some(&sprint), &column_map, mode);
+    Ok(())
+}
+
 pub async fn config_init(mode: Mode) -> Result<()> {
     let config = ParsecConfig::init_interactive()?;
     config.save()?;
@@ -1099,6 +1606,21 @@ pub async fn config_show(mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
 
     output::print_config_show(&config, mode);
+    Ok(())
+}
+
+pub async fn root(repo_path: &Path) -> Result<()> {
+    let repo_root = git::get_main_repo_root(repo_path)?;
+    print!("{}", repo_root.display());
+    Ok(())
+}
+
+pub async fn init_shell(shell: &str) -> Result<()> {
+    let script = match shell {
+        "bash" => INIT_SHELL_BASH,
+        _ => INIT_SHELL_ZSH,
+    };
+    print!("{}", script);
     Ok(())
 }
 
@@ -1145,6 +1667,72 @@ function parsec() {
         fi
     else
         command parsec "$@"
+    fi
+}
+"#;
+
+const INIT_SHELL_ZSH: &str = r#"
+# parsec shell integration - add to ~/.zshrc
+# eval "$(parsec init zsh)"
+function parsec() {
+    if [[ "$1" == "switch" && -n "$2" ]]; then
+        local dir
+        dir=$(command parsec switch "${@:2}" 2>&1)
+        if [[ $? -eq 0 && -d "$dir" ]]; then
+            cd "$dir"
+        else
+            echo "$dir" >&2
+            return 1
+        fi
+    else
+        # Save repo root before merge (CWD may be deleted after)
+        local saved_root=""
+        if [[ "$1" == "merge" ]]; then
+            saved_root=$(command parsec root 2>/dev/null)
+        fi
+        command parsec "$@"
+        local exit_code=$?
+        # After merge, if CWD was deleted (worktree cleaned up), cd to main repo
+        if [[ "$1" == "merge" && $exit_code -eq 0 ]] && [[ ! -d "$(pwd)" ]]; then
+            if [[ -n "$saved_root" && -d "$saved_root" ]]; then
+                cd "$saved_root"
+                echo "  cd $saved_root"
+            fi
+        fi
+        return $exit_code
+    fi
+}
+"#;
+
+const INIT_SHELL_BASH: &str = r#"
+# parsec shell integration - add to ~/.bashrc
+# eval "$(parsec init bash)"
+function parsec() {
+    if [[ "$1" == "switch" && -n "$2" ]]; then
+        local dir
+        dir=$(command parsec switch "${@:2}" 2>&1)
+        if [[ $? -eq 0 && -d "$dir" ]]; then
+            cd "$dir"
+        else
+            echo "$dir" >&2
+            return 1
+        fi
+    else
+        # Save repo root before merge (CWD may be deleted after)
+        local saved_root=""
+        if [[ "$1" == "merge" ]]; then
+            saved_root=$(command parsec root 2>/dev/null)
+        fi
+        command parsec "$@"
+        local exit_code=$?
+        # After merge, if CWD was deleted (worktree cleaned up), cd to main repo
+        if [[ "$1" == "merge" && $exit_code -eq 0 ]] && [[ ! -d "$(pwd)" ]]; then
+            if [[ -n "$saved_root" && -d "$saved_root" ]]; then
+                cd "$saved_root"
+                echo "  cd $saved_root"
+            fi
+        fi
+        return $exit_code
     fi
 }
 "#;

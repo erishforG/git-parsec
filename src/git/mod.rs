@@ -109,6 +109,23 @@ pub fn get_main_repo_root(path: &Path) -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("git common dir has no parent: {:?}", canonical))
 }
 
+/// Get files with uncommitted changes (staged + unstaged) in the working tree.
+pub fn get_uncommitted_files(repo: &Path) -> Result<Vec<String>> {
+    // Staged changes
+    let staged = run_output(repo, &["diff", "--name-only", "--cached"])?;
+    // Unstaged changes
+    let unstaged = run_output(repo, &["diff", "--name-only"])?;
+
+    let mut files: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for line in staged.lines().chain(unstaged.lines()) {
+        let line = line.trim();
+        if !line.is_empty() {
+            files.insert(line.to_owned());
+        }
+    }
+    Ok(files.into_iter().collect())
+}
+
 /// Return `true` if `branch` has been fully merged into `base`.
 pub fn is_branch_merged(repo: &Path, branch: &str, base: &str) -> Result<bool> {
     // `git branch --merged <base>` lists branches merged into base.
@@ -136,7 +153,10 @@ pub fn get_remote_url(repo: &Path) -> Result<String> {
 
 /// Push `branch` to origin and set the upstream tracking reference.
 pub fn push_branch(repo: &Path, branch: &str) -> Result<()> {
-    run(repo, &["push", "-u", "origin", branch])
+    run(
+        repo,
+        &["push", "--force-with-lease", "-u", "origin", branch],
+    )
 }
 
 /// Return the name of the currently checked-out branch.
@@ -263,7 +283,7 @@ pub fn delete_branch(repo: &Path, branch: &str) -> Result<()> {
 
 /// Fetch all refs from `origin`.
 pub fn fetch(repo: &Path) -> Result<()> {
-    run(repo, &["fetch", "origin"])
+    run(repo, &["fetch", "origin", "--prune"])
 }
 
 /// Fetch from origin if a remote exists. Non-fatal if no remote configured.

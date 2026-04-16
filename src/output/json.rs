@@ -1,9 +1,12 @@
 use serde::Serialize;
 use serde_json::json;
 
+use super::BoardTicketDisplay;
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
+use crate::tracker::jira::{InboxTicket, SprintInfo};
+use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace};
 
 fn emit<T: Serialize>(value: &T) {
@@ -22,8 +25,22 @@ pub fn print_adopt(workspace: &Workspace) {
     emit(workspace);
 }
 
-pub fn print_list(workspaces: &[Workspace]) {
-    emit(&workspaces);
+pub fn print_list(
+    workspaces: &[Workspace],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+) {
+    let value: Vec<serde_json::Value> = workspaces
+        .iter()
+        .map(|ws| {
+            let mut obj = serde_json::to_value(ws).unwrap_or(serde_json::json!({}));
+            if let Some((num, state)) = pr_map.get(&ws.ticket) {
+                obj["pr_number"] = serde_json::json!(num);
+                obj["pr_state"] = serde_json::json!(state);
+            }
+            obj
+        })
+        .collect();
+    emit(&value);
 }
 
 pub fn print_status(workspaces: &[Workspace]) {
@@ -177,6 +194,73 @@ pub fn print_undo_preview(entry: &OpEntry) {
         "would_undo": format!("{}", entry.op),
         "ticket": entry.ticket,
         "undo_info": entry.undo_info,
+    });
+    println!("{}", value);
+}
+
+pub fn print_ticket(ticket: &TrackerTicket) {
+    emit(ticket);
+}
+
+pub fn print_comment(ticket_id: &str) {
+    let value = json!({
+        "action": "comment",
+        "ticket": ticket_id,
+        "status": "ok",
+    });
+    println!("{}", value);
+}
+
+pub fn print_inbox(tickets: &[InboxTicket]) {
+    emit(&tickets);
+}
+
+pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTicketDisplay>)]) {
+    let sprint_json = sprint.map(|s| {
+        json!({
+            "id": s.id,
+            "name": s.name,
+            "start": s.start_date,
+            "end": s.end_date,
+        })
+    });
+
+    let total_count: usize = columns.iter().map(|(_, tickets)| tickets.len()).sum();
+
+    let columns_json: serde_json::Map<String, serde_json::Value> = columns
+        .iter()
+        .map(|(name, tickets)| {
+            let ticket_list: Vec<serde_json::Value> = tickets
+                .iter()
+                .map(|t| {
+                    let mut obj = json!({
+                        "key": t.key,
+                        "summary": t.summary,
+                        "status": name,
+                    });
+                    if let Some(ref assignee) = t.assignee {
+                        obj["assignee"] = json!(assignee);
+                    }
+                    if let Some(ref url) = t.url {
+                        obj["url"] = json!(url);
+                    }
+                    if t.has_worktree {
+                        obj["worktree"] = json!(true);
+                    }
+                    if t.has_pr {
+                        obj["pr"] = json!(true);
+                    }
+                    obj
+                })
+                .collect();
+            (name.clone(), json!(ticket_list))
+        })
+        .collect();
+
+    let value = json!({
+        "sprint": sprint_json,
+        "total_count": total_count,
+        "columns": columns_json,
     });
     println!("{}", value);
 }
