@@ -133,6 +133,8 @@ pub struct TrackerConfig {
     pub jira: Option<JiraConfig>,
     #[serde(default)]
     pub gitlab: Option<GitlabConfig>,
+    #[serde(default)]
+    pub auto_transition: Option<AutoTransitionConfig>,
 }
 
 impl Default for TrackerConfig {
@@ -141,6 +143,7 @@ impl Default for TrackerConfig {
             provider: default_provider(),
             jira: None,
             gitlab: None,
+            auto_transition: None,
         }
     }
 }
@@ -181,6 +184,23 @@ pub struct HooksConfig {
     /// Commands to run after creating a worktree (in the worktree directory)
     #[serde(default)]
     pub post_create: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// AutoTransitionConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AutoTransitionConfig {
+    /// Target status name when `parsec start` is run (e.g. "In Progress")
+    #[serde(default)]
+    pub on_start: Option<String>,
+    /// Target status name when `parsec ship` is run (e.g. "In Review")
+    #[serde(default)]
+    pub on_ship: Option<String>,
+    /// Target status name when `parsec merge` is run (e.g. "Done")
+    #[serde(default)]
+    pub on_merge: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

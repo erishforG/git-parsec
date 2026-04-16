@@ -914,6 +914,11 @@ draft = false         # Create PRs as drafts
 [hooks]
 # Commands to run in new worktrees after creation
 post_create = ["npm install"]
+
+[tracker.auto_transition]
+# on_start = "In Progress"   # Transition when `parsec start` runs
+# on_ship = "In Review"      # Transition when `parsec ship` runs
+# on_merge = "Done"           # Transition when `parsec merge` runs
 ```
 
 ---
