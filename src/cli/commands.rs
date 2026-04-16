@@ -136,12 +136,12 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
 
-    // Push + cleanup (sync git operations)
-    let mut result = manager.ship(ticket)?;
+    // Phase 1: Push only (don't clean up yet)
+    let mut result = manager.ship_push(ticket)?;
 
-    // Create GitHub PR (async, uses reqwest)
+    // Phase 2: Create PR/MR (async)
+    let mut pr_failed = false;
     if !no_pr && config.ship.auto_pr {
-        // Fetch ticket info for URL (works for any tracker)
         let ticket_url =
             match tracker::fetch_ticket(&config, ticket, Some(manager.repo_root())).await {
                 Ok(Some(t)) => t.url,
@@ -162,7 +162,6 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
 
         let remote_url = git::get_remote_url(manager.repo_root());
         if let Ok(ref remote_url) = remote_url {
-            // Try GitHub first
             match github::create_pr(
                 remote_url,
                 &result.branch,
@@ -196,17 +195,35 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
                                 "note: PR/MR creation skipped — no token found.\n      \
                                  Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
                             );
+                            pr_failed = true;
                         }
                         Err(e) => {
-                            eprintln!("warning: GitLab MR creation failed: {e}");
+                            eprintln!("error: GitLab MR creation failed: {e}");
+                            pr_failed = true;
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("warning: PR creation failed: {e}");
+                    eprintln!("error: PR creation failed: {e}");
+                    pr_failed = true;
                 }
             }
         }
+    }
+
+    // Phase 3: Cleanup only if PR succeeded (or no PR requested)
+    if !pr_failed {
+        let cleaned_up = manager.ship_cleanup(ticket)?;
+        result.cleaned_up = cleaned_up;
+    } else {
+        eprintln!(
+            "note: worktree preserved at {} — fix the issue and retry `parsec ship {}`",
+            manager
+                .get(ticket)
+                .map(|ws| ws.path.display().to_string())
+                .unwrap_or_default(),
+            ticket
+        );
     }
 
     output::print_ship(&result, mode);
@@ -216,13 +233,18 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
         crate::oplog::OpKind::Ship,
         Some(ticket),
         &format!(
-            "Shipped branch '{}'{}",
+            "Shipped branch '{}'{}{}",
             result.branch,
             result
                 .pr_url
                 .as_ref()
                 .map(|u| format!(" -> {}", u))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            if pr_failed {
+                " (partial: PR failed)"
+            } else {
+                ""
+            },
         ),
         Some(crate::oplog::UndoInfo {
             branch: Some(result.branch.clone()),
@@ -232,6 +254,10 @@ pub async fn ship(repo: &Path, ticket: &str, draft: bool, no_pr: bool, mode: Mod
         }),
     ) {
         eprintln!("warning: failed to write oplog: {e}");
+    }
+
+    if pr_failed {
+        anyhow::bail!("Ship partial: branch pushed but PR/MR creation failed. Worktree preserved.");
     }
 
     Ok(())

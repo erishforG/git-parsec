@@ -357,9 +357,9 @@ impl WorktreeManager {
     // ship (push + cleanup only, PR creation is in commands.rs)
     // -----------------------------------------------------------------------
 
-    pub fn ship(&self, ticket: &str) -> Result<ShipResult> {
-        let mut state =
-            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
+    /// Phase 1: Push the branch only, don't clean up yet.
+    pub fn ship_push(&self, ticket: &str) -> Result<ShipResult> {
+        let state = ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
 
         let workspace = state
             .get_workspace(ticket)
@@ -375,23 +375,43 @@ impl WorktreeManager {
         git::push_branch(&workspace.path, &workspace.branch)
             .with_context(|| format!("failed to push branch '{}'", workspace.branch))?;
 
-        // Optionally clean up the worktree and local branch.
-        let cleaned_up = if self.config.ship.auto_cleanup {
-            match git::worktree_remove(&self.repo_root, &workspace.path) {
-                Ok(()) => {
-                    let _ = git::delete_branch(&self.repo_root, &workspace.branch);
-                    true
-                }
-                Err(e) => {
-                    eprintln!("warning: failed to remove worktree: {e}");
-                    false
-                }
-            }
-        } else {
-            false
+        Ok(ShipResult {
+            ticket: ticket.to_owned(),
+            branch: workspace.branch,
+            base_branch: workspace.base_branch,
+            ticket_title: workspace.ticket_title,
+            pr_url: None,
+            cleaned_up: false,
+        })
+    }
+
+    /// Phase 2: Clean up worktree and branch after successful PR creation.
+    pub fn ship_cleanup(&self, ticket: &str) -> Result<bool> {
+        if !self.config.ship.auto_cleanup {
+            return Ok(false);
+        }
+
+        let state = ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
+
+        let workspace = match state.get_workspace(ticket) {
+            Some(ws) => ws.clone(),
+            None => return Ok(false), // Already cleaned up
         };
 
-        // Update persisted state.
+        let cleaned_up = match git::worktree_remove(&self.repo_root, &workspace.path) {
+            Ok(()) => {
+                let _ = git::delete_branch(&self.repo_root, &workspace.branch);
+                true
+            }
+            Err(e) => {
+                eprintln!("warning: failed to remove worktree: {e}");
+                false
+            }
+        };
+
+        // Update persisted state
+        let mut state =
+            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
         if cleaned_up {
             state.remove_workspace(ticket);
         } else if let Some(ws) = state.workspaces.get_mut(ticket) {
@@ -399,16 +419,18 @@ impl WorktreeManager {
         }
         state
             .save(&self.repo_root)
-            .context("failed to save parsec state after ship")?;
+            .context("failed to save parsec state after ship cleanup")?;
 
-        Ok(ShipResult {
-            ticket: ticket.to_owned(),
-            branch: workspace.branch,
-            base_branch: workspace.base_branch,
-            ticket_title: workspace.ticket_title,
-            pr_url: None, // Set by commands.rs after async PR creation
-            cleaned_up,
-        })
+        Ok(cleaned_up)
+    }
+
+    /// Combined push + cleanup (backwards compat).
+    #[allow(dead_code)]
+    pub fn ship(&self, ticket: &str) -> Result<ShipResult> {
+        let mut result = self.ship_push(ticket)?;
+        let cleaned_up = self.ship_cleanup(ticket)?;
+        result.cleaned_up = cleaned_up;
+        Ok(result)
     }
 
     // -----------------------------------------------------------------------
