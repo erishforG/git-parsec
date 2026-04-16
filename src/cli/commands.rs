@@ -686,6 +686,13 @@ pub async fn merge(
         Some(result) => {
             output::print_merge(&ticket_id, pr_number, &result, method, mode);
 
+            // Prune stale remote-tracking references after remote branch deletion
+            if delete_branch {
+                if let Err(e) = git::fetch(&repo_root) {
+                    eprintln!("warning: failed to prune remote-tracking references: {e}");
+                }
+            }
+
             // Auto-transition ticket status
             if let Some(ref auto) = config.tracker.auto_transition {
                 if let Some(ref status) = auto.on_merge {
