@@ -2,9 +2,11 @@ use colored::Colorize;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
 
+use super::BoardTicketDisplay;
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
+use crate::tracker::jira::SprintInfo;
 use crate::worktree::{ShipResult, Workspace, WorkspaceStatus};
 
 // ---------------------------------------------------------------------------
@@ -591,6 +593,66 @@ pub fn print_stack(workspaces: &[Workspace]) {
             println!();
         }
         print_tree(root, &children_map, "", true);
+    }
+}
+
+pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTicketDisplay>)]) {
+    // Sprint header: show dates in compact form
+    if let Some(s) = sprint {
+        let start = s
+            .start_date
+            .as_deref()
+            .and_then(|d| d.get(..10))
+            .unwrap_or("");
+        let end = s
+            .end_date
+            .as_deref()
+            .and_then(|d| d.get(..10))
+            .unwrap_or("");
+        // Use short date format: strip leading "20" → "26.04.06"
+        let fmt_date = |d: &str| -> String {
+            if d.len() >= 10 {
+                let without_century = &d[2..];
+                without_century.replace('-', ".")
+            } else {
+                d.to_string()
+            }
+        };
+        if !start.is_empty() && !end.is_empty() {
+            println!(
+                "{}",
+                format!("{} ~ {}", fmt_date(start), fmt_date(end)).dimmed()
+            );
+        }
+        println!();
+    }
+
+    if columns.is_empty() {
+        println!("{}", "No tickets in sprint.".dimmed());
+        return;
+    }
+
+    for (i, (status, tickets)) in columns.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        // Status header: bold name + dimmed count
+        println!(
+            "{} {}",
+            status.bold(),
+            format!("({})", tickets.len()).dimmed()
+        );
+
+        for ticket in tickets {
+            let indicator = if ticket.has_worktree {
+                format!(" {}", "[wt]".green())
+            } else if ticket.has_pr {
+                format!(" {}", "[pr]".blue())
+            } else {
+                "     ".to_string()
+            };
+            println!("  {}{}  {}", ticket.key, indicator, ticket.summary.dimmed());
+        }
     }
 }
 

@@ -262,6 +262,29 @@ pub enum Command {
         dry_run: bool,
     },
 
+    /// Show the sprint board as a Kanban view
+    ///
+    /// Fetches the active sprint from Jira and displays tickets grouped
+    /// by status column. Active worktrees are marked with [wt] and
+    /// shipped PRs with [pr]. Currently supports Jira only.
+    Board {
+        /// Jira board ID (auto-detected from project if omitted)
+        #[arg(long)]
+        board_id: Option<u64>,
+
+        /// Jira project key (inferred from active worktrees if omitted)
+        #[arg(long, short)]
+        project: Option<String>,
+
+        /// Filter by assignee (default from config/env)
+        #[arg(long)]
+        assignee: Option<String>,
+
+        /// Show all tickets (ignore assignee filter)
+        #[arg(long)]
+        all: bool,
+    },
+
     /// Show or manage stacked PR dependencies
     ///
     /// Displays the dependency graph of worktrees created with --on.
@@ -412,6 +435,12 @@ pub async fn run(cli: Cli) -> Result<()> {
             commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
         }
         Command::Undo { dry_run } => commands::undo(&repo_path, dry_run, output_mode).await,
+        Command::Board {
+            board_id,
+            project,
+            assignee,
+            all,
+        } => commands::board(&repo_path, board_id, project, assignee, all, output_mode).await,
         Command::Stack { sync } => {
             if sync {
                 commands::stack_sync(&repo_path, output_mode).await

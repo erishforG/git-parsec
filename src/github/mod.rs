@@ -79,14 +79,7 @@ pub fn parse_github_remote(url: &str) -> Option<GitHubRemote> {
 /// Resolve a GitHub token from environment variables.
 /// Checks: PARSEC_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN
 fn resolve_github_token() -> Option<String> {
-    for var in &["PARSEC_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] {
-        if let Ok(token) = std::env::var(var) {
-            if !token.is_empty() {
-                return Some(token);
-            }
-        }
-    }
-    None
+    crate::env::github_token()
 }
 
 /// PR status information
