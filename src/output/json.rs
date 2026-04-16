@@ -6,6 +6,7 @@ use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
 use crate::tracker::jira::SprintInfo;
+use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace};
 
 fn emit<T: Serialize>(value: &T) {
@@ -181,6 +182,10 @@ pub fn print_undo_preview(entry: &OpEntry) {
         "undo_info": entry.undo_info,
     });
     println!("{}", value);
+}
+
+pub fn print_ticket(ticket: &TrackerTicket) {
+    emit(ticket);
 }
 
 pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTicketDisplay>)]) {

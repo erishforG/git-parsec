@@ -74,6 +74,16 @@ pub enum Command {
         ticket: Option<String>,
     },
 
+    /// View ticket details from tracker
+    ///
+    /// Fetches and displays ticket information (title, status, assignee)
+    /// from the configured tracker. Auto-detects the ticket from the
+    /// current worktree if no ticket is specified.
+    Ticket {
+        /// Ticket identifier (auto-detects from current worktree if omitted)
+        ticket: Option<String>,
+    },
+
     /// Push, create PR/MR, and clean up a workspace
     ///
     /// Pushes the branch to remote, creates a GitHub PR or GitLab MR
@@ -380,6 +390,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::List => commands::list(&repo_path, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
+        }
+        Command::Ticket { ticket } => {
+            commands::ticket(&repo_path, ticket.as_deref(), output_mode).await
         }
         Command::Ship {
             ticket,

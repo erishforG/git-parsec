@@ -1130,6 +1130,43 @@ pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
+pub async fn ticket(repo: &Path, ticket_override: Option<&str>, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
+
+    // Resolve ticket: explicit arg > auto-detect from current worktree
+    let ticket_id = if let Some(t) = ticket_override {
+        t.to_string()
+    } else {
+        // Try to detect from current worktree
+        let manager = WorktreeManager::new(repo, &config)?;
+        let workspaces = manager.list()?;
+        let current_dir = std::env::current_dir()?;
+
+        workspaces
+            .iter()
+            .find(|ws| current_dir.starts_with(&ws.path))
+            .map(|ws| ws.ticket.clone())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Not inside a parsec worktree. Specify a ticket: `parsec ticket <TICKET>`"
+                )
+            })?
+    };
+
+    // Fetch ticket from tracker
+    let ticket = tracker::fetch_ticket(&config, &ticket_id, Some(repo))
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Could not fetch ticket '{}'. Check your tracker configuration.",
+                ticket_id
+            )
+        })?;
+
+    output::print_ticket(&ticket, mode);
+    Ok(())
+}
+
 pub async fn board(
     repo: &Path,
     board_id_override: Option<u64>,

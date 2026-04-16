@@ -286,6 +286,32 @@ $ parsec status PROJ-1234
 
 ---
 
+### `parsec ticket [ticket]`
+
+View ticket details from the configured tracker. Auto-detects the ticket from the current worktree if no argument is given.
+
+```
+parsec ticket [ticket]
+```
+
+```bash
+# Auto-detect from current worktree
+$ parsec ticket
+CL-2283: Implement rate limiting for API endpoints
+  Status: In Progress
+  Assignee: eric.signal
+  URL: https://jira.example.com/browse/CL-2283
+
+# Explicit ticket
+$ parsec ticket CL-2283
+
+# JSON output
+$ parsec ticket CL-2283 --json
+{"id":"CL-2283","title":"Implement rate limiting","status":"In Progress","assignee":"eric.signal","url":"https://jira.example.com/browse/CL-2283"}
+```
+
+---
+
 ### `parsec ship <ticket>`
 
 Push the branch, create a PR (GitHub) or MR (GitLab), and clean up the worktree. The forge is auto-detected from the remote URL.

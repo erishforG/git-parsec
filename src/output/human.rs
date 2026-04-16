@@ -7,6 +7,7 @@ use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
 use crate::tracker::jira::SprintInfo;
+use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace, WorkspaceStatus};
 
 // ---------------------------------------------------------------------------
@@ -662,6 +663,19 @@ pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTic
             };
             println!("  {}{}  {}", ticket.key, indicator, ticket.summary.dimmed());
         }
+    }
+}
+
+pub fn print_ticket(ticket: &TrackerTicket) {
+    println!("{}: {}", ticket.id.yellow().bold(), ticket.title.bold());
+    if let Some(ref status) = ticket.status {
+        println!("  {} {}", "Status:".bold(), status);
+    }
+    if let Some(ref assignee) = ticket.assignee {
+        println!("  {} {}", "Assignee:".bold(), assignee);
+    }
+    if let Some(ref url) = ticket.url {
+        println!("  {} {}", "URL:".bold(), url.cyan());
     }
 }
 

@@ -5,6 +5,7 @@ use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
 use crate::tracker::jira::SprintInfo;
+use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace};
 
 /// A ticket annotated with parsec-specific indicators for board display.
@@ -203,5 +204,13 @@ pub fn print_board(
         Mode::Quiet => {}
         Mode::Json => json::print_board(sprint, columns),
         Mode::Human => human::print_board(sprint, columns),
+    }
+}
+
+pub fn print_ticket(ticket: &TrackerTicket, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_ticket(ticket),
+        Mode::Human => human::print_ticket(ticket),
     }
 }
