@@ -807,4 +807,24 @@ pub fn print_config_show(config: &ParsecConfig) {
             println!("  post_create     = {}", cmd);
         }
     }
+    if !config.repos.is_empty() {
+        println!();
+        let mut repo_keys: Vec<&String> = config.repos.keys().collect();
+        repo_keys.sort();
+        for key in repo_keys {
+            let repo_cfg = &config.repos[key];
+            if let Some(ref tracker) = repo_cfg.tracker {
+                println!("{}", format!("[repos.\"{}\".tracker]", key).bold());
+                if let Some(ref provider) = tracker.provider {
+                    println!("  provider       = {}", provider);
+                }
+                if let Some(ref jira) = tracker.jira {
+                    println!("  jira.base_url  = {}", jira.base_url);
+                }
+                if let Some(ref gitlab) = tracker.gitlab {
+                    println!("  gitlab.base_url = {}", gitlab.base_url);
+                }
+            }
+        }
+    }
 }
