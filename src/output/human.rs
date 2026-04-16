@@ -698,6 +698,15 @@ pub fn print_ticket(ticket: &TrackerTicket) {
     }
 }
 
+fn mask_token(token: &str) -> String {
+    if token.len() <= 8 {
+        return "*".repeat(token.len());
+    }
+    let prefix = &token[..4];
+    let suffix = &token[token.len() - 4..];
+    format!("{}****...{}", prefix, suffix)
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);
@@ -723,6 +732,18 @@ pub fn print_config_show(config: &ParsecConfig) {
     println!("  auto_pr         = {}", config.ship.auto_pr);
     println!("  auto_cleanup    = {}", config.ship.auto_cleanup);
     println!("  draft           = {}", config.ship.draft);
+    if !config.github.is_empty() {
+        println!();
+        let mut hosts: Vec<&String> = config.github.keys().collect();
+        hosts.sort();
+        for host in hosts {
+            let host_cfg = &config.github[host];
+            println!("{}", format!("[github.\"{}\"]", host).bold());
+            if let Some(ref token) = host_cfg.token {
+                println!("  token           = {}", mask_token(token).dimmed());
+            }
+        }
+    }
     if !config.hooks.post_create.is_empty() {
         println!();
         println!("{}", "[hooks]".bold());
