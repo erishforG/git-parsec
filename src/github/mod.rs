@@ -456,14 +456,31 @@ pub async fn merge_pr(
                 "{}/repos/{}/{}/git/refs/heads/{}",
                 api_base, remote.owner, remote.repo, branch_name
             );
-            let _ = client
+            match client
                 .delete(&del_url)
                 .header("Accept", "application/vnd.github+json")
                 .header("X-GitHub-Api-Version", "2022-11-28")
                 .header("User-Agent", "git-parsec")
                 .bearer_auth(&token)
                 .send()
-                .await;
+                .await
+            {
+                Ok(resp) if !resp.status().is_success() => {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    eprintln!(
+                        "warning: failed to delete remote branch '{}': {} {}",
+                        branch_name, status, body
+                    );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "warning: failed to delete remote branch '{}': {}",
+                        branch_name, e
+                    );
+                }
+                _ => {} // success
+            }
         }
     }
 

@@ -402,7 +402,12 @@ impl WorktreeManager {
 
         let cleaned_up = match git::worktree_remove(&self.repo_root, &workspace.path) {
             Ok(()) => {
-                let _ = git::delete_branch(&self.repo_root, &workspace.branch);
+                if let Err(e) = git::delete_branch(&self.repo_root, &workspace.branch) {
+                    eprintln!(
+                        "warning: failed to delete branch '{}': {e}",
+                        workspace.branch
+                    );
+                }
                 true
             }
             Err(e) => {
@@ -459,7 +464,9 @@ impl WorktreeManager {
             for ws in &candidates {
                 match git::worktree_remove(&self.repo_root, &ws.path) {
                     Ok(()) => {
-                        let _ = git::delete_branch(&self.repo_root, &ws.branch);
+                        if let Err(e) = git::delete_branch(&self.repo_root, &ws.branch) {
+                            eprintln!("warning: failed to delete branch '{}': {e}", ws.branch);
+                        }
                     }
                     Err(e) => {
                         eprintln!(
