@@ -84,7 +84,7 @@ pub fn parse_github_remote(url: &str) -> Option<GitHubRemote> {
 /// 1. `config.github.<host>.token` — host-specific config
 /// 2. `PARSEC_GITHUB_TOKEN` env var — explicit override
 /// 3. `GITHUB_TOKEN` / `GH_TOKEN` — generic fallback
-fn resolve_github_token(host: &str, config: &ParsecConfig) -> Option<String> {
+pub fn resolve_github_token(host: &str, config: &ParsecConfig) -> Option<String> {
     // 1. Host-specific config token
     if let Some(host_cfg) = config.github.get(host) {
         if let Some(ref token) = host_cfg.token {

@@ -3,28 +3,32 @@ use reqwest::Client;
 use std::path::{Path, PathBuf};
 
 use super::Ticket;
+use crate::config::ParsecConfig;
 
 pub struct GithubIssueTracker {
     repo_root: Option<PathBuf>,
+    config: ParsecConfig,
     client: Client,
 }
 
 impl GithubIssueTracker {
-    pub fn new(repo_root: Option<&Path>) -> Self {
+    pub fn new(repo_root: Option<&Path>, config: &ParsecConfig) -> Self {
         Self {
             repo_root: repo_root.map(|p| p.to_path_buf()),
+            config: config.clone(),
             client: Client::new(),
         }
     }
 
-    fn resolve_token() -> Option<String> {
-        crate::env::github_token()
+    fn resolve_token(&self) -> Option<String> {
+        let remote = self.resolve_remote()?;
+        crate::github::resolve_github_token(&remote.host, &self.config)
     }
 
     pub async fn fetch_ticket(&self, id: &str) -> Result<Ticket> {
         let issue_num = id.trim_start_matches('#');
 
-        let token = match Self::resolve_token() {
+        let token = match self.resolve_token() {
             Some(t) => t,
             None => return Ok(self.fallback_ticket(id)),
         };
@@ -85,8 +89,11 @@ impl GithubIssueTracker {
     pub async fn add_comment(&self, id: &str, body: &str) -> Result<()> {
         let issue_num = id.trim_start_matches('#');
 
-        let token = Self::resolve_token().ok_or_else(|| {
-            anyhow::anyhow!("No GitHub token found. Set GITHUB_TOKEN or GH_TOKEN.")
+        let token = self.resolve_token().ok_or_else(|| {
+            anyhow::anyhow!(
+                "No GitHub token found. Configure [github.\"<host>\"] in parsec config \
+                 or set GITHUB_TOKEN."
+            )
         })?;
 
         let remote = self
