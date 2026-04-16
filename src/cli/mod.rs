@@ -202,7 +202,7 @@ pub enum Command {
     ///
     /// Outputs the absolute path to the worktree for a given ticket.
     /// When called without a ticket, shows an interactive picker.
-    /// With shell integration (eval "$(parsec config shell zsh)"),
+    /// With shell integration (eval "$(parsec init zsh)"),
     /// this command changes your directory automatically.
     Switch {
         /// Ticket identifier (interactive picker if omitted)
@@ -334,6 +334,23 @@ pub enum Command {
         sync: bool,
     },
 
+    /// Print the main repository root path
+    ///
+    /// Outputs the absolute path to the main (non-worktree) repository root.
+    /// Useful for scripting and shell integration after worktree cleanup.
+    Root,
+
+    /// Output shell integration script
+    ///
+    /// Prints a shell function that wraps parsec for auto-cd on switch
+    /// and auto-recovery after merge cleanup. Supports zsh and bash.
+    /// Add eval "$(parsec init zsh)" to your ~/.zshrc.
+    Init {
+        /// Shell type (zsh or bash)
+        #[arg(default_value = "zsh")]
+        shell: String,
+    },
+
     /// Configure parsec
     ///
     /// Manage parsec configuration: run interactive setup, view current
@@ -355,10 +372,10 @@ pub enum ConfigAction {
     ///
     /// Prints the active configuration from ~/.config/parsec/config.toml.
     Show,
-    /// Output shell integration script
+    /// Output shell integration script (deprecated: use `parsec init` instead)
     ///
     /// Prints a shell function that wraps parsec switch to auto-cd.
-    /// Add eval "$(parsec config shell zsh)" to your ~/.zshrc.
+    /// Prefer `parsec init zsh` which also handles merge CWD recovery.
     Shell {
         /// Shell type (zsh or bash)
         #[arg(default_value = "zsh")]
@@ -494,6 +511,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::stack(&repo_path, output_mode).await
             }
         }
+        Command::Root => commands::root(&repo_path).await,
+        Command::Init { shell } => commands::init_shell(&shell).await,
         Command::Config { action } => match action {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,
