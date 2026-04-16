@@ -140,6 +140,9 @@ pub struct TrackerConfig {
     pub gitlab: Option<GitlabConfig>,
     #[serde(default)]
     pub auto_transition: Option<AutoTransitionConfig>,
+    /// When true, auto-post PR link as comment on the ticket during `parsec ship`
+    #[serde(default)]
+    pub comment_on_ship: bool,
 }
 
 impl Default for TrackerConfig {
@@ -149,6 +152,7 @@ impl Default for TrackerConfig {
             jira: None,
             gitlab: None,
             auto_transition: None,
+            comment_on_ship: false,
         }
     }
 }

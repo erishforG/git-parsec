@@ -707,6 +707,10 @@ fn mask_token(token: &str) -> String {
     format!("{}****...{}", prefix, suffix)
 }
 
+pub fn print_comment(ticket_id: &str) {
+    println!("{} Comment posted on {}", "✓".green(), ticket_id.bold());
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);
@@ -727,6 +731,7 @@ pub fn print_config_show(config: &ParsecConfig) {
     if let Some(gitlab) = &config.tracker.gitlab {
         println!("  gitlab.base_url = {}", gitlab.base_url);
     }
+    println!("  comment_on_ship = {}", config.tracker.comment_on_ship);
     println!();
     println!("{}", "[ship]".bold());
     println!("  auto_pr         = {}", config.ship.auto_pr);

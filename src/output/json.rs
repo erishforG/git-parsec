@@ -202,6 +202,15 @@ pub fn print_ticket(ticket: &TrackerTicket) {
     emit(ticket);
 }
 
+pub fn print_comment(ticket_id: &str) {
+    let value = json!({
+        "action": "comment",
+        "ticket": ticket_id,
+        "status": "ok",
+    });
+    println!("{}", value);
+}
+
 pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTicketDisplay>)]) {
     let sprint_json = sprint.map(|s| {
         json!({

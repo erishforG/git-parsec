@@ -324,11 +324,20 @@ pub async fn ship(
         }
     }
 
-    // Phase 3: Cleanup only if PR succeeded (or no PR requested)
-    if !pr_failed {
-        let cleaned_up = manager.ship_cleanup(ticket)?;
-        result.cleaned_up = cleaned_up;
-    } else {
+    // Auto-comment PR link on the ticket if configured
+    if config.tracker.comment_on_ship {
+        if let Some(ref pr_url) = result.pr_url {
+            let comment_body = format!("PR opened: {}", pr_url);
+            if let Err(e) =
+                tracker::post_comment(&config, ticket, &comment_body, Some(manager.repo_root()))
+                    .await
+            {
+                eprintln!("warning: failed to post comment on ticket: {e}");
+            }
+        }
+    }
+
+    if pr_failed {
         eprintln!(
             "note: worktree preserved at {} — fix the issue and retry `parsec ship {}`",
             manager
@@ -683,30 +692,32 @@ pub async fn merge(
                 }
             }
 
-            // Clean up local worktree if it exists
-            if let Ok(ws) = manager.get(&ticket_id) {
-                if ws.path.exists() {
-                    if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
-                        eprintln!("warning: failed to remove worktree: {e}");
+            // Clean up local worktree if it exists and auto_cleanup is enabled
+            if config.ship.auto_cleanup {
+                if let Ok(ws) = manager.get(&ticket_id) {
+                    if ws.path.exists() {
+                        if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
+                            eprintln!("warning: failed to remove worktree: {e}");
+                        }
                     }
-                }
-                // Update state
-                let mut state = crate::worktree::ParsecState::load(&repo_root)?;
-                state.remove_workspace(&ticket_id);
-                state.save(&repo_root)?;
+                    // Update state
+                    let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+                    state.remove_workspace(&ticket_id);
+                    state.save(&repo_root)?;
 
-                // Delete local branch
-                if let Some(branch) = &oplog
-                    .get_entries(Some(&ticket_id))
-                    .last()
-                    .and_then(|e| e.undo_info.as_ref())
-                    .and_then(|u| u.branch.clone())
-                {
-                    let _ = git::delete_branch(&repo_root, branch);
-                }
+                    // Delete local branch
+                    if let Some(branch) = &oplog
+                        .get_entries(Some(&ticket_id))
+                        .last()
+                        .and_then(|e| e.undo_info.as_ref())
+                        .and_then(|u| u.branch.clone())
+                    {
+                        let _ = git::delete_branch(&repo_root, branch);
+                    }
 
-                if mode == Mode::Human {
-                    println!("  {}", "Local worktree cleaned up.".dimmed());
+                    if mode == Mode::Human {
+                        println!("  {}", "Local worktree cleaned up.".dimmed());
+                    }
                 }
             }
 
@@ -1278,8 +1289,14 @@ pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
-pub async fn ticket(repo: &Path, ticket_override: Option<&str>, mode: Mode) -> Result<()> {
+pub async fn ticket(
+    repo: &Path,
+    ticket_override: Option<&str>,
+    comment: Option<String>,
+    mode: Mode,
+) -> Result<()> {
     let config = ParsecConfig::load()?;
+    let repo_root = git::get_repo_root(repo)?;
 
     // Resolve ticket: explicit arg > auto-detect from current worktree
     let ticket_id = if let Some(t) = ticket_override {
@@ -1300,6 +1317,13 @@ pub async fn ticket(repo: &Path, ticket_override: Option<&str>, mode: Mode) -> R
                 )
             })?
     };
+
+    // If --comment is provided, post the comment and return
+    if let Some(comment_text) = comment {
+        tracker::post_comment(&config, &ticket_id, &comment_text, Some(&repo_root)).await?;
+        output::print_comment(&ticket_id, mode);
+        return Ok(());
+    }
 
     // Fetch ticket from tracker
     let ticket = tracker::fetch_ticket(&config, &ticket_id, Some(repo))
