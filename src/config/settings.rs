@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input, Select};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
 // Default value helpers required by serde
@@ -224,6 +224,27 @@ pub struct GithubHostConfig {
 }
 
 // ---------------------------------------------------------------------------
+// RepoTrackerOverride / RepoOverrideConfig
+// ---------------------------------------------------------------------------
+
+/// Tracker overrides that can be set per-repo.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RepoTrackerOverride {
+    pub provider: Option<TrackerProvider>,
+    #[serde(default)]
+    pub jira: Option<JiraConfig>,
+    #[serde(default)]
+    pub gitlab: Option<GitlabConfig>,
+}
+
+/// Per-repo configuration overrides.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RepoOverrideConfig {
+    #[serde(default)]
+    pub tracker: Option<RepoTrackerOverride>,
+}
+
+// ---------------------------------------------------------------------------
 // ParsecConfig
 // ---------------------------------------------------------------------------
 
@@ -241,6 +262,10 @@ pub struct ParsecConfig {
     /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
     #[serde(default)]
     pub github: HashMap<String, GithubHostConfig>,
+    /// Per-repo configuration overrides. Keys are "owner/repo" strings.
+    /// Serializes as `[repos."owner/repo"]` in TOML.
+    #[serde(default)]
+    pub repos: HashMap<String, RepoOverrideConfig>,
 }
 
 impl ParsecConfig {
@@ -290,6 +315,54 @@ impl ParsecConfig {
             .with_context(|| format!("Failed to write config file: {}", path.display()))?;
 
         Ok(())
+    }
+
+    /// Apply per-repo tracker overrides for the repository at `repo_root`.
+    ///
+    /// Runs `git remote get-url origin`, parses `owner/repo` from the URL,
+    /// and merges any matching `[repos."owner/repo".tracker]` settings into
+    /// `self.tracker`. Silently ignores errors (no remote, no match, etc.).
+    pub fn resolve_for_repo(&mut self, repo_root: &Path) {
+        // Get the origin remote URL; silently skip if unavailable.
+        let remote_url = match std::process::Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .current_dir(repo_root)
+            .output()
+        {
+            Ok(out) if out.status.success() => String::from_utf8(out.stdout).unwrap_or_default(),
+            _ => return,
+        };
+        let remote_url = remote_url.trim();
+
+        // Parse owner/repo from the URL.
+        let parsed = crate::github::parse_github_remote(remote_url);
+        let remote = match parsed {
+            Some(r) => r,
+            None => return,
+        };
+        let key = format!("{}/{}", remote.owner, remote.repo);
+
+        // Look up the per-repo override.
+        let repo_cfg = match self.repos.get(&key) {
+            Some(r) => r.clone(),
+            None => return,
+        };
+
+        let tracker_override = match repo_cfg.tracker {
+            Some(t) => t,
+            None => return,
+        };
+
+        // Apply overrides.
+        if let Some(provider) = tracker_override.provider {
+            self.tracker.provider = provider;
+        }
+        if let Some(jira) = tracker_override.jira {
+            self.tracker.jira = Some(jira);
+        }
+        if let Some(gitlab) = tracker_override.gitlab {
+            self.tracker.gitlab = Some(gitlab);
+        }
     }
 
     /// Interactively prompt the user to configure parsec and return the resulting config.

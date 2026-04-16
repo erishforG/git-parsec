@@ -23,8 +23,9 @@ pub async fn start(
     existing_branch: Option<&str>,
     mode: Mode,
 ) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
     let repo_root = git::get_repo_root(repo)?;
+    config.resolve_for_repo(&repo_root);
 
     let ticket_title = if let Some(t) = title {
         // Manual title provided — skip tracker lookup
@@ -77,8 +78,9 @@ pub async fn adopt(
     title: Option<String>,
     mode: Mode,
 ) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
     let repo_root = git::get_repo_root(repo)?;
+    config.resolve_for_repo(&repo_root);
 
     let ticket_title = if let Some(t) = title {
         Some(t)
@@ -221,8 +223,9 @@ pub async fn ship(
     base_override: Option<String>,
     mode: Mode,
 ) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
+    config.resolve_for_repo(manager.repo_root());
 
     // Phase 1: Push only (don't clean up yet)
     let mut result = manager.ship_push(ticket)?;
@@ -445,10 +448,11 @@ pub async fn open(
     force_ticket: bool,
     mode: Mode,
 ) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
 
     // Try to find PR URL from oplog
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    config.resolve_for_repo(&repo_root);
     let oplog = crate::oplog::OpLog::load(&repo_root)?;
     let pr_url: Option<String> = oplog.get_entries(Some(ticket)).iter().rev().find_map(|e| {
         if matches!(e.op, crate::oplog::OpKind::Ship) {
@@ -1295,8 +1299,9 @@ pub async fn ticket(
     comment: Option<String>,
     mode: Mode,
 ) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
     let repo_root = git::get_repo_root(repo)?;
+    config.resolve_for_repo(&repo_root);
 
     // Resolve ticket: explicit arg > auto-detect from current worktree
     let ticket_id = if let Some(t) = ticket_override {
@@ -1340,7 +1345,10 @@ pub async fn ticket(
 }
 
 pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
+    if let Ok(repo_root) = git::get_repo_root(repo) {
+        config.resolve_for_repo(&repo_root);
+    }
 
     // Inbox currently supports Jira only
     if !matches!(
@@ -1425,7 +1433,10 @@ pub async fn board(
     show_all: bool,
     mode: Mode,
 ) -> Result<()> {
-    let config = ParsecConfig::load()?;
+    let mut config = ParsecConfig::load()?;
+    if let Ok(repo_root) = git::get_repo_root(repo) {
+        config.resolve_for_repo(&repo_root);
+    }
 
     // Board view currently supports Jira only
     if !matches!(
