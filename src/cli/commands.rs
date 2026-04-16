@@ -1339,6 +1339,84 @@ pub async fn ticket(
     Ok(())
 }
 
+pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
+
+    // Inbox currently supports Jira only
+    if !matches!(
+        config.tracker.provider,
+        TrackerProvider::Jira | TrackerProvider::None
+    ) {
+        anyhow::bail!("Inbox currently supports Jira only.");
+    }
+
+    // Load atlassian env for auto-detection
+    tracker::load_atlassian_env();
+
+    // Resolve Jira base URL and email
+    let base_url = config
+        .tracker
+        .jira
+        .as_ref()
+        .map(|j| j.base_url.clone())
+        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Jira not configured. Run `parsec config init` or set {}.",
+                crate::env::JIRA_BASE_URL,
+            )
+        })?;
+    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
+    let jira = JiraTracker::new(&base_url, email.as_deref());
+
+    // JQL: assigned to current user, open statuses, ordered by priority
+    let jql =
+        "assignee = currentUser() AND status in (\"To Do\", \"In Progress\") ORDER BY priority DESC";
+
+    let tickets = jira.search_assigned_issues(jql).await?;
+
+    // Filter out tickets that already have an active parsec worktree
+    let manager = WorktreeManager::new(repo, &config)?;
+    let active_tickets: HashSet<String> =
+        manager.list()?.iter().map(|ws| ws.ticket.clone()).collect();
+
+    let inbox_tickets: Vec<_> = tickets
+        .into_iter()
+        .filter(|t| !active_tickets.contains(&t.key))
+        .collect();
+
+    if pick {
+        if inbox_tickets.is_empty() {
+            anyhow::bail!("No assigned tickets without active worktrees.");
+        }
+        let items: Vec<String> = inbox_tickets
+            .iter()
+            .map(|t| format!("{} — {} [{}]", t.key, t.summary, t.priority))
+            .collect();
+        let selection = dialoguer::Select::new()
+            .with_prompt("Pick a ticket to start")
+            .items(&items)
+            .default(0)
+            .interact()?;
+        let chosen = &inbox_tickets[selection];
+        eprintln!("Starting workspace for {} ...", chosen.key.bold());
+        // Delegate to `start` command
+        return start(
+            repo,
+            &chosen.key,
+            None,
+            Some(chosen.summary.clone()),
+            None,
+            None,
+            mode,
+        )
+        .await;
+    }
+
+    output::print_inbox(&inbox_tickets, mode);
+    Ok(())
+}
+
 pub async fn board(
     repo: &Path,
     board_id_override: Option<u64>,

@@ -4,7 +4,7 @@ mod json;
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
-use crate::tracker::jira::SprintInfo;
+use crate::tracker::jira::{InboxTicket, SprintInfo};
 use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace};
 
@@ -224,5 +224,13 @@ pub fn print_comment(ticket_id: &str, mode: Mode) {
         Mode::Quiet => {}
         Mode::Json => json::print_comment(ticket_id),
         Mode::Human => human::print_comment(ticket_id),
+    }
+}
+
+pub fn print_inbox(tickets: &[InboxTicket], mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_inbox(tickets),
+        Mode::Human => human::print_inbox(tickets),
     }
 }

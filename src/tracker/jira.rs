@@ -19,6 +19,15 @@ pub struct BoardTicket {
     pub assignee: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboxTicket {
+    pub key: String,
+    pub summary: String,
+    pub status: String,
+    pub priority: String,
+    pub url: String,
+}
+
 pub struct JiraTracker {
     base_url: String,
     email: Option<String>,
@@ -410,6 +419,74 @@ impl JiraTracker {
                         assignee: issue["fields"]["assignee"]["displayName"]
                             .as_str()
                             .map(String::from),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(issues)
+    }
+
+    /// Search for issues assigned to the current user via JQL.
+    /// Endpoint: GET /rest/api/2/search?jql=...&fields=summary,status,priority,assignee
+    pub async fn search_assigned_issues(&self, jql: &str) -> Result<Vec<InboxTicket>> {
+        let token = Self::resolve_token()?;
+        let url = format!("{}/rest/api/2/search", self.base_url);
+
+        let mut request = self
+            .client
+            .get(&url)
+            .header("Content-Type", "application/json")
+            .query(&[
+                ("jql", jql),
+                ("fields", "summary,status,priority,assignee"),
+                ("maxResults", "50"),
+            ]);
+
+        if let Some(ref email) = self.email {
+            request = request.basic_auth(email, Some(&token));
+        } else {
+            request = request.bearer_auth(&token);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("Failed to search Jira issues")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Jira search API returned {} : {}", status, body);
+        }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse Jira search response")?;
+
+        let issues = body["issues"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .map(|issue| {
+                        let key = issue["key"].as_str().unwrap_or("").to_string();
+                        InboxTicket {
+                            url: format!("{}/browse/{}", self.base_url, key),
+                            key,
+                            summary: issue["fields"]["summary"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string(),
+                            status: issue["fields"]["status"]["name"]
+                                .as_str()
+                                .unwrap_or("Unknown")
+                                .to_string(),
+                            priority: issue["fields"]["priority"]["name"]
+                                .as_str()
+                                .unwrap_or("None")
+                                .to_string(),
+                        }
                     })
                     .collect()
             })
