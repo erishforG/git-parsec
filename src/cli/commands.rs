@@ -241,23 +241,20 @@ pub async fn ship(
     // Phase 2: Create PR/MR (async)
     let mut pr_failed = false;
     if !no_pr && config.ship.auto_pr {
-        let ticket_url =
+        let (ticket_title, ticket_url) =
             match tracker::fetch_ticket(&config, ticket, Some(manager.repo_root())).await {
-                Ok(Some(t)) => t.url,
-                _ => None,
+                Ok(Some(t)) => (Some(t.title), t.url),
+                _ => (None, None),
             };
 
-        let pr_title = result
-            .ticket_title
-            .as_ref()
+        // Prefer freshly fetched title over stored one
+        let effective_title = ticket_title.as_deref().or(result.ticket_title.as_deref());
+
+        let pr_title = effective_title
             .map(|t| format!("{}: {}", result.ticket, t))
             .unwrap_or_else(|| result.ticket.clone());
 
-        let pr_body = build_pr_body(
-            &result.ticket,
-            result.ticket_title.as_deref(),
-            ticket_url.as_deref(),
-        );
+        let pr_body = build_pr_body(&result.ticket, effective_title, ticket_url.as_deref());
 
         let remote_url = git::get_remote_url(manager.repo_root());
         if let Ok(ref remote_url) = remote_url {
