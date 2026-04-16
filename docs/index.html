@@ -1442,13 +1442,16 @@
     <div class="container">
       <div class="hero-grid">
         <div>
-          <div class="hero-badge">Built with Rust</div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <div class="hero-badge">Built with Rust</div>
+            <div class="hero-badge">AI-Native</div>
+          </div>
           <h1>
             From ticket to PR<br>
             <span class="gradient-text">in one command.</span>
           </h1>
           <p class="hero-subtitle">
-            git-parsec manages the full lifecycle of git worktrees tied to your issue tracker. Start a ticket, code in parallel, ship a PR, and clean up -- all without leaving your terminal.
+            Run 5 AI agents in parallel — zero <code>index.lock</code> conflicts. git-parsec gives every agent its own isolated worktree, tied to your issue tracker. No retries, no wasted tokens, no merge chaos.
           </p>
           <div class="hero-actions">
             <a href="#install" class="btn-primary">
@@ -1469,14 +1472,14 @@
             <div class="terminal-title">parsec -- zsh</div>
           </div>
           <div class="terminal-body">
-<span class="terminal-line"><span class="comment"># Start working on a Jira ticket</span></span>
+<span class="terminal-line"><span class="comment"># Run 5 AI agents in parallel — no lock conflicts</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">CL-2283</span></span>
 <span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Created worktree for </span><span class="arg">CL-2283</span></span>
 <span class="terminal-line"><span class="info">  Title: Collect HeuristicCompletionException handling</span></span>
 <span class="terminal-line"><span class="info">  Branch: </span><span class="link">feature/CL-2283</span></span>
 <span class="terminal-line"><span class="info">  Path: ../myproject.CL-2283</span></span>
 <span class="terminal-line">&nbsp;</span>
-<span class="terminal-line"><span class="comment"># Work in parallel on another ticket</span></span>
+<span class="terminal-line"><span class="comment"># Each agent gets its own isolated worktree</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">CL-2290</span></span>
 <span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Created worktree for </span><span class="arg">CL-2290</span></span>
 <span class="terminal-line">&nbsp;</span>
@@ -1497,10 +1500,9 @@
     <div class="container">
       <div class="reveal">
         <div class="section-label">The Problem</div>
-        <div class="section-title">Git wasn't built for<br>parallel workflows.</div>
+        <div class="section-title">Git wasn't built for<br>AI agent workflows.</div>
         <p class="section-desc">
-          Multiple developers or AI agents on the same repo fight over index.lock.
-          Worktrees solve isolation, but lack lifecycle management.
+          When AI agents run in parallel on the same repo, they collide on <code>.git/index.lock</code> — crashing mid-task, burning tokens on retries, and leaving broken state. Worktrees solve isolation, but lack the lifecycle management agents need.
         </p>
       </div>
 
@@ -1983,8 +1985,8 @@
         <div class="step-card reveal reveal-delay-2">
           <div class="step-number">02</div>
           <h3>Configure</h3>
-          <p>Run interactive setup, enable shell integration and tab-completions.</p>
-          <div class="step-code">parsec config init<br>eval "$(parsec config completions zsh)"</div>
+          <p>Run interactive setup. Enable shell integration for auto-cd and merge recovery.</p>
+          <div class="step-code">parsec config init<br>eval "$(parsec init zsh)"</div>
         </div>
         <div class="step-card reveal reveal-delay-3">
           <div class="step-number">03</div>
@@ -2067,11 +2069,11 @@
     <div class="container">
       <div class="reveal">
         <div class="cta-title">
-          Stop managing worktrees.<br>
-          <span class="gradient-text" style="background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-teal) 40%, var(--accent-electric) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Start shipping tickets.</span>
+          Let your AI agents run.<br>
+          <span class="gradient-text" style="background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-teal) 40%, var(--accent-electric) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Zero conflicts. Zero wasted tokens.</span>
         </div>
         <p class="cta-desc">
-          Join developers who use parsec to work on multiple tickets in parallel without the overhead.
+          Join developers and AI teams who use parsec to run parallel agents on the same repo — isolated worktrees, no <code style="font-size: 0.9em; opacity: 0.85;">index.lock</code> fights, fewer retries.
         </p>
         <div class="cta-actions">
           <a href="https://github.com/erishforG/git-parsec" class="btn-primary" target="_blank" rel="noopener">
