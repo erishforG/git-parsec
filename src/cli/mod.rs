@@ -123,6 +123,10 @@ pub enum Command {
         /// Dry run - show what would be removed
         #[arg(long)]
         dry_run: bool,
+
+        /// Remove orphan entries (state entries without existing directory)
+        #[arg(long)]
+        orphans: bool,
     },
 
     /// Detect file conflicts across active worktrees
@@ -405,9 +409,11 @@ pub async fn run(cli: Cli) -> Result<()> {
             no_pr,
             base,
         } => commands::ship(&repo_path, &ticket, draft, no_pr, base, output_mode).await,
-        Command::Clean { all, dry_run } => {
-            commands::clean(&repo_path, all, dry_run, output_mode).await
-        }
+        Command::Clean {
+            all,
+            dry_run,
+            orphans,
+        } => commands::clean(&repo_path, all, dry_run, orphans, output_mode).await,
         Command::Sync {
             ticket,
             all,

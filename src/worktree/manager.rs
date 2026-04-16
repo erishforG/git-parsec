@@ -478,4 +478,32 @@ impl WorktreeManager {
 
         Ok(candidates)
     }
+
+    // -----------------------------------------------------------------------
+    // clean_orphans
+    // -----------------------------------------------------------------------
+
+    /// Remove state entries whose worktree directory no longer exists on disk.
+    pub fn clean_orphans(&self, dry_run: bool) -> Result<Vec<Workspace>> {
+        let mut state =
+            ParsecState::load(&self.repo_root).context("failed to load parsec state")?;
+
+        let orphans: Vec<Workspace> = state
+            .workspaces
+            .values()
+            .filter(|ws| !ws.path.exists())
+            .cloned()
+            .collect();
+
+        if !dry_run {
+            for ws in &orphans {
+                state.remove_workspace(&ws.ticket);
+            }
+            state
+                .save(&self.repo_root)
+                .context("failed to save parsec state after orphan cleanup")?;
+        }
+
+        Ok(orphans)
+    }
 }
