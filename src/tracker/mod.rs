@@ -65,7 +65,7 @@ pub async fn fetch_ticket(
     match config.tracker.provider {
         TrackerProvider::Jira => fetch_jira_ticket(config, id).await,
         TrackerProvider::Github => {
-            let tracker = github_issues::GithubIssueTracker::new(repo_root);
+            let tracker = github_issues::GithubIssueTracker::new(repo_root, config);
             let ticket = tracker.fetch_ticket(id).await?;
             Ok(Some(ticket))
         }
@@ -87,7 +87,7 @@ pub async fn fetch_ticket(
                     if crate::github::parse_github_remote(&remote_url).is_some() {
                         let clean_id = id.trim_start_matches('#');
                         if clean_id.chars().all(|c| c.is_ascii_digit()) {
-                            let tracker = github_issues::GithubIssueTracker::new(repo_root);
+                            let tracker = github_issues::GithubIssueTracker::new(repo_root, config);
                             if let Ok(ticket) = tracker.fetch_ticket(id).await {
                                 return Ok(Some(ticket));
                             }
@@ -170,7 +170,7 @@ pub async fn post_comment(
             tracker.add_comment(id, body).await
         }
         TrackerProvider::Github => {
-            let tracker = github_issues::GithubIssueTracker::new(repo_root);
+            let tracker = github_issues::GithubIssueTracker::new(repo_root, config);
             tracker.add_comment(id, body).await
         }
         TrackerProvider::Gitlab | TrackerProvider::None => {
@@ -193,7 +193,7 @@ pub async fn post_comment(
                     if crate::github::parse_github_remote(&remote_url).is_some() {
                         let clean_id = id.trim_start_matches('#');
                         if clean_id.chars().all(|c| c.is_ascii_digit()) {
-                            let tracker = github_issues::GithubIssueTracker::new(repo_root);
+                            let tracker = github_issues::GithubIssueTracker::new(repo_root, config);
                             return tracker.add_comment(id, body).await;
                         }
                     }
