@@ -337,11 +337,7 @@ pub async fn ship(
         }
     }
 
-    // Phase 3: Cleanup only if PR succeeded (or no PR requested)
-    if !pr_failed {
-        let cleaned_up = manager.ship_cleanup(ticket)?;
-        result.cleaned_up = cleaned_up;
-    } else {
+    if pr_failed {
         eprintln!(
             "note: worktree preserved at {} — fix the issue and retry `parsec ship {}`",
             manager
@@ -696,30 +692,32 @@ pub async fn merge(
                 }
             }
 
-            // Clean up local worktree if it exists
-            if let Ok(ws) = manager.get(&ticket_id) {
-                if ws.path.exists() {
-                    if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
-                        eprintln!("warning: failed to remove worktree: {e}");
+            // Clean up local worktree if it exists and auto_cleanup is enabled
+            if config.ship.auto_cleanup {
+                if let Ok(ws) = manager.get(&ticket_id) {
+                    if ws.path.exists() {
+                        if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
+                            eprintln!("warning: failed to remove worktree: {e}");
+                        }
                     }
-                }
-                // Update state
-                let mut state = crate::worktree::ParsecState::load(&repo_root)?;
-                state.remove_workspace(&ticket_id);
-                state.save(&repo_root)?;
+                    // Update state
+                    let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+                    state.remove_workspace(&ticket_id);
+                    state.save(&repo_root)?;
 
-                // Delete local branch
-                if let Some(branch) = &oplog
-                    .get_entries(Some(&ticket_id))
-                    .last()
-                    .and_then(|e| e.undo_info.as_ref())
-                    .and_then(|u| u.branch.clone())
-                {
-                    let _ = git::delete_branch(&repo_root, branch);
-                }
+                    // Delete local branch
+                    if let Some(branch) = &oplog
+                        .get_entries(Some(&ticket_id))
+                        .last()
+                        .and_then(|e| e.undo_info.as_ref())
+                        .and_then(|u| u.branch.clone())
+                    {
+                        let _ = git::delete_branch(&repo_root, branch);
+                    }
 
-                if mode == Mode::Human {
-                    println!("  {}", "Local worktree cleaned up.".dimmed());
+                    if mode == Mode::Human {
+                        println!("  {}", "Local worktree cleaned up.".dimmed());
+                    }
                 }
             }
 
