@@ -63,7 +63,12 @@ pub enum Command {
     ///
     /// Shows a table of all parsec-managed worktrees with ticket, branch,
     /// status, creation time, and path. Use --json for machine-readable output.
-    List,
+    /// PR status is fetched automatically; use --no-pr to skip API calls.
+    List {
+        /// Skip PR status lookup (faster, works offline)
+        #[arg(long)]
+        no_pr: bool,
+    },
 
     /// Show detailed status of a workspace
     ///
@@ -387,7 +392,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
-        Command::List => commands::list(&repo_path, output_mode).await,
+        Command::List { no_pr } => commands::list(&repo_path, no_pr, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
         }

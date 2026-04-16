@@ -143,14 +143,58 @@ pub async fn adopt(
     Ok(())
 }
 
-pub async fn list(repo: &Path, mode: Mode) -> Result<()> {
+pub async fn list(repo: &Path, no_pr: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
-
     let workspaces = manager.list()?;
 
-    output::print_list(&workspaces, mode);
+    // Build PR info map from oplog Ship entries
+    let mut pr_map: std::collections::HashMap<String, (u64, String)> =
+        std::collections::HashMap::new();
+    if !no_pr {
+        if let Ok(oplog) = crate::oplog::OpLog::load(manager.repo_root()) {
+            let remote_url = git::get_remote_url(manager.repo_root()).ok();
+            for entry in &oplog.entries {
+                if matches!(entry.op, crate::oplog::OpKind::Ship) {
+                    if let Some(ref ticket) = entry.ticket {
+                        if let Some(pr_url) = extract_pr_url(&entry.detail) {
+                            if let Some(pr_num) = extract_pr_number(&pr_url) {
+                                pr_map
+                                    .entry(ticket.clone())
+                                    .or_insert((pr_num, "open".to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fetch live PR status from GitHub
+            if let Some(ref remote_url) = remote_url {
+                for (_ticket, (pr_num, state)) in pr_map.iter_mut() {
+                    if let Ok(Some(status)) = github::get_pr_status(remote_url, *pr_num).await {
+                        *state = status.state;
+                    }
+                }
+            }
+        }
+    }
+
+    output::print_list(&workspaces, &pr_map, mode);
     Ok(())
+}
+
+fn extract_pr_url(detail: &str) -> Option<String> {
+    // Oplog detail for Ship contains the PR URL after " -> "
+    detail
+        .split(" -> ")
+        .nth(1)
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.starts_with("http"))
+}
+
+fn extract_pr_number(url: &str) -> Option<u64> {
+    // Extract PR number from URL like "https://github.com/owner/repo/pull/123"
+    url.rsplit('/').next().and_then(|s| s.parse().ok())
 }
 
 pub async fn status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()> {

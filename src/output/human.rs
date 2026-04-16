@@ -15,20 +15,6 @@ use crate::worktree::{ShipResult, Workspace, WorkspaceStatus};
 // ---------------------------------------------------------------------------
 
 #[derive(Tabled)]
-struct WorkspaceRow {
-    #[tabled(rename = "Ticket")]
-    ticket: String,
-    #[tabled(rename = "Branch")]
-    branch: String,
-    #[tabled(rename = "Status")]
-    status: String,
-    #[tabled(rename = "Created")]
-    created: String,
-    #[tabled(rename = "Path")]
-    path: String,
-}
-
-#[derive(Tabled)]
 struct ConflictRow {
     #[tabled(rename = "File")]
     file: String,
@@ -45,16 +31,6 @@ fn status_label(status: &WorkspaceStatus) -> String {
         WorkspaceStatus::Active => "active".green().to_string(),
         WorkspaceStatus::Shipped => "shipped".yellow().to_string(),
         WorkspaceStatus::Merged => "merged".blue().to_string(),
-    }
-}
-
-fn workspace_to_row(ws: &Workspace) -> WorkspaceRow {
-    WorkspaceRow {
-        ticket: ws.ticket.clone(),
-        branch: ws.branch.clone(),
-        status: status_label(&ws.status),
-        created: ws.created_at.format("%Y-%m-%d %H:%M").to_string(),
-        path: ws.path.display().to_string(),
     }
 }
 
@@ -99,12 +75,55 @@ pub fn print_adopt(workspace: &Workspace) {
     );
 }
 
-pub fn print_list(workspaces: &[Workspace]) {
+pub fn print_list(
+    workspaces: &[Workspace],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+) {
     if workspaces.is_empty() {
         println!("{}", "No active workspaces.".dimmed());
         return;
     }
-    let rows: Vec<WorkspaceRow> = workspaces.iter().map(workspace_to_row).collect();
+
+    #[derive(Tabled)]
+    struct WorkspaceRowWithPr {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "Branch")]
+        branch: String,
+        #[tabled(rename = "Status")]
+        status: String,
+        #[tabled(rename = "PR")]
+        pr: String,
+        #[tabled(rename = "Created")]
+        created: String,
+        #[tabled(rename = "Path")]
+        path: String,
+    }
+
+    let rows: Vec<WorkspaceRowWithPr> = workspaces
+        .iter()
+        .map(|ws| {
+            let pr = if let Some((num, state)) = pr_map.get(&ws.ticket) {
+                let label = format!("#{}", num);
+                match state.as_str() {
+                    "open" => label.green().to_string(),
+                    "closed" => label.red().to_string(),
+                    "merged" => label.cyan().to_string(),
+                    _ => label,
+                }
+            } else {
+                "-".dimmed().to_string()
+            };
+            WorkspaceRowWithPr {
+                ticket: ws.ticket.clone(),
+                branch: ws.branch.clone(),
+                status: status_label(&ws.status),
+                pr,
+                created: ws.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                path: ws.path.display().to_string(),
+            }
+        })
+        .collect();
     let table = Table::new(rows).with(Style::modern()).to_string();
     println!("{}", table);
 }
