@@ -289,6 +289,18 @@ pub enum Command {
         dry_run: bool,
     },
 
+    /// List assigned tickets without active worktrees
+    ///
+    /// Fetches tickets assigned to you from Jira that don't yet have a
+    /// parsec worktree. Shows a table of ticket key, title, priority,
+    /// and status. Use --pick to interactively select one and auto-start
+    /// a workspace.
+    Inbox {
+        /// Interactively pick a ticket and run `parsec start`
+        #[arg(long)]
+        pick: bool,
+    },
+
     /// Show the sprint board as a Kanban view
     ///
     /// Fetches the active sprint from Jira and displays tickets grouped
@@ -468,6 +480,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
         }
         Command::Undo { dry_run } => commands::undo(&repo_path, dry_run, output_mode).await,
+        Command::Inbox { pick } => commands::inbox(&repo_path, pick, output_mode).await,
         Command::Board {
             board_id,
             project,

@@ -5,7 +5,7 @@ use super::BoardTicketDisplay;
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
-use crate::tracker::jira::SprintInfo;
+use crate::tracker::jira::{InboxTicket, SprintInfo};
 use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace};
 
@@ -209,6 +209,10 @@ pub fn print_comment(ticket_id: &str) {
         "status": "ok",
     });
     println!("{}", value);
+}
+
+pub fn print_inbox(tickets: &[InboxTicket]) {
+    emit(&tickets);
 }
 
 pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTicketDisplay>)]) {

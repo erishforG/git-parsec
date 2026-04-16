@@ -6,7 +6,7 @@ use super::BoardTicketDisplay;
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
-use crate::tracker::jira::SprintInfo;
+use crate::tracker::jira::{InboxTicket, SprintInfo};
 use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace, WorkspaceStatus};
 
@@ -709,6 +709,57 @@ fn mask_token(token: &str) -> String {
 
 pub fn print_comment(ticket_id: &str) {
     println!("{} Comment posted on {}", "✓".green(), ticket_id.bold());
+}
+
+pub fn print_inbox(tickets: &[InboxTicket]) {
+    if tickets.is_empty() {
+        println!(
+            "{}",
+            "No assigned tickets without active worktrees.".dimmed()
+        );
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct InboxRow {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "Title")]
+        title: String,
+        #[tabled(rename = "Priority")]
+        priority: String,
+        #[tabled(rename = "Status")]
+        status: String,
+    }
+
+    let rows: Vec<InboxRow> = tickets
+        .iter()
+        .map(|t| {
+            let priority = match t.priority.as_str() {
+                "Highest" | "Critical" => t.priority.clone().red().bold().to_string(),
+                "High" => t.priority.clone().red().to_string(),
+                "Medium" => t.priority.clone().yellow().to_string(),
+                "Low" => t.priority.clone().green().to_string(),
+                "Lowest" => t.priority.clone().dimmed().to_string(),
+                _ => t.priority.clone(),
+            };
+            // Truncate long titles for table readability
+            let title = if t.summary.len() > 60 {
+                format!("{}...", &t.summary[..57])
+            } else {
+                t.summary.clone()
+            };
+            InboxRow {
+                ticket: t.key.clone(),
+                title,
+                priority,
+                status: t.status.clone(),
+            }
+        })
+        .collect();
+
+    let table = Table::new(rows).with(Style::modern()).to_string();
+    println!("{}", table);
 }
 
 pub fn print_config_show(config: &ParsecConfig) {
