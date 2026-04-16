@@ -283,7 +283,7 @@ pub fn delete_branch(repo: &Path, branch: &str) -> Result<()> {
 
 /// Fetch all refs from `origin`.
 pub fn fetch(repo: &Path) -> Result<()> {
-    run(repo, &["fetch", "origin"])
+    run(repo, &["fetch", "origin", "--prune"])
 }
 
 /// Fetch from origin if a remote exists. Non-fatal if no remote configured.
