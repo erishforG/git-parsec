@@ -41,11 +41,15 @@ pub fn print_adopt(workspace: &Workspace, mode: Mode) {
     }
 }
 
-pub fn print_list(workspaces: &[Workspace], mode: Mode) {
+pub fn print_list(
+    workspaces: &[Workspace],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+    mode: Mode,
+) {
     match mode {
         Mode::Quiet => {}
-        Mode::Json => json::print_list(workspaces),
-        Mode::Human => human::print_list(workspaces),
+        Mode::Json => json::print_list(workspaces, pr_map),
+        Mode::Human => human::print_list(workspaces, pr_map),
     }
 }
 

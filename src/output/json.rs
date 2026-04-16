@@ -25,8 +25,22 @@ pub fn print_adopt(workspace: &Workspace) {
     emit(workspace);
 }
 
-pub fn print_list(workspaces: &[Workspace]) {
-    emit(&workspaces);
+pub fn print_list(
+    workspaces: &[Workspace],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+) {
+    let value: Vec<serde_json::Value> = workspaces
+        .iter()
+        .map(|ws| {
+            let mut obj = serde_json::to_value(ws).unwrap_or(serde_json::json!({}));
+            if let Some((num, state)) = pr_map.get(&ws.ticket) {
+                obj["pr_number"] = serde_json::json!(num);
+                obj["pr_state"] = serde_json::json!(state);
+            }
+            obj
+        })
+        .collect();
+    emit(&value);
 }
 
 pub fn print_status(workspaces: &[Workspace]) {
