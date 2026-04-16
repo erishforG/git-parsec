@@ -76,10 +76,27 @@ pub fn parse_github_remote(url: &str) -> Option<GitHubRemote> {
     })
 }
 
-/// Resolve a GitHub token from environment variables.
-/// Checks: PARSEC_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN
+/// Resolve a GitHub token from environment variables, then `gh auth token` as fallback.
+/// Checks: PARSEC_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN > `gh auth token`
 fn resolve_github_token() -> Option<String> {
-    crate::env::github_token()
+    if let Some(token) = crate::env::github_token() {
+        return Some(token);
+    }
+
+    // Fallback: try `gh auth token` if gh CLI is installed
+    if let Ok(output) = std::process::Command::new("gh")
+        .args(["auth", "token"])
+        .output()
+    {
+        if output.status.success() {
+            let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+    }
+
+    None
 }
 
 /// PR status information
