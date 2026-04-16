@@ -2,6 +2,7 @@ pub mod github_issues;
 pub mod jira;
 
 use anyhow::Result;
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -96,6 +97,44 @@ pub async fn fetch_ticket(
             }
 
             Ok(None)
+        }
+    }
+}
+
+/// Try to transition a ticket's status. Warns on failure but never blocks.
+pub async fn try_transition(config: &ParsecConfig, ticket: &str, target_status: &str) {
+    // Only works for Jira currently
+    if !matches!(
+        config.tracker.provider,
+        TrackerProvider::Jira | TrackerProvider::None
+    ) {
+        return;
+    }
+
+    // Need atlassian env loaded
+    load_atlassian_env();
+
+    let base_url = config
+        .tracker
+        .jira
+        .as_ref()
+        .map(|j| j.base_url.clone())
+        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok());
+
+    let base_url = match base_url {
+        Some(url) => url,
+        None => return,
+    };
+
+    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
+    let jira = jira::JiraTracker::new(&base_url, email.as_deref());
+
+    match jira.transition_issue(ticket, target_status).await {
+        Ok(()) => {
+            eprintln!("  {} Ticket status → {}", "✓".green(), target_status);
+        }
+        Err(e) => {
+            eprintln!("  warning: failed to transition ticket: {e}");
         }
     }
 }

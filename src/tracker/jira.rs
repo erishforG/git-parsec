@@ -197,6 +197,120 @@ impl JiraTracker {
         })
     }
 
+    /// Fetch available transitions for an issue.
+    /// Endpoint: GET /rest/api/2/issue/{key}/transitions
+    pub async fn fetch_transitions(&self, key: &str) -> Result<Vec<(String, String)>> {
+        let token = Self::resolve_token()?;
+        let url = format!("{}/rest/api/2/issue/{}/transitions", self.base_url, key);
+
+        let mut request = self
+            .client
+            .get(&url)
+            .header("Content-Type", "application/json");
+
+        if let Some(ref email) = self.email {
+            request = request.basic_auth(email, Some(&token));
+        } else {
+            request = request.bearer_auth(&token);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("Failed to fetch transitions")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!(
+                "Jira transitions API returned {} for {}: {}",
+                status,
+                key,
+                body
+            );
+        }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse transitions response")?;
+
+        let transitions = body["transitions"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|t| {
+                        let id = t["id"].as_str()?.to_string();
+                        let name = t["to"]["name"]
+                            .as_str()
+                            .or_else(|| t["name"].as_str())?
+                            .to_string();
+                        Some((id, name))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(transitions)
+    }
+
+    /// Transition an issue to a new status by name.
+    /// Finds the matching transition ID, then POST /rest/api/2/issue/{key}/transitions
+    pub async fn transition_issue(&self, key: &str, target_status: &str) -> Result<()> {
+        let transitions = self.fetch_transitions(key).await?;
+
+        let transition_id = transitions
+            .iter()
+            .find(|(_, name)| name.eq_ignore_ascii_case(target_status))
+            .map(|(id, _)| id.clone())
+            .ok_or_else(|| {
+                let available: Vec<&str> = transitions.iter().map(|(_, n)| n.as_str()).collect();
+                anyhow::anyhow!(
+                    "No transition to '{}' found for {}. Available: {:?}",
+                    target_status,
+                    key,
+                    available
+                )
+            })?;
+
+        let token = Self::resolve_token()?;
+        let url = format!("{}/rest/api/2/issue/{}/transitions", self.base_url, key);
+
+        let payload = serde_json::json!({
+            "transition": { "id": transition_id }
+        });
+
+        let mut request = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&payload);
+
+        if let Some(ref email) = self.email {
+            request = request.basic_auth(email, Some(&token));
+        } else {
+            request = request.bearer_auth(&token);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("Failed to send transition request")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!(
+                "Jira transition API returned {} for {}: {}",
+                status,
+                key,
+                body
+            );
+        }
+
+        Ok(())
+    }
+
     /// Fetch all issues in a sprint via Jira Agile REST API v1.0.
     /// Requires: Jira Software (Cloud or Server/DC 7.x+)
     /// Endpoint: GET /rest/agile/1.0/sprint/{id}/issue?fields=summary,status,assignee

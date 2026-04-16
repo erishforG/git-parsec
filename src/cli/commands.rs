@@ -45,6 +45,13 @@ pub async fn start(
 
     output::print_start(&workspace, mode);
 
+    // Auto-transition ticket status
+    if let Some(ref auto) = config.tracker.auto_transition {
+        if let Some(ref status) = auto.on_start {
+            tracker::try_transition(&config, ticket, status).await;
+        }
+    }
+
     if let Err(e) = crate::oplog::record(
         manager.repo_root(),
         crate::oplog::OpKind::Start,
@@ -242,6 +249,13 @@ pub async fn ship(
     }
 
     output::print_ship(&result, mode);
+
+    // Auto-transition ticket status
+    if let Some(ref auto) = config.tracker.auto_transition {
+        if let Some(ref status) = auto.on_ship {
+            tracker::try_transition(&config, ticket, status).await;
+        }
+    }
 
     if let Err(e) = crate::oplog::record(
         manager.repo_root(),
@@ -534,6 +548,13 @@ pub async fn merge(
     match github::merge_pr(&remote_url, pr_number, method, delete_branch).await? {
         Some(result) => {
             output::print_merge(&ticket_id, pr_number, &result, method, mode);
+
+            // Auto-transition ticket status
+            if let Some(ref auto) = config.tracker.auto_transition {
+                if let Some(ref status) = auto.on_merge {
+                    tracker::try_transition(&config, &ticket_id, status).await;
+                }
+            }
 
             // Clean up local worktree if it exists
             if let Ok(ws) = manager.get(&ticket_id) {
