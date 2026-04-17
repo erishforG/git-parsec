@@ -425,9 +425,12 @@ pub async fn merge_pr(
         .context("Failed to send merge request to GitHub")?;
 
     if !response.status().is_success() {
-        let status = response.status();
+        let status_code = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
-        bail!("GitHub merge API returned {}: {}", status, body);
+        if status_code == 405 || status_code == 409 {
+            bail!("not mergeable: {}", body);
+        }
+        bail!("GitHub merge API returned {}: {}", status_code, body);
     }
 
     let resp: serde_json::Value = response.json().await?;
@@ -489,6 +492,53 @@ pub async fn merge_pr(
         message,
         merged: true,
     }))
+}
+
+/// Update a PR branch with the base branch (to make it mergeable).
+/// Uses GitHub's "Update a pull request branch" API.
+/// Returns Ok(true) on success, Ok(false) if conflicts prevent update.
+pub async fn update_pr_branch(
+    remote_url: &str,
+    pr_number: u64,
+    config: &ParsecConfig,
+) -> Result<bool> {
+    let remote = parse_github_remote(remote_url).ok_or_else(|| {
+        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
+    })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => bail!("no GitHub token found"),
+    };
+
+    let api_base = remote.api_base();
+    let client = Client::new();
+
+    let url = format!(
+        "{}/repos/{}/{}/pulls/{}/update-branch",
+        api_base, remote.owner, remote.repo, pr_number
+    );
+
+    let response = client
+        .put(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "git-parsec")
+        .bearer_auth(&token)
+        .send()
+        .await
+        .context("Failed to send update-branch request to GitHub")?;
+
+    if response.status().is_success() {
+        Ok(true)
+    } else if response.status().as_u16() == 422 {
+        // 422 = conflicts, cannot auto-update
+        Ok(false)
+    } else {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        bail!("GitHub update-branch API returned {}: {}", status, body);
+    }
 }
 
 /// Basic PR info for checkout/review workflows.
