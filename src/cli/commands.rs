@@ -975,13 +975,7 @@ pub async fn merge(
     Ok(())
 }
 
-pub async fn ci(
-    repo: &Path,
-    ticket: Option<&str>,
-    watch: bool,
-    all: bool,
-    mode: Mode,
-) -> Result<()> {
+pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
@@ -1007,22 +1001,49 @@ pub async fn ci(
             anyhow::bail!("no shipped PRs found. Ship a ticket first with `parsec ship`.");
         }
         targets = entries;
-    } else {
-        // Resolve which ticket to look up
-        let ticket_id = if let Some(t) = ticket {
-            t.to_string()
-        } else {
-            // Auto-detect from current worktree
-            let cwd = std::env::current_dir()?;
-            let all_ws = manager.list()?;
-            let found = all_ws
+    } else if !tickets.is_empty() {
+        // Multiple tickets specified
+        for t in tickets {
+            let ticket_id = t.to_string();
+            // First check if there's a shipped PR in the oplog
+            let shipped_pr = oplog
+                .get_entries(Some(&ticket_id))
                 .into_iter()
-                .find(|w| cwd.starts_with(&w.path))
-                .ok_or_else(|| {
-                    anyhow::anyhow!("not inside a parsec worktree. Specify a ticket or use --all.")
+                .rev()
+                .filter(|e| matches!(e.op, crate::oplog::OpKind::Ship))
+                .find_map(|e| {
+                    let url = e.detail.split(" -> ").nth(1)?;
+                    url.rsplit('/').next()?.parse::<u64>().ok()
+                });
+
+            if let Some(pr_number) = shipped_pr {
+                targets.push((ticket_id, pr_number));
+            } else {
+                // Not shipped yet — try to find an open PR by branch name
+                let ws = manager.get(&ticket_id).with_context(|| {
+                    format!("ticket {ticket_id} not found in active workspaces or oplog")
                 })?;
-            found.ticket
-        };
+                match github::find_pr_by_branch(&remote_url, &ws.branch, &config).await? {
+                    Some(pr_number) => targets.push((ticket_id, pr_number)),
+                    None => {
+                        anyhow::bail!(
+                            "no PR found for {ticket_id}. Push and create a PR first, or ship with `parsec ship {ticket_id}`."
+                        );
+                    }
+                }
+            }
+        }
+    } else {
+        // Auto-detect from current worktree
+        let cwd = std::env::current_dir()?;
+        let all_ws = manager.list()?;
+        let found = all_ws
+            .into_iter()
+            .find(|w| cwd.starts_with(&w.path))
+            .ok_or_else(|| {
+                anyhow::anyhow!("not inside a parsec worktree. Specify a ticket or use --all.")
+            })?;
+        let ticket_id = found.ticket;
 
         // First check if there's a shipped PR in the oplog
         let shipped_pr = oplog
