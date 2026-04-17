@@ -906,70 +906,116 @@ pub async fn merge(
     let method = if rebase { "rebase" } else { "squash" };
     let delete_branch = !no_delete_branch;
 
-    // Merge the PR
-    match github::merge_pr(&remote_url, pr_number, method, delete_branch, &config).await? {
-        Some(result) => {
-            output::print_merge(&ticket_id, pr_number, &result, method, mode);
-
-            // Prune stale remote-tracking references after remote branch deletion
-            if delete_branch {
-                if let Err(e) = git::fetch(&repo_root) {
-                    eprintln!("warning: failed to prune remote-tracking references: {e}");
-                }
-            }
-
-            // Auto-transition ticket status
-            if let Some(ref auto) = config.tracker.auto_transition {
-                if let Some(ref status) = auto.on_merge {
-                    tracker::try_transition(&config, &ticket_id, status).await;
-                }
-            }
-
-            // Clean up local worktree if it exists and auto_cleanup is enabled
-            if config.ship.auto_cleanup {
-                if let Ok(ws) = manager.get(&ticket_id) {
-                    if ws.path.exists() {
-                        if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
-                            eprintln!("warning: failed to remove worktree: {e}");
-                        }
-                    }
-                    // Update state
-                    let mut state = crate::worktree::ParsecState::load(&repo_root)?;
-                    state.remove_workspace(&ticket_id);
-                    state.save(&repo_root)?;
-
-                    // Delete local branch
-                    if let Some(branch) = &oplog
-                        .get_entries(Some(&ticket_id))
-                        .last()
-                        .and_then(|e| e.undo_info.as_ref())
-                        .and_then(|u| u.branch.clone())
-                    {
-                        if let Err(e) = git::delete_branch(&repo_root, branch) {
-                            eprintln!("warning: failed to delete local branch '{}': {}", branch, e);
-                        }
-                    }
-
-                    if mode == Mode::Human {
-                        println!("  {}", "Local worktree cleaned up.".dimmed());
-                    }
-                }
-            }
-
-            // Record in oplog
-            if let Err(e) = crate::oplog::record(
-                &repo_root,
-                crate::oplog::OpKind::Clean,
-                Some(&ticket_id),
-                &format!("Merged PR #{} ({})", pr_number, method),
-                None,
-            ) {
-                eprintln!("warning: failed to write oplog: {e}");
-            }
-        }
-        None => {
+    // Try merging, auto-update branch if not mergeable
+    let result = match github::merge_pr(&remote_url, pr_number, method, delete_branch, &config)
+        .await
+    {
+        Ok(Some(result)) => result,
+        Ok(None) => {
             anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
         }
+        Err(e) if e.to_string().starts_with("not mergeable") => {
+            // PR is behind base branch — try updating
+            if mode == Mode::Human {
+                eprintln!("PR #{} is not mergeable. Updating branch...", pr_number);
+            }
+            match github::update_pr_branch(&remote_url, pr_number, &config).await? {
+                true => {
+                    if mode == Mode::Human {
+                        eprintln!("Branch updated. Waiting for CI...");
+                    }
+                    // Wait for CI to pass again after update
+                    loop {
+                        match github::get_check_runs(&remote_url, pr_number, &config).await? {
+                            Some(ci) => {
+                                if ci.overall == "passing" {
+                                    break;
+                                } else if ci.overall == "failing" {
+                                    anyhow::bail!(
+                                        "CI is failing after branch update for PR #{}.",
+                                        pr_number
+                                    );
+                                }
+                                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                            }
+                            None => anyhow::bail!("no GitHub token found."),
+                        }
+                    }
+                    // Retry merge
+                    match github::merge_pr(&remote_url, pr_number, method, delete_branch, &config)
+                        .await?
+                    {
+                        Some(result) => result,
+                        None => anyhow::bail!("no GitHub token found."),
+                    }
+                }
+                false => {
+                    anyhow::bail!(
+                        "PR #{} has conflicts with the base branch. Resolve conflicts manually and retry.",
+                        pr_number
+                    );
+                }
+            }
+        }
+        Err(e) => return Err(e),
+    };
+
+    output::print_merge(&ticket_id, pr_number, &result, method, mode);
+
+    // Prune stale remote-tracking references after remote branch deletion
+    if delete_branch {
+        if let Err(e) = git::fetch(&repo_root) {
+            eprintln!("warning: failed to prune remote-tracking references: {e}");
+        }
+    }
+
+    // Auto-transition ticket status
+    if let Some(ref auto) = config.tracker.auto_transition {
+        if let Some(ref status) = auto.on_merge {
+            tracker::try_transition(&config, &ticket_id, status).await;
+        }
+    }
+
+    // Clean up local worktree if it exists and auto_cleanup is enabled
+    if config.ship.auto_cleanup {
+        if let Ok(ws) = manager.get(&ticket_id) {
+            if ws.path.exists() {
+                if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
+                    eprintln!("warning: failed to remove worktree: {e}");
+                }
+            }
+            // Update state
+            let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+            state.remove_workspace(&ticket_id);
+            state.save(&repo_root)?;
+
+            // Delete local branch
+            if let Some(branch) = &oplog
+                .get_entries(Some(&ticket_id))
+                .last()
+                .and_then(|e| e.undo_info.as_ref())
+                .and_then(|u| u.branch.clone())
+            {
+                if let Err(e) = git::delete_branch(&repo_root, branch) {
+                    eprintln!("warning: failed to delete local branch '{}': {}", branch, e);
+                }
+            }
+
+            if mode == Mode::Human {
+                println!("  {}", "Local worktree cleaned up.".dimmed());
+            }
+        }
+    }
+
+    // Record in oplog
+    if let Err(e) = crate::oplog::record(
+        &repo_root,
+        crate::oplog::OpKind::Clean,
+        Some(&ticket_id),
+        &format!("Merged PR #{} ({})", pr_number, method),
+        None,
+    ) {
+        eprintln!("warning: failed to write oplog: {e}");
     }
 
     Ok(())
