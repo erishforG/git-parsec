@@ -68,6 +68,9 @@ pub enum Command {
         /// Skip PR status lookup (faster, works offline)
         #[arg(long)]
         no_pr: bool,
+        /// Show extended metadata (commits, divergence, last commit)
+        #[arg(long)]
+        full: bool,
     },
 
     /// Show detailed status of a workspace
@@ -436,7 +439,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
-        Command::List { no_pr } => commands::list(&repo_path, no_pr, output_mode).await,
+        Command::List { no_pr, full } => commands::list(&repo_path, no_pr, full, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
         }
