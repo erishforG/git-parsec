@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::json;
 
-use super::BoardTicketDisplay;
+use super::{BoardTicketDisplay, WorkspaceFullInfo};
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
@@ -37,6 +37,30 @@ pub fn print_list(
                 obj["pr_number"] = serde_json::json!(num);
                 obj["pr_state"] = serde_json::json!(state);
             }
+            obj
+        })
+        .collect();
+    emit(&value);
+}
+
+pub fn print_list_full(
+    infos: &[WorkspaceFullInfo],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+) {
+    let value: Vec<serde_json::Value> = infos
+        .iter()
+        .map(|info| {
+            let ws = &info.workspace;
+            let mut obj = serde_json::to_value(ws).unwrap_or(serde_json::json!({}));
+            if let Some((num, state)) = pr_map.get(&ws.ticket) {
+                obj["pr_number"] = serde_json::json!(num);
+                obj["pr_state"] = serde_json::json!(state);
+            }
+            obj["unpushed"] = serde_json::json!(info.unpushed);
+            obj["ahead"] = serde_json::json!(info.ahead);
+            obj["behind"] = serde_json::json!(info.behind);
+            obj["last_commit_msg"] = serde_json::json!(info.last_commit_msg);
+            obj["last_commit_age"] = serde_json::json!(info.last_commit_age);
             obj
         })
         .collect();

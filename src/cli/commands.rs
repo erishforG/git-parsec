@@ -146,7 +146,7 @@ pub async fn adopt(
     Ok(())
 }
 
-pub async fn list(repo: &Path, no_pr: bool, mode: Mode) -> Result<()> {
+pub async fn list(repo: &Path, no_pr: bool, full: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
     let workspaces = manager.list()?;
@@ -184,8 +184,66 @@ pub async fn list(repo: &Path, no_pr: bool, mode: Mode) -> Result<()> {
         }
     }
 
-    output::print_list(&workspaces, &pr_map, mode);
+    if full {
+        let infos = gather_full_info(workspaces);
+        output::print_list_full(&infos, &pr_map, mode);
+    } else {
+        output::print_list(&workspaces, &pr_map, mode);
+    }
     Ok(())
+}
+
+fn gather_full_info(workspaces: Vec<crate::worktree::Workspace>) -> Vec<output::WorkspaceFullInfo> {
+    workspaces
+        .into_iter()
+        .map(|ws| {
+            let path = &ws.path;
+
+            // Unpushed commits: commits on HEAD not yet pushed to upstream
+            let unpushed = git::run_output(path, &["rev-list", "@{u}..HEAD", "--count"])
+                .ok()
+                .and_then(|s| s.trim().parse::<u32>().ok());
+
+            // Ahead/behind vs base branch
+            let (ahead, behind) = {
+                let range = format!("{}...HEAD", ws.base_branch);
+                if let Ok(out) =
+                    git::run_output(path, &["rev-list", "--left-right", "--count", &range])
+                {
+                    // output is "behind\tahead"
+                    let parts: Vec<&str> = out.split_whitespace().collect();
+                    if parts.len() == 2 {
+                        let b = parts[0].parse::<u32>().ok();
+                        let a = parts[1].parse::<u32>().ok();
+                        (a, b)
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                }
+            };
+
+            // Last commit subject
+            let last_commit_msg = git::run_output(path, &["log", "-1", "--format=%s"])
+                .ok()
+                .filter(|s| !s.is_empty());
+
+            // Last commit relative age
+            let last_commit_age = git::run_output(path, &["log", "-1", "--format=%ar"])
+                .ok()
+                .filter(|s| !s.is_empty());
+
+            output::WorkspaceFullInfo {
+                workspace: ws,
+                unpushed,
+                ahead,
+                behind,
+                last_commit_msg,
+                last_commit_age,
+            }
+        })
+        .collect()
 }
 
 fn extract_pr_url(detail: &str) -> Option<String> {

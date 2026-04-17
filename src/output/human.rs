@@ -2,7 +2,7 @@ use colored::Colorize;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
 
-use super::BoardTicketDisplay;
+use super::{BoardTicketDisplay, WorkspaceFullInfo};
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
@@ -124,6 +124,117 @@ pub fn print_list(
             }
         })
         .collect();
+    let table = Table::new(rows).with(Style::modern()).to_string();
+    println!("{}", table);
+}
+
+pub fn print_list_full(
+    infos: &[WorkspaceFullInfo],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+) {
+    if infos.is_empty() {
+        println!("{}", "No active workspaces.".dimmed());
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct FullRow {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "Branch")]
+        branch: String,
+        #[tabled(rename = "Status")]
+        status: String,
+        #[tabled(rename = "PR")]
+        pr: String,
+        #[tabled(rename = "Ahead/Behind")]
+        ahead_behind: String,
+        #[tabled(rename = "Unpushed")]
+        unpushed: String,
+        #[tabled(rename = "Last Commit")]
+        last_commit: String,
+        #[tabled(rename = "Age")]
+        age: String,
+        #[tabled(rename = "Path")]
+        path: String,
+    }
+
+    let rows: Vec<FullRow> = infos
+        .iter()
+        .map(|info| {
+            let ws = &info.workspace;
+            let pr = if let Some((num, state)) = pr_map.get(&ws.ticket) {
+                let label = format!("#{}", num);
+                match state.as_str() {
+                    "open" => label.green().to_string(),
+                    "closed" => label.red().to_string(),
+                    "merged" => label.cyan().to_string(),
+                    _ => label,
+                }
+            } else {
+                "-".dimmed().to_string()
+            };
+
+            let ahead_behind = match (info.ahead, info.behind) {
+                (Some(a), Some(b)) => {
+                    if a == 0 && b == 0 {
+                        "=".dimmed().to_string()
+                    } else {
+                        format!(
+                            "{}{}",
+                            if a > 0 {
+                                format!("+{}", a).green().to_string()
+                            } else {
+                                String::new()
+                            },
+                            if b > 0 {
+                                format!("-{}", b).red().to_string()
+                            } else {
+                                String::new()
+                            }
+                        )
+                    }
+                }
+                _ => "-".dimmed().to_string(),
+            };
+
+            let unpushed = match info.unpushed {
+                Some(0) => "0".dimmed().to_string(),
+                Some(n) => n.to_string().yellow().to_string(),
+                None => "-".dimmed().to_string(),
+            };
+
+            let last_commit = info
+                .last_commit_msg
+                .as_deref()
+                .map(|msg| {
+                    if msg.len() > 40 {
+                        format!("{}...", &msg[..37])
+                    } else {
+                        msg.to_string()
+                    }
+                })
+                .unwrap_or_else(|| "-".dimmed().to_string());
+
+            let age = info
+                .last_commit_age
+                .clone()
+                .unwrap_or_else(|| "-".dimmed().to_string());
+
+            FullRow {
+                ticket: ws.ticket.clone(),
+                branch: ws.branch.clone(),
+                status: status_label(&ws.status),
+                pr,
+                ahead_behind,
+                unpushed,
+                last_commit,
+                age,
+                path: ws.path.display().to_string(),
+            }
+        })
+        .collect();
+
     let table = Table::new(rows).with(Style::modern()).to_string();
     println!("{}", table);
 }

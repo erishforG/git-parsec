@@ -8,6 +8,16 @@ use crate::tracker::jira::{InboxTicket, SprintInfo};
 use crate::tracker::Ticket as TrackerTicket;
 use crate::worktree::{ShipResult, Workspace};
 
+/// Extended metadata for a workspace gathered for `parsec list --full`.
+pub struct WorkspaceFullInfo {
+    pub workspace: Workspace,
+    pub unpushed: Option<u32>,
+    pub ahead: Option<u32>,
+    pub behind: Option<u32>,
+    pub last_commit_msg: Option<String>,
+    pub last_commit_age: Option<String>,
+}
+
 /// A ticket annotated with parsec-specific indicators for board display.
 pub struct BoardTicketDisplay {
     pub key: String,
@@ -248,5 +258,17 @@ pub fn print_doctor(checks: &[DoctorCheck], mode: Mode) {
         Mode::Quiet => {}
         Mode::Json => json::print_doctor(checks),
         Mode::Human => human::print_doctor(checks),
+    }
+}
+
+pub fn print_list_full(
+    infos: &[WorkspaceFullInfo],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+    mode: Mode,
+) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_list_full(infos, pr_map),
+        Mode::Human => human::print_list_full(infos, pr_map),
     }
 }
