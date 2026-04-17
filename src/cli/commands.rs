@@ -1682,6 +1682,73 @@ pub async fn init_shell(shell: &str) -> Result<()> {
     Ok(())
 }
 
+pub async fn init_install(shell: &str) -> Result<()> {
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let (config_path, eval_line) = match shell {
+        "bash" => (
+            home.join(".bashrc"),
+            "eval \"$(parsec init bash)\"".to_string(),
+        ),
+        _ => (
+            home.join(".zshrc"),
+            "eval \"$(parsec init zsh)\"".to_string(),
+        ),
+    };
+
+    // Check if already installed
+    if config_path.exists() {
+        let existing = std::fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read {}", config_path.display()))?;
+        if existing.contains("parsec init") {
+            println!(
+                "{}",
+                format!(
+                    "Shell integration already present in {}. Nothing to do.",
+                    config_path.display()
+                )
+                .yellow()
+            );
+            return Ok(());
+        }
+    }
+
+    let confirmed = dialoguer::Confirm::new()
+        .with_prompt(format!(
+            "Add shell integration to {}?",
+            config_path.display()
+        ))
+        .default(true)
+        .interact()
+        .context("Failed to read confirmation")?;
+
+    if !confirmed {
+        println!("{}", "Skipped.".dimmed());
+        return Ok(());
+    }
+
+    // Append the eval line with a comment
+    let append = format!("\n# parsec shell integration\n{}\n", eval_line);
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&config_path)
+        .with_context(|| format!("Failed to open {} for writing", config_path.display()))?;
+    file.write_all(append.as_bytes())
+        .with_context(|| format!("Failed to write to {}", config_path.display()))?;
+
+    println!(
+        "{}",
+        format!(
+            "Shell integration added to {}. Run `source {}` or restart your shell.",
+            config_path.display(),
+            config_path.display()
+        )
+        .green()
+    );
+    Ok(())
+}
+
 pub async fn config_shell(shell: &str, _mode: Mode) -> Result<()> {
     let script = match shell {
         "bash" => SHELL_INTEGRATION_BASH,
