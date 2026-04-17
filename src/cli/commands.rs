@@ -1682,7 +1682,7 @@ pub async fn init_shell(shell: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn init_install(shell: &str) -> Result<()> {
+pub async fn init_install(shell: &str, yes: bool) -> Result<()> {
     let home = dirs::home_dir().context("Could not determine home directory")?;
     let (config_path, eval_line) = match shell {
         "bash" => (
@@ -1712,18 +1712,20 @@ pub async fn init_install(shell: &str) -> Result<()> {
         }
     }
 
-    let confirmed = dialoguer::Confirm::new()
-        .with_prompt(format!(
-            "Add shell integration to {}?",
-            config_path.display()
-        ))
-        .default(true)
-        .interact()
-        .context("Failed to read confirmation")?;
+    if !yes {
+        let confirmed = dialoguer::Confirm::new()
+            .with_prompt(format!(
+                "Add shell integration to {}?",
+                config_path.display()
+            ))
+            .default(true)
+            .interact()
+            .context("Failed to read confirmation")?;
 
-    if !confirmed {
-        println!("{}", "Skipped.".dimmed());
-        return Ok(());
+        if !confirmed {
+            println!("{}", "Skipped.".dimmed());
+            return Ok(());
+        }
     }
 
     // Append the eval line with a comment
