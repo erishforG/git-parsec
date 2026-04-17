@@ -380,6 +380,24 @@ pub enum Command {
     /// shell integration, and remote access. Prints ✓/✗ for each check
     /// with actionable fix instructions.
     Doctor,
+
+    /// Create a release: merge to release branch, tag, and create GitHub Release
+    ///
+    /// Merges the current develop branch into the release branch (default: main),
+    /// creates a git tag, and creates a GitHub Release with auto-generated changelog.
+    Release {
+        /// Version string (e.g., "0.3.0")
+        version: String,
+        /// Source branch to release from (default: develop or default branch)
+        #[arg(long)]
+        from: Option<String>,
+        /// Skip creating GitHub Release
+        #[arg(long)]
+        no_github_release: bool,
+        /// Dry run — show what would happen without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -554,5 +572,21 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Completions { shell } => commands::config_completions(shell).await,
         },
         Command::Doctor => commands::doctor(&repo_path, output_mode).await,
+        Command::Release {
+            version,
+            from,
+            no_github_release,
+            dry_run,
+        } => {
+            commands::release(
+                &repo_path,
+                &version,
+                from.as_deref(),
+                no_github_release,
+                dry_run,
+                output_mode,
+            )
+            .await
+        }
     }
 }

@@ -24,6 +24,14 @@ fn default_true() -> bool {
     true
 }
 
+fn default_release_branch() -> String {
+    "main".to_string()
+}
+
+fn default_tag_prefix() -> String {
+    "v".to_string()
+}
+
 // ---------------------------------------------------------------------------
 // TrackerProvider
 // ---------------------------------------------------------------------------
@@ -213,6 +221,33 @@ pub struct AutoTransitionConfig {
 }
 
 // ---------------------------------------------------------------------------
+// ReleaseConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseConfig {
+    /// Target branch for release (default: "main")
+    #[serde(default = "default_release_branch")]
+    pub branch: String,
+    /// Tag prefix (default: "v")
+    #[serde(default = "default_tag_prefix")]
+    pub tag_prefix: String,
+    /// Auto-generate changelog
+    #[serde(default = "default_true")]
+    pub changelog: bool,
+}
+
+impl Default for ReleaseConfig {
+    fn default() -> Self {
+        Self {
+            branch: default_release_branch(),
+            tag_prefix: default_tag_prefix(),
+            changelog: true,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // GithubHostConfig
 // ---------------------------------------------------------------------------
 
@@ -258,6 +293,8 @@ pub struct ParsecConfig {
     pub ship: ShipConfig,
     #[serde(default)]
     pub hooks: HooksConfig,
+    #[serde(default)]
+    pub release: ReleaseConfig,
     /// Per-host GitHub tokens. Keys are hostnames like "github.com" or
     /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
     #[serde(default)]
