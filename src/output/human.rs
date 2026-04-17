@@ -762,6 +762,28 @@ pub fn print_inbox(tickets: &[InboxTicket]) {
     println!("{}", table);
 }
 
+pub fn print_doctor(checks: &[super::DoctorCheck]) {
+    println!("{}", "parsec doctor".bold());
+    for check in checks {
+        if check.ok {
+            println!("  {} {}", "✓".green(), check.detail);
+        } else {
+            println!("  {} {}", "✗".red(), check.detail);
+            if let Some(fix) = &check.fix {
+                println!("    {}", fix.dimmed());
+            }
+        }
+    }
+    let all_ok = checks.iter().all(|c| c.ok);
+    println!();
+    if all_ok {
+        println!("{}", "All checks passed.".green().bold());
+    } else {
+        let failed = checks.iter().filter(|c| !c.ok).count();
+        println!("{}", format!("{} check(s) failed.", failed).red().bold());
+    }
+}
+
 pub fn print_config_show(config: &ParsecConfig) {
     println!("{}", "[workspace]".bold());
     println!("  layout          = {}", config.workspace.layout);

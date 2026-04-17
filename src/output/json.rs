@@ -215,6 +215,29 @@ pub fn print_inbox(tickets: &[InboxTicket]) {
     emit(&tickets);
 }
 
+pub fn print_doctor(checks: &[super::DoctorCheck]) {
+    let all_ok = checks.iter().all(|c| c.ok);
+    let checks_json: Vec<serde_json::Value> = checks
+        .iter()
+        .map(|c| {
+            let mut obj = json!({
+                "name": c.name,
+                "ok": c.ok,
+                "detail": c.detail,
+            });
+            if let Some(fix) = &c.fix {
+                obj["fix"] = json!(fix);
+            }
+            obj
+        })
+        .collect();
+    let value = json!({
+        "checks": checks_json,
+        "all_ok": all_ok,
+    });
+    println!("{}", value);
+}
+
 pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTicketDisplay>)]) {
     let sprint_json = sprint.map(|s| {
         json!({
