@@ -617,7 +617,14 @@ pub async fn ship(
     Ok(())
 }
 
-pub async fn clean(repo: &Path, all: bool, dry_run: bool, orphans: bool, mode: Mode) -> Result<()> {
+pub async fn clean(
+    repo: &Path,
+    ticket: Option<&str>,
+    all: bool,
+    dry_run: bool,
+    orphans: bool,
+    mode: Mode,
+) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
 
@@ -625,6 +632,54 @@ pub async fn clean(repo: &Path, all: bool, dry_run: bool, orphans: bool, mode: M
         // Orphan-only mode: just clean state entries without existing directories
         let orphan_list = manager.clean_orphans(dry_run)?;
         output::print_clean(&orphan_list, dry_run, mode);
+        return Ok(());
+    }
+
+    // Single-ticket clean mode
+    if let Some(ticket_id) = ticket {
+        let ws = manager
+            .get(ticket_id)
+            .with_context(|| format!("ticket {ticket_id} not found in active workspaces"))?;
+
+        if dry_run {
+            output::print_clean(std::slice::from_ref(&ws), dry_run, mode);
+            return Ok(());
+        }
+
+        // Remove the worktree
+        let repo_root = manager.repo_root().to_path_buf();
+        if ws.path.exists() {
+            git::worktree_remove(&repo_root, &ws.path)?;
+        }
+
+        // Delete local branch
+        if let Err(e) = git::delete_branch(&repo_root, &ws.branch) {
+            eprintln!("warning: failed to delete branch '{}': {}", ws.branch, e);
+        }
+
+        // Remove from state
+        let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+        state.remove_workspace(ticket_id);
+        state.save(&repo_root)?;
+
+        output::print_clean(std::slice::from_ref(&ws), dry_run, mode);
+
+        // Record in oplog
+        if let Err(e) = crate::oplog::record(
+            &repo_root,
+            crate::oplog::OpKind::Clean,
+            Some(ticket_id),
+            &format!("Cleaned workspace for branch '{}'", ws.branch),
+            Some(crate::oplog::UndoInfo {
+                branch: Some(ws.branch.clone()),
+                base_branch: Some(ws.base_branch.clone()),
+                path: Some(ws.path.clone()),
+                ticket_title: ws.ticket_title.clone(),
+            }),
+        ) {
+            eprintln!("warning: failed to write oplog: {e}");
+        }
+
         return Ok(());
     }
 
