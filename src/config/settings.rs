@@ -193,6 +193,9 @@ pub struct HooksConfig {
     /// Commands to run after creating a worktree (in the worktree directory)
     #[serde(default)]
     pub post_create: Vec<String>,
+    /// Commands to run before shipping a worktree (in the worktree directory)
+    #[serde(default)]
+    pub pre_ship: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------

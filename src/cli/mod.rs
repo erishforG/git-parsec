@@ -120,6 +120,10 @@ pub enum Command {
         /// Target base branch for PR (default from config or worktree base)
         #[arg(long)]
         base: Option<String>,
+
+        /// Skip pre-ship hooks
+        #[arg(long)]
+        skip_hooks: bool,
     },
 
     /// Remove merged or stale worktrees
@@ -464,7 +468,19 @@ pub async fn run(cli: Cli) -> Result<()> {
             draft,
             no_pr,
             base,
-        } => commands::ship(&repo_path, &ticket, draft, no_pr, base, output_mode).await,
+            skip_hooks,
+        } => {
+            commands::ship(
+                &repo_path,
+                &ticket,
+                draft,
+                no_pr,
+                base,
+                skip_hooks,
+                output_mode,
+            )
+            .await
+        }
         Command::Clean {
             all,
             dry_run,

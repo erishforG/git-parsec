@@ -295,11 +295,45 @@ pub async fn ship(
     draft: bool,
     no_pr: bool,
     base_override: Option<String>,
+    skip_hooks: bool,
     mode: Mode,
 ) -> Result<()> {
     let mut config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
     config.resolve_for_repo(manager.repo_root());
+
+    // Run pre-ship hooks before pushing
+    if !skip_hooks && !config.hooks.pre_ship.is_empty() {
+        let workspace = manager.get(ticket)?;
+        for hook_cmd in &config.hooks.pre_ship {
+            if mode == Mode::Human {
+                eprintln!("Running pre-ship hook: {}", hook_cmd);
+            }
+            let output = std::process::Command::new("sh")
+                .args(["-c", hook_cmd])
+                .current_dir(&workspace.path)
+                .output()
+                .with_context(|| format!("Failed to spawn hook: {}", hook_cmd))?;
+            if !output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!(
+                    "pre-ship hook failed: {}\n{}{}",
+                    hook_cmd,
+                    if stdout.is_empty() {
+                        String::new()
+                    } else {
+                        format!("stdout:\n{}", stdout)
+                    },
+                    if stderr.is_empty() {
+                        String::new()
+                    } else {
+                        format!("stderr:\n{}", stderr)
+                    },
+                );
+            }
+        }
+    }
 
     // Phase 1: Push only (don't clean up yet)
     let mut result = manager.ship_push(ticket)?;
