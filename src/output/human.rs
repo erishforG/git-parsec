@@ -961,3 +961,11 @@ pub fn print_config_show(config: &ParsecConfig) {
         }
     }
 }
+
+pub fn print_create(ticket_id: &str, title: &str, url: &str) {
+    println!(
+        "{}",
+        format!("Created issue {} - {}", ticket_id.bold(), title).green()
+    );
+    println!("  {}", url.dimmed());
+}

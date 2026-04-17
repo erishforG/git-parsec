@@ -311,3 +311,13 @@ pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTic
     });
     println!("{}", value);
 }
+
+pub fn print_create(ticket_id: &str, title: &str, url: &str) {
+    let value = json!({
+        "action": "create",
+        "id": ticket_id,
+        "title": title,
+        "url": url,
+    });
+    println!("{}", value);
+}

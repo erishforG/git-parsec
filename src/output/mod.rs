@@ -272,3 +272,11 @@ pub fn print_list_full(
         Mode::Human => human::print_list_full(infos, pr_map),
     }
 }
+
+pub fn print_create(ticket_id: &str, title: &str, url: &str, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_create(ticket_id, title, url),
+        Mode::Human => human::print_create(ticket_id, title, url),
+    }
+}

@@ -402,6 +402,33 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// Create a new issue on the tracker
+    ///
+    /// Creates a new ticket on GitHub Issues (or Jira) and optionally
+    /// starts a worktree for it immediately. Use --start to chain into
+    /// parsec start after creation.
+    Create {
+        /// Issue title
+        #[arg(long)]
+        title: String,
+
+        /// Issue body/description
+        #[arg(long)]
+        body: Option<String>,
+
+        /// Labels to add (comma-separated)
+        #[arg(long)]
+        label: Option<String>,
+
+        /// Jira project key (e.g. PROJ). Auto-detected from config if omitted
+        #[arg(long, short)]
+        project: Option<String>,
+
+        /// Start a worktree after creation
+        #[arg(long)]
+        start: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -604,5 +631,12 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
+        Command::Create {
+            title,
+            body,
+            label,
+            project,
+            start,
+        } => commands::create(&repo_path, &title, body, label, project, start, output_mode).await,
     }
 }

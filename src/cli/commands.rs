@@ -87,6 +87,116 @@ pub async fn start(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn create(
+    repo: &Path,
+    title: &str,
+    body: Option<String>,
+    label: Option<String>,
+    project: Option<String>,
+    start_worktree: bool,
+    mode: Mode,
+) -> Result<()> {
+    let mut config = ParsecConfig::load()?;
+    let repo_root = git::get_repo_root(repo)?;
+    config.resolve_for_repo(&repo_root);
+
+    let labels: Vec<String> = label
+        .as_deref()
+        .map(|l| l.split(',').map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
+
+    let (ticket_id, ticket_url) = match config.tracker.provider {
+        crate::config::TrackerProvider::Github => {
+            let remote_url = git::get_remote_url(&repo_root)?;
+            match github::create_issue(&remote_url, title, body.as_deref(), labels, &config).await?
+            {
+                Some((number, url)) => (format!("#{}", number), url),
+                None => anyhow::bail!(
+                    "GitHub token not configured. Set GITHUB_TOKEN or configure \
+                     [github.\"github.com\"] in parsec config."
+                ),
+            }
+        }
+        crate::config::TrackerProvider::Jira => {
+            crate::tracker::load_atlassian_env();
+
+            let base_url = config
+                .tracker
+                .jira
+                .as_ref()
+                .map(|j| j.base_url.clone())
+                .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Jira base URL not found. Set it in config or {} env var.",
+                        crate::env::JIRA_BASE_URL,
+                    )
+                })?;
+
+            let project_key = project
+                .or_else(|| config.tracker.jira.as_ref().and_then(|j| j.project.clone()))
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Jira project key required. Pass --project PROJ or set \
+                         tracker.jira.project in config."
+                    )
+                })?;
+
+            let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
+            let jira = crate::tracker::jira::JiraTracker::new(&base_url, email.as_deref());
+            let (key, url) = jira
+                .create_issue(&project_key, title, body.as_deref())
+                .await?;
+            (key, url)
+        }
+        crate::config::TrackerProvider::Gitlab | crate::config::TrackerProvider::None => {
+            // Auto-detect: try GitHub if remote points to github.com
+            if let Ok(remote_url) = git::get_remote_url(&repo_root) {
+                if github::parse_github_remote(&remote_url).is_some() {
+                    match github::create_issue(&remote_url, title, body.as_deref(), labels, &config)
+                        .await?
+                    {
+                        Some((number, url)) => (format!("#{}", number), url),
+                        None => anyhow::bail!(
+                            "GitHub token not configured. Set GITHUB_TOKEN or configure \
+                             [github.\"github.com\"] in parsec config."
+                        ),
+                    }
+                } else {
+                    anyhow::bail!(
+                        "Tracker not configured (or not yet supported). \
+                         Set tracker.provider = \"github\" or \"jira\" in parsec config."
+                    )
+                }
+            } else {
+                anyhow::bail!(
+                    "Tracker not configured (or not yet supported). \
+                     Set tracker.provider = \"github\" or \"jira\" in parsec config."
+                )
+            }
+        }
+    };
+
+    output::print_create(&ticket_id, title, &ticket_url, mode);
+
+    if start_worktree {
+        start(
+            repo,
+            &ticket_id,
+            None,
+            Some(title.to_string()),
+            None,
+            None,
+            None,
+            mode,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
 pub async fn adopt(
     repo: &Path,
     ticket: &str,
