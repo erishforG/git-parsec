@@ -429,6 +429,38 @@ pub enum Command {
         #[arg(long)]
         start: bool,
     },
+
+    /// Create a new issue on the tracker (alias)
+    ///
+    /// Creates a new ticket on GitHub Issues, Jira, or GitLab from the
+    /// command line. Auto-detects the tracker from config. Use --start
+    /// to immediately create a worktree for the new issue.
+    #[command(name = "new-issue")]
+    NewIssue {
+        /// Issue title
+        #[arg(long)]
+        title: String,
+
+        /// Issue body/description
+        #[arg(long)]
+        body: Option<String>,
+
+        /// Labels to add (can be specified multiple times)
+        #[arg(long)]
+        label: Vec<String>,
+
+        /// Jira project key (auto-detected from config if omitted)
+        #[arg(long, short)]
+        project: Option<String>,
+
+        /// Jira issue type (default: Task)
+        #[arg(long, default_value = "Task")]
+        issue_type: String,
+
+        /// Auto-start a worktree for the new issue
+        #[arg(long)]
+        start: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -638,5 +670,25 @@ pub async fn run(cli: Cli) -> Result<()> {
             project,
             start,
         } => commands::create(&repo_path, &title, body, label, project, start, output_mode).await,
+        Command::NewIssue {
+            title,
+            body,
+            label,
+            project,
+            issue_type,
+            start,
+        } => {
+            commands::new_issue(
+                &repo_path,
+                &title,
+                body.as_deref(),
+                &label,
+                project.as_deref(),
+                &issue_type,
+                start,
+                output_mode,
+            )
+            .await
+        }
     }
 }

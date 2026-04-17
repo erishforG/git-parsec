@@ -429,20 +429,21 @@ impl JiraTracker {
 
     /// Create a new Jira issue.
     /// Endpoint: POST /rest/api/2/issue
-    /// Returns the issue key (e.g. "PROJ-42") and browse URL on success.
+    /// Returns (key, browse_url).
     pub async fn create_issue(
         &self,
-        project_key: &str,
+        project: &str,
         summary: &str,
         description: Option<&str>,
+        issue_type: &str,
     ) -> Result<(String, String)> {
         let token = Self::resolve_token()?;
         let url = format!("{}/rest/api/2/issue", self.base_url);
 
         let mut fields = serde_json::json!({
-            "project": { "key": project_key },
+            "project": { "key": project },
             "summary": summary,
-            "issuetype": { "name": "Task" }
+            "issuetype": { "name": issue_type },
         });
         if let Some(desc) = description {
             fields["description"] = serde_json::json!(desc);

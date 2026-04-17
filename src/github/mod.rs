@@ -610,15 +610,22 @@ pub async fn create_release(
     Ok(html_url)
 }
 
+/// Result of issue creation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueResult {
+    pub number: u64,
+    pub url: String,
+}
+
 /// Create a GitHub issue.
-/// Returns `(number, html_url)` on success, or `None` if no token is available.
+/// Returns None if no GitHub token is available.
 pub async fn create_issue(
     remote_url: &str,
     title: &str,
     body: Option<&str>,
-    labels: Vec<String>,
+    labels: &[String],
     config: &ParsecConfig,
-) -> Result<Option<(u64, String)>> {
+) -> Result<Option<IssueResult>> {
     let remote = parse_github_remote(remote_url).ok_or_else(|| {
         anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
     })?;
@@ -675,7 +682,10 @@ pub async fn create_issue(
         .as_u64()
         .ok_or_else(|| anyhow::anyhow!("GitHub response missing number"))?;
 
-    Ok(Some((number, html_url)))
+    Ok(Some(IssueResult {
+        number,
+        url: html_url,
+    }))
 }
 
 /// Create a GitHub pull request.
