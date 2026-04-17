@@ -184,8 +184,8 @@ pub enum Command {
     /// summary. Auto-detects the current worktree if no ticket is given.
     /// Use --watch to poll until all checks complete.
     Ci {
-        /// Ticket identifier (auto-detects current worktree if omitted)
-        ticket: Option<String>,
+        /// Ticket identifiers (auto-detects current worktree if omitted)
+        tickets: Vec<String>,
         /// Watch CI in real-time until completion (refresh every 5s)
         #[arg(long)]
         watch: bool,
@@ -597,8 +597,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
-        Command::Ci { ticket, watch, all } => {
-            commands::ci(&repo_path, ticket.as_deref(), watch, all, output_mode).await
+        Command::Ci {
+            tickets,
+            watch,
+            all,
+        } => {
+            let refs: Vec<&str> = tickets.iter().map(|s| s.as_str()).collect();
+            commands::ci(&repo_path, &refs, watch, all, output_mode).await
         }
         Command::Diff {
             ticket,
