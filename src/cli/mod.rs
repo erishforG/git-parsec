@@ -169,9 +169,10 @@ pub enum Command {
     /// Merges the PR via the GitHub API. By default uses squash merge
     /// and waits for CI to pass before merging. Cleans up the local
     /// worktree after a successful merge.
+    /// Pass multiple tickets to merge them sequentially (batch mode).
     Merge {
-        /// Ticket identifier (auto-detects current worktree if omitted)
-        ticket: Option<String>,
+        /// Ticket identifiers (auto-detects current worktree if omitted)
+        tickets: Vec<String>,
         /// Use rebase merge instead of squash
         #[arg(long)]
         rebase: bool,
@@ -598,20 +599,32 @@ pub async fn run(cli: Cli) -> Result<()> {
             commands::pr_status(&repo_path, ticket.as_deref(), output_mode).await
         }
         Command::Merge {
-            ticket,
+            tickets,
             rebase,
             no_wait,
             no_delete_branch,
         } => {
-            commands::merge(
-                &repo_path,
-                ticket.as_deref(),
-                rebase,
-                no_wait,
-                no_delete_branch,
-                output_mode,
-            )
-            .await
+            if tickets.len() > 1 {
+                commands::merge_batch(
+                    &repo_path,
+                    &tickets.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                    rebase,
+                    no_wait,
+                    no_delete_branch,
+                    output_mode,
+                )
+                .await
+            } else {
+                commands::merge(
+                    &repo_path,
+                    tickets.first().map(|s| s.as_str()),
+                    rebase,
+                    no_wait,
+                    no_delete_branch,
+                    output_mode,
+                )
+                .await
+            }
         }
         Command::Ci {
             tickets,
