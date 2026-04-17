@@ -1097,6 +1097,68 @@ pub async fn merge(
     Ok(())
 }
 
+/// Batch merge multiple PRs sequentially.
+pub async fn merge_batch(
+    repo: &Path,
+    tickets: &[&str],
+    rebase: bool,
+    no_wait: bool,
+    no_delete_branch: bool,
+    mode: Mode,
+) -> Result<()> {
+    if mode == Mode::Human {
+        println!("Batch merging {} tickets...\n", tickets.len());
+    }
+
+    let mut failed: Vec<(String, String)> = Vec::new();
+    let mut succeeded: Vec<String> = Vec::new();
+
+    for (i, ticket) in tickets.iter().enumerate() {
+        if mode == Mode::Human {
+            println!("[{}/{}] Merging {}...", i + 1, tickets.len(), ticket);
+        }
+
+        match merge(repo, Some(ticket), rebase, no_wait, no_delete_branch, mode).await {
+            Ok(()) => {
+                succeeded.push(ticket.to_string());
+            }
+            Err(e) => {
+                let err_msg = format!("{e}");
+                if mode == Mode::Human {
+                    eprintln!("  Failed: {}", err_msg);
+                }
+                failed.push((ticket.to_string(), err_msg));
+            }
+        }
+    }
+
+    if mode == Mode::Human {
+        println!();
+        println!(
+            "Batch merge complete: {} succeeded, {} failed",
+            succeeded.len(),
+            failed.len()
+        );
+        for (ticket, err) in &failed {
+            println!("  x {}: {}", ticket, err);
+        }
+    } else if mode == Mode::Json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "succeeded": succeeded,
+                "failed": failed.iter().map(|(t, e)| serde_json::json!({"ticket": t, "error": e})).collect::<Vec<_>>(),
+            })
+        );
+    }
+
+    if !failed.is_empty() {
+        anyhow::bail!("{} merge(s) failed", failed.len());
+    }
+
+    Ok(())
+}
+
 pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
