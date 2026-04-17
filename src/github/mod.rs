@@ -738,6 +738,60 @@ pub async fn create_issue(
     }))
 }
 
+/// Close a GitHub issue by number.
+/// Returns Ok(true) on success, Ok(false) if no token available.
+pub async fn close_issue(
+    remote_url: &str,
+    issue_number: u64,
+    config: &ParsecConfig,
+) -> Result<bool> {
+    let remote = parse_github_remote(remote_url).ok_or_else(|| {
+        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
+    })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => return Ok(false),
+    };
+
+    let api_url = format!(
+        "{}/repos/{}/{}/issues/{}",
+        remote.api_base(),
+        remote.owner,
+        remote.repo,
+        issue_number
+    );
+
+    let payload = serde_json::json!({
+        "state": "closed",
+        "state_reason": "completed",
+    });
+
+    let client = Client::new();
+    let response = client
+        .patch(&api_url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "git-parsec")
+        .bearer_auth(&token)
+        .json(&payload)
+        .send()
+        .await
+        .context("Failed to send close issue request to GitHub")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        eprintln!(
+            "warning: failed to close issue #{}: {} {}",
+            issue_number, status, body
+        );
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
 /// Create a GitHub pull request.
 /// Returns None if no GitHub token is available.
 pub async fn create_pr(

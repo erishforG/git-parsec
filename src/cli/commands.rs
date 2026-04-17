@@ -1031,6 +1031,27 @@ pub async fn merge(
         }
     }
 
+    // Auto-close GitHub issue if ticket looks like a number
+    let issue_number = ticket_id
+        .strip_prefix('#')
+        .unwrap_or(&ticket_id)
+        .parse::<u64>()
+        .ok();
+
+    if let Some(issue_num) = issue_number {
+        match github::close_issue(&remote_url, issue_num, &config).await {
+            Ok(true) => {
+                if mode == Mode::Human {
+                    println!("  Closed issue #{}", issue_num);
+                }
+            }
+            Ok(false) => {} // no token or already closed, skip silently
+            Err(e) => {
+                eprintln!("warning: failed to close issue #{}: {}", issue_num, e);
+            }
+        }
+    }
+
     // Clean up local worktree if it exists and auto_cleanup is enabled
     if config.ship.auto_cleanup {
         if let Ok(ws) = manager.get(&ticket_id) {
