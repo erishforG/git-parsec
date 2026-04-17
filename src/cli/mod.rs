@@ -348,10 +348,17 @@ pub enum Command {
     /// Prints a shell function that wraps parsec for auto-cd on switch
     /// and auto-recovery after merge cleanup. Supports zsh and bash.
     /// Add eval "$(parsec init zsh)" to your ~/.zshrc.
+    /// Use --install to automatically append the integration to your shell config.
     Init {
         /// Shell type (zsh or bash)
         #[arg(default_value = "zsh")]
         shell: String,
+        /// Automatically install shell integration into shell config file
+        #[arg(long)]
+        install: bool,
+        /// Skip confirmation prompt (for scripting)
+        #[arg(long, short)]
+        yes: bool,
     },
 
     /// Configure parsec
@@ -522,7 +529,17 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
         }
         Command::Root => commands::root(&repo_path).await,
-        Command::Init { shell } => commands::init_shell(&shell).await,
+        Command::Init {
+            shell,
+            install,
+            yes,
+        } => {
+            if install {
+                commands::init_install(&shell, yes).await
+            } else {
+                commands::init_shell(&shell).await
+            }
+        }
         Command::Config { action } => match action {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,
