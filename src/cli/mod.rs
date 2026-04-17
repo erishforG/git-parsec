@@ -359,6 +359,13 @@ pub enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+
+    /// Validate environment and configuration
+    ///
+    /// Checks git version, token configuration, tracker connectivity,
+    /// shell integration, and remote access. Prints ✓/✗ for each check
+    /// with actionable fix instructions.
+    Doctor,
 }
 
 #[derive(Subcommand)]
@@ -520,5 +527,6 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Man { dir } => commands::config_man(&dir).await,
             ConfigAction::Completions { shell } => commands::config_completions(shell).await,
         },
+        Command::Doctor => commands::doctor(&repo_path, output_mode).await,
     }
 }

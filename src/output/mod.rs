@@ -234,3 +234,19 @@ pub fn print_inbox(tickets: &[InboxTicket], mode: Mode) {
         Mode::Human => human::print_inbox(tickets),
     }
 }
+
+/// A single diagnostic check result for `parsec doctor`.
+pub struct DoctorCheck {
+    pub name: String,
+    pub ok: bool,
+    pub detail: String,
+    pub fix: Option<String>,
+}
+
+pub fn print_doctor(checks: &[DoctorCheck], mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_doctor(checks),
+        Mode::Human => human::print_doctor(checks),
+    }
+}
