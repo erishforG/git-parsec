@@ -491,6 +491,65 @@ pub async fn merge_pr(
     }))
 }
 
+/// Basic PR info for checkout/review workflows.
+#[derive(Debug, Clone)]
+pub struct PrInfo {
+    pub title: String,
+    pub head_branch: String,
+}
+
+/// Fetch basic info about a GitHub PR by number.
+/// Returns None if no GitHub token is available.
+pub async fn get_pr_info(
+    remote_url: &str,
+    pr_number: u64,
+    config: &ParsecConfig,
+) -> Result<Option<PrInfo>> {
+    let remote = parse_github_remote(remote_url).ok_or_else(|| {
+        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
+    })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+
+    let api_base = remote.api_base();
+    let client = Client::new();
+
+    let pr_url = format!(
+        "{}/repos/{}/{}/pulls/{}",
+        api_base, remote.owner, remote.repo, pr_number
+    );
+    let pr_resp: serde_json::Value = client
+        .get(&pr_url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "git-parsec")
+        .bearer_auth(&token)
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    // GitHub returns a JSON object with a "message" field (not an array) when not found
+    if pr_resp.get("message").is_some() && pr_resp.get("number").is_none() {
+        return Ok(None);
+    }
+
+    if pr_resp["number"].as_u64().is_none() {
+        return Ok(None);
+    }
+    let title = pr_resp["title"].as_str().unwrap_or("").to_string();
+    let head_branch = pr_resp["head"]["ref"].as_str().unwrap_or("").to_string();
+
+    if head_branch.is_empty() {
+        anyhow::bail!("PR #{} response missing head.ref field", pr_number);
+    }
+
+    Ok(Some(PrInfo { title, head_branch }))
+}
+
 /// Create a GitHub pull request.
 /// Returns None if no GitHub token is available.
 pub async fn create_pr(

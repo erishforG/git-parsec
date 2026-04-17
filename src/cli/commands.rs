@@ -1099,6 +1099,59 @@ pub async fn switch(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()>
         }
     };
 
+    // Handle pr:NUMBER syntax
+    if let Some(pr_num_str) = ticket.strip_prefix("pr:") {
+        let pr_number: u64 = pr_num_str
+            .parse()
+            .context("invalid PR number after 'pr:'")?;
+
+        let repo_root = manager.repo_root().to_path_buf();
+        let remote_url = git::get_remote_url(&repo_root)?;
+
+        // Fetch PR info from GitHub to get head branch
+        let pr_info = github::get_pr_info(&remote_url, pr_number, &config)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("PR #{} not found", pr_number))?;
+
+        let branch = pr_info.head_branch.clone();
+        let ticket_id = format!("pr-{}", pr_number);
+
+        // Fetch from remote to ensure the branch ref is available
+        git::fetch(&repo_root)?;
+
+        // Check if a worktree already exists for this branch
+        let workspaces = manager.list()?;
+        if let Some(existing) = workspaces.iter().find(|w| w.branch == branch) {
+            output::print_switch(existing, mode);
+            return Ok(());
+        }
+
+        // Ensure a local branch exists tracking the remote branch.
+        // adopt() verifies refs/heads/<branch>, so we create it if absent.
+        let local_exists = git::run_output(
+            &repo_root,
+            &["rev-parse", "--verify", &format!("refs/heads/{}", branch)],
+        )
+        .is_ok();
+
+        if !local_exists {
+            git::run(
+                &repo_root,
+                &["branch", "--track", &branch, &format!("origin/{}", branch)],
+            )
+            .with_context(|| {
+                format!(
+                    "failed to create local branch '{}' from origin/{}",
+                    branch, branch
+                )
+            })?;
+        }
+
+        let workspace = manager.adopt(&ticket_id, Some(&branch), Some(pr_info.title.clone()))?;
+        output::print_switch(&workspace, mode);
+        return Ok(());
+    }
+
     let workspace = manager.get(&ticket)?;
     output::print_switch(&workspace, mode);
     Ok(())
