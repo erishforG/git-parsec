@@ -84,6 +84,7 @@ Removed 1 worktree(s):
 - **GitHub and GitLab** -- PR and MR creation for both platforms
 - **Stacked PRs** -- Create dependent PR chains with `--on` and sync the entire stack
 - **Sprint board view** -- See the active sprint as a Kanban board with `parsec board`
+- **Environment diagnostics** -- `parsec doctor` validates your setup and shows what needs fixing
 
 ## Why AI-Native?
 
@@ -245,7 +246,7 @@ Adopted branch 'fix/payment-timeout' as PROJ-99 at /home/user/myapp.PROJ-99
 List all active parsec-managed worktrees.
 
 ```
-parsec list
+parsec list [--full] [--no-pr]
 ```
 
 ```bash
@@ -257,9 +258,23 @@ $ parsec list
 │ TEST-2 │ feature/TEST-2 │ active │ 2026-04-15 09:05 │ /home/user/myapp.TEST-2    │
 ╰────────┴────────────────┴────────┴──────────────────┴────────────────────────────╯
 
+# Show extended metadata per worktree
+$ parsec list --full
+╭────────┬────────────────┬────────┬──────────────┬──────────┬─────────────────────┬───────────┬────────────────────────────╮
+│ Ticket │ Branch         │ Status │ Ahead/Behind │ Unpushed │ Last Commit         │ Age       │ Path                       │
+├────────┼────────────────┼────────┼──────────────┼──────────┼─────────────────────┼───────────┼────────────────────────────┤
+│ TEST-1 │ feature/TEST-1 │ active │ +3 / -0      │ 1        │ Add rate limiting   │ 2h ago    │ /home/user/myapp.TEST-1    │
+│ TEST-2 │ feature/TEST-2 │ active │ +1 / -2      │ 0        │ Fix auth redirect   │ 30m ago   │ /home/user/myapp.TEST-2    │
+╰────────┴────────────────┴────────┴──────────────┴──────────┴─────────────────────┴───────────┴────────────────────────────╯
+
 $ parsec list --json
 [{"ticket":"TEST-1","path":"/home/user/myapp.TEST-1","branch":"feature/TEST-1","base_branch":"main","created_at":"2026-04-15T09:00:00Z","ticket_title":"Add auth","status":"active"}]
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--full` | Show extended metadata (commits, divergence, last commit) |
+| `--no-pr` | Skip PR status lookup (faster, works offline) |
 
 ---
 
@@ -770,6 +785,35 @@ Defaults can be set via environment variables or config file (see below).
 
 ---
 
+### `parsec init`
+
+Output or install shell integration for auto-cd on `parsec switch` and CWD recovery after `parsec merge`.
+
+```
+parsec init [shell] [--install] [--yes]
+```
+
+| Option | Description |
+|--------|-------------|
+| `shell` | Shell type: `zsh` (default) or `bash` |
+| `--install` | Auto-append integration to shell config file |
+| `-y, --yes` | Skip confirmation prompt (for scripting) |
+
+```bash
+# Print the shell function (pipe to eval)
+$ parsec init zsh
+
+# Auto-install into ~/.zshrc
+$ parsec init --install
+Add shell integration to /home/user/.zshrc? [Y/n] y
+Shell integration added. Run `source ~/.zshrc` or restart your shell.
+
+# Non-interactive install
+$ parsec init --install --yes
+```
+
+---
+
 ### `parsec config`
 
 ```bash
@@ -805,6 +849,30 @@ $ sudo parsec config man
 
 ---
 
+### `parsec doctor`
+
+Validate your environment and configuration. Prints ✓/✗ for each check with actionable fix instructions.
+
+```bash
+$ parsec doctor
+parsec doctor
+  ✓ git version 2.43.0 (worktree support ok)
+  ✓ config file found at ~/.config/parsec/config.toml
+  ✓ GitHub token configured (github.com) via gh auth token
+  ✗ shell integration not found in shell config
+    Add to ~/.zshrc:  eval "$(parsec init zsh)"
+  ✗ tab completions not configured
+    Add to ~/.zshrc:  eval "$(parsec config completions zsh)"
+  ✓ remote origin accessible
+
+2 check(s) failed.
+
+$ parsec doctor --json
+{"checks":[...],"all_ok":false}
+```
+
+---
+
 ## Global Flags
 
 These flags work on every command:
@@ -828,11 +896,19 @@ $ parsec status --repo /path/to/other-repo
 `parsec switch` prints a path but cannot `cd` for you. The shell integration wraps `parsec switch` so it changes your directory automatically:
 
 ```bash
-# Add to ~/.zshrc
-eval "$(parsec config shell zsh)"
+# Preferred: auto-install (appends to your shell config with confirmation)
+$ parsec init --install
+Add shell integration to /home/user/.zshrc? [Y/n] y
+Shell integration added to /home/user/.zshrc. Run `source ~/.zshrc` or restart your shell.
 
-# Or for bash, add to ~/.bashrc
-eval "$(parsec config shell bash)"
+# Or with --yes for scripted setup
+$ parsec init --install --yes
+
+# Manual: add to ~/.zshrc yourself
+eval "$(parsec init zsh)"
+
+# Or for bash
+eval "$(parsec init bash)"
 ```
 
 After sourcing, `parsec switch <ticket>` will `cd` into the worktree directly:
