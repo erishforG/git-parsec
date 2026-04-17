@@ -57,6 +57,10 @@ pub enum Command {
         /// Use an existing branch instead of creating a new one
         #[arg(long = "branch")]
         existing_branch: Option<String>,
+
+        /// Run a command after worktree creation (one-off hook)
+        #[arg(long)]
+        hook: Option<String>,
     },
 
     /// List all active worktrees
@@ -434,6 +438,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             title,
             on,
             existing_branch,
+            hook,
         } => {
             commands::start(
                 &repo_path,
@@ -442,6 +447,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 title,
                 on.as_deref(),
                 existing_branch.as_deref(),
+                hook,
                 output_mode,
             )
             .await

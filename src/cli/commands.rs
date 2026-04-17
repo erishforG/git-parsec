@@ -14,6 +14,7 @@ use crate::tracker;
 use crate::tracker::jira::JiraTracker;
 use crate::worktree::WorktreeManager;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn start(
     repo: &Path,
     ticket: &str,
@@ -21,6 +22,7 @@ pub async fn start(
     title: Option<String>,
     on: Option<&str>,
     existing_branch: Option<&str>,
+    hook: Option<String>,
     mode: Mode,
 ) -> Result<()> {
     let mut config = ParsecConfig::load()?;
@@ -66,6 +68,20 @@ pub async fn start(
         }),
     ) {
         eprintln!("warning: failed to write oplog: {e}");
+    }
+
+    // Run one-off hook if provided (runs after config-based hooks in manager.create)
+    if let Some(hook_cmd) = hook {
+        eprintln!("Running post-create hook: {}", hook_cmd);
+        let status = std::process::Command::new("sh")
+            .args(["-c", &hook_cmd])
+            .current_dir(&workspace.path)
+            .status();
+        match status {
+            Ok(s) if s.success() => {}
+            Ok(s) => eprintln!("warning: hook '{}' exited with {}", hook_cmd, s),
+            Err(e) => eprintln!("warning: failed to run hook '{}': {}", hook_cmd, e),
+        }
     }
 
     Ok(())
@@ -1480,6 +1496,7 @@ pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
             &chosen.key,
             None,
             Some(chosen.summary.clone()),
+            None,
             None,
             None,
             mode,
