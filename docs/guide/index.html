@@ -985,6 +985,7 @@
           <li><a href="#tracker-config">Tracker Configuration</a></li>
           <li><a href="#ai-agents">AI Agent Workflows</a></li>
           <li><a href="#stacked-prs">Stacked PRs</a></li>
+          <li><a href="#new-features">New Features</a></li>
         </ul>
       </div>
 
@@ -1541,6 +1542,95 @@
             <div class="callout-body">
               <div class="callout-title">Merge order matters</div>
               <p>Always merge stacked PRs from the bottom of the stack upward — merge the base first, then <code>parsec stack --sync</code>, then merge the next PR. Skipping <code>--sync</code> results in child PRs targeting already-merged branches.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="guide-section reveal" id="new-features">
+          <div class="section-heading">
+            <h2>New Features</h2>
+            <a href="#new-features" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            Recent additions to parsec that extend the workflow beyond worktree management into issue creation, release automation, and customizable hooks.
+          </p>
+
+          <h3>Issue creation with <code>parsec create</code></h3>
+          <p>
+            Create issues directly from the terminal without leaving your workflow. Works with GitHub Issues and Jira. Use <code>--start</code> to immediately begin work on the new issue.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec create</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Create a GitHub issue</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec create</span> <span class="flag">--title</span> <span class="arg">"Fix login redirect"</span> <span class="flag">--label</span> <span class="arg">"bug"</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created #145: Fix login redirect</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Create and start working immediately</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec create</span> <span class="flag">--title</span> <span class="arg">"Add caching layer"</span> <span class="flag">--start</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created #146: Add caching layer</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created workspace at </span><span class="link">~/myrepo.146</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># For Jira with issue type</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec new-issue</span> <span class="flag">--title</span> <span class="arg">"API caching"</span> <span class="flag">--issue-type</span> <span class="arg">Story</span> <span class="flag">--project</span> <span class="arg">CL</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created CL-42: API caching</span></span>
+            </div>
+          </div>
+
+          <h3>Release workflow with <code>parsec release</code></h3>
+          <p>
+            Automate the entire release process: merge develop to main, create a version tag, and publish a GitHub Release with auto-generated changelog — all in one command.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec release</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.3.0</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Merged develop → main</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Tagged </span><span class="link">v0.3.0</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">GitHub Release: </span><span class="link">github.com/org/repo/releases/tag/v0.3.0</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Always preview first with --dry-run</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.4.0</span> <span class="flag">--dry-run</span></span>
+<span class="terminal-line"><span class="info">Would merge develop → main</span></span>
+<span class="terminal-line"><span class="info">Would tag v0.4.0</span></span>
+            </div>
+          </div>
+
+          <h3>Pre-ship hooks</h3>
+          <p>
+            Define commands that run automatically before <code>parsec ship</code> pushes your branch. Great for ensuring tests pass and linting is clean before creating a PR.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">config.toml</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># ~/.config/parsec/config.toml</span></span>
+<span class="terminal-line"><span class="info">[hooks]</span></span>
+<span class="terminal-line"><span class="info">post_create = ["npm install"]</span></span>
+<span class="terminal-line"><span class="info">pre_ship = ["cargo test", "cargo clippy"]</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Skip hooks when needed</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">PROJ-123</span> <span class="flag">--skip-hooks</span></span>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <div class="callout-icon">&#9432;</div>
+            <div class="callout-body">
+              <div class="callout-title">Release configuration</div>
+              <p>Customize the release workflow in your config file with <code>[release]</code> section: set the target branch, tag prefix, and whether to include a changelog.</p>
             </div>
           </div>
         </section>
