@@ -85,6 +85,9 @@ Removed 1 worktree(s):
 - **Stacked PRs** -- Create dependent PR chains with `--on` and sync the entire stack
 - **Sprint board view** -- See the active sprint as a Kanban board with `parsec board`
 - **Environment diagnostics** -- `parsec doctor` validates your setup and shows what needs fixing
+- **Pre-ship hooks** -- Run custom commands before shipping with configurable `[hooks]` pre_ship
+- **Issue creation** -- Create GitHub/Jira issues and start worktrees in one step with `parsec create`
+- **Release workflow** -- Merge, tag, and create GitHub Releases with `parsec release`
 
 ## Why AI-Native?
 
@@ -179,7 +182,7 @@ $ parsec log
 Create an isolated worktree for a ticket. Fetches the ticket title from your configured tracker (Jira, GitHub Issues) or accepts a manual title.
 
 ```
-parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>] [--branch <name>]
+parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>] [--branch <name>] [--hook "cmd"]
 ```
 
 | Option | Description |
@@ -188,6 +191,7 @@ parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>] 
 | `--title "text"` | Set ticket title manually, skip tracker lookup |
 | `--on <ticket>` | Stack on another ticket's branch (for dependent PRs) |
 | `--branch <name>` | Use an existing branch instead of creating a new one |
+| `--hook "cmd"` | Run a command after worktree creation (one-off hook) |
 
 ```bash
 # With Jira integration (title auto-fetched)
@@ -212,6 +216,9 @@ $ parsec start CL-2208 --branch feature/CL-2208
 
 # Attach to a remote-only branch (auto-fetches and tracks)
 $ parsec start CL-2208 --branch origin/feature/CL-2208
+
+# Run a setup command after creation
+$ parsec start PROJ-42 --hook "npm install"
 ```
 
 ---
@@ -332,7 +339,7 @@ $ parsec ticket CL-2283 --json
 Push the branch, create a PR (GitHub) or MR (GitLab), and clean up the worktree. The forge is auto-detected from the remote URL.
 
 ```
-parsec ship <ticket> [--draft] [--no-pr] [--base <branch>]
+parsec ship <ticket> [--draft] [--no-pr] [--base <branch>] [--skip-hooks]
 ```
 
 | Option | Description |
@@ -340,6 +347,7 @@ parsec ship <ticket> [--draft] [--no-pr] [--base <branch>]
 | `--draft` | Create the PR/MR as a draft |
 | `--no-pr` | Push only, skip PR/MR creation |
 | `--base <branch>` | Target base branch for PR (overrides config `default_base` and worktree base) |
+| `--skip-hooks` | Skip pre-ship hooks defined in config |
 
 ```bash
 # Push + PR + cleanup
@@ -873,6 +881,94 @@ $ parsec doctor --json
 
 ---
 
+### `parsec create`
+
+Create a new issue on the configured tracker (GitHub Issues or Jira) and optionally start a worktree for it immediately.
+
+```
+parsec create --title "text" [--body "text"] [--label "a,b"] [--project KEY] [--start]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--title "text"` | Issue title (required) |
+| `--body "text"` | Issue body/description |
+| `--label "a,b"` | Comma-separated labels |
+| `-p, --project KEY` | Jira project key (auto-detected from config) |
+| `--start` | Start a worktree after creation |
+
+```bash
+# Create a GitHub issue
+$ parsec create --title "Fix login redirect" --label "bug"
+Created #145: Fix login redirect
+  https://github.com/org/repo/issues/145
+
+# Create and immediately start working
+$ parsec create --title "Add caching layer" --start
+Created #146: Add caching layer
+Created workspace for #146 at /home/user/myapp.146
+```
+
+---
+
+### `parsec new-issue`
+
+Create a new issue on the tracker (alias for `create` with additional options). Supports GitHub Issues and Jira with configurable issue type.
+
+```
+parsec new-issue --title "text" [--body "text"] [--label "a"] [--project KEY] [--issue-type TYPE] [--start]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--title "text"` | Issue title (required) |
+| `--body "text"` | Issue body/description |
+| `--label "a"` | Labels (can be specified multiple times) |
+| `-p, --project KEY` | Jira project key (auto-detected from config) |
+| `--issue-type TYPE` | Jira issue type (default: Task) |
+| `--start` | Auto-start a worktree for the new issue |
+
+```bash
+# Create with issue type for Jira
+$ parsec new-issue --title "Implement API caching" --issue-type Story --project CL
+
+# Multiple labels
+$ parsec new-issue --title "Fix auth bug" --label bug --label priority
+```
+
+---
+
+### `parsec release <version>`
+
+Create a release: merge develop to main, create a git tag, and optionally create a GitHub Release with auto-generated changelog.
+
+```
+parsec release <version> [--from <branch>] [--no-github-release] [--dry-run]
+```
+
+| Option | Description |
+|--------|-------------|
+| `<version>` | Version string (e.g., "0.3.0") |
+| `--from <branch>` | Source branch to release from (default: develop) |
+| `--no-github-release` | Skip creating GitHub Release |
+| `--dry-run` | Show what would happen without making changes |
+
+```bash
+# Full release
+$ parsec release 0.3.0
+✓ Merged develop → main
+✓ Tagged v0.3.0
+✓ GitHub Release created: https://github.com/org/repo/releases/tag/v0.3.0
+
+# Dry run first
+$ parsec release 0.4.0 --dry-run
+
+# Skip GitHub Release
+$ parsec release 0.3.1 --no-github-release
+```
+
+---
+
 ## Global Flags
 
 These flags work on every command:
@@ -990,6 +1086,13 @@ draft = false         # Create PRs as drafts
 [hooks]
 # Commands to run in new worktrees after creation
 post_create = ["npm install"]
+# Commands to run before shipping (pre-push hooks)
+pre_ship = ["cargo test", "cargo clippy"]
+
+[release]
+# branch = "main"       # Target release branch (default: main)
+# tag_prefix = "v"       # Tag prefix (default: "v")
+# changelog = true       # Generate changelog in release notes
 
 [tracker.auto_transition]
 # on_start = "In Progress"   # Transition when `parsec start` runs
@@ -1034,6 +1137,7 @@ Token priority: `PARSEC_*_TOKEN` > platform-specific variables.
 | Stacked PRs | Yes | Yes | No | No | Yes |
 | Auto-cleanup merged | Yes | No | No | Manual | No |
 | Post-create hooks | Yes | No | Yes | No | No |
+| Issue creation from CLI | Yes | No | No | No | No |
 | AI token efficiency | Single-command ops | N/A | N/A | N/A | N/A |
 | GUI | CLI only | Desktop + TUI | CLI | CLI | CLI |
 | Zero config start | Yes | No | Yes | No | No |
