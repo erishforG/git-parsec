@@ -427,6 +427,67 @@ impl JiraTracker {
         Ok(issues)
     }
 
+    /// Create a new Jira issue.
+    /// Endpoint: POST /rest/api/2/issue
+    /// Returns the issue key (e.g. "PROJ-42") and browse URL on success.
+    pub async fn create_issue(
+        &self,
+        project_key: &str,
+        summary: &str,
+        description: Option<&str>,
+    ) -> Result<(String, String)> {
+        let token = Self::resolve_token()?;
+        let url = format!("{}/rest/api/2/issue", self.base_url);
+
+        let mut fields = serde_json::json!({
+            "project": { "key": project_key },
+            "summary": summary,
+            "issuetype": { "name": "Task" }
+        });
+        if let Some(desc) = description {
+            fields["description"] = serde_json::json!(desc);
+        }
+
+        let payload = serde_json::json!({ "fields": fields });
+
+        let mut request = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&payload);
+
+        if let Some(ref email) = self.email {
+            request = request.basic_auth(email, Some(&token));
+        } else {
+            request = request.bearer_auth(&token);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("Failed to send issue creation request to Jira")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Jira API returned {} when creating issue: {}", status, body);
+        }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse Jira create issue response")?;
+
+        let key = body["key"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Jira response missing 'key' field"))?
+            .to_string();
+
+        let browse_url = format!("{}/browse/{}", self.base_url, key);
+
+        Ok((key, browse_url))
+    }
+
     /// Search for issues assigned to the current user via JQL.
     /// Endpoint: GET /rest/api/2/search?jql=...&fields=summary,status,priority,assignee
     pub async fn search_assigned_issues(&self, jql: &str) -> Result<Vec<InboxTicket>> {

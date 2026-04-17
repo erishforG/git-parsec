@@ -610,6 +610,74 @@ pub async fn create_release(
     Ok(html_url)
 }
 
+/// Create a GitHub issue.
+/// Returns `(number, html_url)` on success, or `None` if no token is available.
+pub async fn create_issue(
+    remote_url: &str,
+    title: &str,
+    body: Option<&str>,
+    labels: Vec<String>,
+    config: &ParsecConfig,
+) -> Result<Option<(u64, String)>> {
+    let remote = parse_github_remote(remote_url).ok_or_else(|| {
+        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
+    })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+
+    let api_url = format!(
+        "{}/repos/{}/{}/issues",
+        remote.api_base(),
+        remote.owner,
+        remote.repo
+    );
+
+    let mut payload = serde_json::json!({ "title": title });
+    if let Some(b) = body {
+        payload["body"] = serde_json::json!(b);
+    }
+    if !labels.is_empty() {
+        payload["labels"] = serde_json::json!(labels);
+    }
+
+    let client = Client::new();
+    let response = client
+        .post(&api_url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "git-parsec")
+        .bearer_auth(&token)
+        .json(&payload)
+        .send()
+        .await
+        .context("Failed to send issue creation request to GitHub")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        bail!("GitHub API returned {}: {}", status, body);
+    }
+
+    let resp: serde_json::Value = response
+        .json()
+        .await
+        .context("Failed to parse GitHub API response")?;
+
+    let html_url = resp["html_url"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?
+        .to_owned();
+
+    let number = resp["number"]
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("GitHub response missing number"))?;
+
+    Ok(Some((number, html_url)))
+}
+
 /// Create a GitHub pull request.
 /// Returns None if no GitHub token is available.
 pub async fn create_pr(
