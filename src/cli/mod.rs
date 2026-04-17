@@ -130,7 +130,12 @@ pub enum Command {
     ///
     /// By default, only removes worktrees whose branches have been merged
     /// into the base branch. Use --all to remove everything.
+    /// Provide a ticket identifier to remove a specific workspace regardless
+    /// of merge status.
     Clean {
+        /// Specific ticket to clean (removes regardless of merge status)
+        ticket: Option<String>,
+
         /// Remove all worktrees (including unmerged)
         #[arg(long)]
         all: bool,
@@ -559,10 +564,21 @@ pub async fn run(cli: Cli) -> Result<()> {
             .await
         }
         Command::Clean {
+            ticket,
             all,
             dry_run,
             orphans,
-        } => commands::clean(&repo_path, all, dry_run, orphans, output_mode).await,
+        } => {
+            commands::clean(
+                &repo_path,
+                ticket.as_deref(),
+                all,
+                dry_run,
+                orphans,
+                output_mode,
+            )
+            .await
+        }
         Command::Sync {
             ticket,
             all,
