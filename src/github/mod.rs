@@ -550,6 +550,66 @@ pub async fn get_pr_info(
     Ok(Some(PrInfo { title, head_branch }))
 }
 
+/// Create a GitHub Release.
+/// Returns the html_url of the created release, or None if no token is available.
+pub async fn create_release(
+    remote_url: &str,
+    tag: &str,
+    name: &str,
+    body: &str,
+    config: &ParsecConfig,
+) -> Result<Option<String>> {
+    let remote = parse_github_remote(remote_url).ok_or_else(|| {
+        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
+    })?;
+
+    let token = match resolve_github_token(&remote.host, config) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+
+    let api_url = format!(
+        "{}/repos/{}/{}/releases",
+        remote.api_base(),
+        remote.owner,
+        remote.repo
+    );
+
+    let payload = serde_json::json!({
+        "tag_name": tag,
+        "name": name,
+        "body": body,
+        "draft": false,
+        "prerelease": false,
+    });
+
+    let client = Client::new();
+    let response = client
+        .post(&api_url)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "git-parsec")
+        .bearer_auth(&token)
+        .json(&payload)
+        .send()
+        .await
+        .context("Failed to send release creation request to GitHub")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        bail!("GitHub API returned {}: {}", status, body_text);
+    }
+
+    let resp: serde_json::Value = response
+        .json()
+        .await
+        .context("Failed to parse GitHub API response")?;
+
+    let html_url = resp["html_url"].as_str().map(|s| s.to_owned());
+    Ok(html_url)
+}
+
 /// Create a GitHub pull request.
 /// Returns None if no GitHub token is available.
 pub async fn create_pr(
