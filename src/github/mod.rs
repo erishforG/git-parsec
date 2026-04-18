@@ -1,8 +1,54 @@
+use std::time::Duration;
+
 use anyhow::{bail, Context, Result};
-use reqwest::Client;
+use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
 
 use crate::config::ParsecConfig;
+
+/// Create a configured HTTP client with timeout.
+fn http_client() -> Result<Client> {
+    Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent("git-parsec")
+        .build()
+        .context("failed to build HTTP client")
+}
+
+/// Execute an HTTP request with retry for transient failures (429, 5xx).
+async fn send_with_retry(request_builder: reqwest::RequestBuilder) -> Result<Response> {
+    let mut attempts = 0;
+    let max_retries = 3;
+    loop {
+        // We need to clone the builder since send() consumes it
+        let builder = request_builder
+            .try_clone()
+            .ok_or_else(|| anyhow::anyhow!("request cannot be retried (streaming body)"))?;
+        let response = builder.send().await?;
+        let status = response.status().as_u16();
+        attempts += 1;
+        if status == 429 || (500..600).contains(&status) {
+            if attempts >= max_retries {
+                return Ok(response); // let caller handle the error status
+            }
+            let wait = if status == 429 {
+                // Check Retry-After header
+                response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(2)
+            } else {
+                2u64.pow(attempts as u32 - 1) // exponential backoff: 1, 2, 4
+            };
+            tokio::time::sleep(Duration::from_secs(wait)).await;
+            continue;
+        }
+        return Ok(response);
+    }
+}
 
 /// Result of PR creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,23 +176,23 @@ pub async fn get_pr_status(
     };
 
     let api_base = remote.api_base();
-    let client = Client::new();
+    let client = http_client()?;
 
     // Fetch PR details
     let pr_url = format!(
         "{}/repos/{}/{}/pulls/{}",
         api_base, remote.owner, remote.repo, pr_number
     );
-    let pr_resp: serde_json::Value = client
-        .get(&pr_url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
-        .bearer_auth(&token)
-        .send()
-        .await?
-        .json()
-        .await?;
+    let pr_resp: serde_json::Value = send_with_retry(
+        client
+            .get(&pr_url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&token),
+    )
+    .await?
+    .json()
+    .await?;
 
     let title = pr_resp["title"].as_str().unwrap_or("").to_string();
     let state = pr_resp["state"].as_str().unwrap_or("unknown").to_string();
@@ -160,16 +206,16 @@ pub async fn get_pr_status(
             "{}/repos/{}/{}/commits/{}/status",
             api_base, remote.owner, remote.repo, head_sha
         );
-        let status_resp: serde_json::Value = client
-            .get(&status_url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", "git-parsec")
-            .bearer_auth(&token)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let status_resp: serde_json::Value = send_with_retry(
+            client
+                .get(&status_url)
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .bearer_auth(&token),
+        )
+        .await?
+        .json()
+        .await?;
         status_resp["state"]
             .as_str()
             .unwrap_or("unknown")
@@ -183,16 +229,16 @@ pub async fn get_pr_status(
         "{}/repos/{}/{}/pulls/{}/reviews",
         api_base, remote.owner, remote.repo, pr_number
     );
-    let reviews_resp: Vec<serde_json::Value> = client
-        .get(&reviews_url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
-        .bearer_auth(&token)
-        .send()
-        .await?
-        .json()
-        .await?;
+    let reviews_resp: Vec<serde_json::Value> = send_with_retry(
+        client
+            .get(&reviews_url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&token),
+    )
+    .await?
+    .json()
+    .await?;
 
     let review_status = if reviews_resp.iter().any(|r| {
         r["state"]
@@ -259,23 +305,23 @@ pub async fn get_check_runs(
     };
 
     let api_base = remote.api_base();
-    let client = Client::new();
+    let client = http_client()?;
 
     // Fetch PR to get head SHA
     let pr_url = format!(
         "{}/repos/{}/{}/pulls/{}",
         api_base, remote.owner, remote.repo, pr_number
     );
-    let pr_resp: serde_json::Value = client
-        .get(&pr_url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
-        .bearer_auth(&token)
-        .send()
-        .await?
-        .json()
-        .await?;
+    let pr_resp: serde_json::Value = send_with_retry(
+        client
+            .get(&pr_url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&token),
+    )
+    .await?
+    .json()
+    .await?;
 
     let head_sha = pr_resp["head"]["sha"].as_str().unwrap_or("").to_string();
 
@@ -288,16 +334,16 @@ pub async fn get_check_runs(
         "{}/repos/{}/{}/commits/{}/check-runs",
         api_base, remote.owner, remote.repo, head_sha
     );
-    let checks_resp: serde_json::Value = client
-        .get(&checks_url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
-        .bearer_auth(&token)
-        .send()
-        .await?
-        .json()
-        .await?;
+    let checks_resp: serde_json::Value = send_with_retry(
+        client
+            .get(&checks_url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&token),
+    )
+    .await?
+    .json()
+    .await?;
 
     let checks: Vec<CheckRun> = checks_resp["check_runs"]
         .as_array()
@@ -354,22 +400,22 @@ pub async fn find_pr_by_branch(
     };
 
     let api_base = remote.api_base();
-    let client = Client::new();
+    let client = http_client()?;
 
     let url = format!(
         "{}/repos/{}/{}/pulls?head={}:{}&state=open",
         api_base, remote.owner, remote.repo, remote.owner, branch
     );
-    let resp: Vec<serde_json::Value> = client
-        .get(&url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
-        .bearer_auth(&token)
-        .send()
-        .await?
-        .json()
-        .await?;
+    let resp: Vec<serde_json::Value> = send_with_retry(
+        client
+            .get(&url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&token),
+    )
+    .await?
+    .json()
+    .await?;
 
     Ok(resp.first().and_then(|pr| pr["number"].as_u64()))
 }
@@ -402,7 +448,7 @@ pub async fn merge_pr(
     };
 
     let api_base = remote.api_base();
-    let client = Client::new();
+    let client = http_client()?;
 
     // Merge the PR
     let url = format!(
@@ -417,7 +463,6 @@ pub async fn merge_pr(
         .put(&url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
         .bearer_auth(&token)
         .json(&payload)
         .send()
@@ -443,16 +488,16 @@ pub async fn merge_pr(
             "{}/repos/{}/{}/pulls/{}",
             api_base, remote.owner, remote.repo, pr_number
         );
-        let pr_resp: serde_json::Value = client
-            .get(&branch_url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", "git-parsec")
-            .bearer_auth(&token)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let pr_resp: serde_json::Value = send_with_retry(
+            client
+                .get(&branch_url)
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .bearer_auth(&token),
+        )
+        .await?
+        .json()
+        .await?;
 
         if let Some(branch_name) = pr_resp["head"]["ref"].as_str() {
             let del_url = format!(
@@ -463,7 +508,6 @@ pub async fn merge_pr(
                 .delete(&del_url)
                 .header("Accept", "application/vnd.github+json")
                 .header("X-GitHub-Api-Version", "2022-11-28")
-                .header("User-Agent", "git-parsec")
                 .bearer_auth(&token)
                 .send()
                 .await
@@ -512,7 +556,7 @@ pub async fn update_pr_branch(
     };
 
     let api_base = remote.api_base();
-    let client = Client::new();
+    let client = http_client()?;
 
     let url = format!(
         "{}/repos/{}/{}/pulls/{}/update-branch",
@@ -523,7 +567,6 @@ pub async fn update_pr_branch(
         .put(&url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
         .bearer_auth(&token)
         .send()
         .await
@@ -565,22 +608,22 @@ pub async fn get_pr_info(
     };
 
     let api_base = remote.api_base();
-    let client = Client::new();
+    let client = http_client()?;
 
     let pr_url = format!(
         "{}/repos/{}/{}/pulls/{}",
         api_base, remote.owner, remote.repo, pr_number
     );
-    let pr_resp: serde_json::Value = client
-        .get(&pr_url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
-        .bearer_auth(&token)
-        .send()
-        .await?
-        .json()
-        .await?;
+    let pr_resp: serde_json::Value = send_with_retry(
+        client
+            .get(&pr_url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&token),
+    )
+    .await?
+    .json()
+    .await?;
 
     // GitHub returns a JSON object with a "message" field (not an array) when not found
     if pr_resp.get("message").is_some() && pr_resp.get("number").is_none() {
@@ -633,12 +676,11 @@ pub async fn create_release(
         "prerelease": false,
     });
 
-    let client = Client::new();
+    let client = http_client()?;
     let response = client
         .post(&api_url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
         .bearer_auth(&token)
         .json(&payload)
         .send()
@@ -700,12 +742,11 @@ pub async fn create_issue(
         payload["labels"] = serde_json::json!(labels);
     }
 
-    let client = Client::new();
+    let client = http_client()?;
     let response = client
         .post(&api_url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
         .bearer_auth(&token)
         .json(&payload)
         .send()
@@ -767,12 +808,11 @@ pub async fn close_issue(
         "state_reason": "completed",
     });
 
-    let client = Client::new();
+    let client = http_client()?;
     let response = client
         .patch(&api_url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
         .bearer_auth(&token)
         .json(&payload)
         .send()
@@ -827,12 +867,11 @@ pub async fn create_pr(
         "draft": draft,
     });
 
-    let client = Client::new();
+    let client = http_client()?;
     let response = client
         .post(&api_url)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", "git-parsec")
         .bearer_auth(&token)
         .json(&payload)
         .send()
