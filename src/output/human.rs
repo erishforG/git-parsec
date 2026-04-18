@@ -969,3 +969,14 @@ pub fn print_create(ticket_id: &str, title: &str, url: &str) {
     );
     println!("  {}", url.dimmed());
 }
+
+pub fn print_rename(old_ticket: &str, new_ticket: &str, workspace: &Workspace) {
+    println!(
+        "{}",
+        format!("Renamed {} -> {}", old_ticket, new_ticket.bold())
+            .green()
+            .bold()
+    );
+    println!("  {} {}", "Branch:".bold(), workspace.branch);
+    println!("  {} {}", "Path:".bold(), workspace.path.display());
+}

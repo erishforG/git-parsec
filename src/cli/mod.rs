@@ -435,6 +435,16 @@ pub enum Command {
         start: bool,
     },
 
+    /// Rename a workspace to a different ticket ID
+    ///
+    /// Changes the ticket ID, renames the branch, and moves the worktree directory.
+    Rename {
+        /// Current ticket identifier
+        old_ticket: String,
+        /// New ticket identifier
+        new_ticket: String,
+    },
+
     /// Create a new issue on the tracker (alias)
     ///
     /// Creates a new ticket on GitHub Issues, Jira, or GitLab from the
@@ -691,6 +701,10 @@ pub async fn run(cli: Cli) -> Result<()> {
             project,
             start,
         } => commands::create(&repo_path, &title, body, label, project, start, output_mode).await,
+        Command::Rename {
+            old_ticket,
+            new_ticket,
+        } => commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await,
         Command::NewIssue {
             title,
             body,

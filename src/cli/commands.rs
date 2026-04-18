@@ -3036,3 +3036,97 @@ pub async fn new_issue(
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// rename
+// ---------------------------------------------------------------------------
+
+pub async fn rename(repo: &Path, old_ticket: &str, new_ticket: &str, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let manager = WorktreeManager::new(repo, &config)?;
+
+    // Verify old workspace exists
+    let old_ws = manager.get(old_ticket)?;
+
+    // Verify new ticket doesn't already exist
+    if manager.get(new_ticket).is_ok() {
+        anyhow::bail!(
+            "ticket '{}' already exists. Choose a different ticket ID.",
+            new_ticket
+        );
+    }
+
+    // Compute new branch name
+    let new_branch = format!("{}{}", config.workspace.branch_prefix, new_ticket);
+
+    // Rename git branch
+    git::run(&old_ws.path, &["branch", "-m", &old_ws.branch, &new_branch]).with_context(|| {
+        format!(
+            "failed to rename branch '{}' to '{}'",
+            old_ws.branch, new_branch
+        )
+    })?;
+
+    // Compute new worktree path
+    let new_path = match config.workspace.layout {
+        crate::config::WorktreeLayout::Sibling => {
+            let repo_name = repo_root
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "repo".to_string());
+            repo_root
+                .parent()
+                .unwrap_or(&repo_root)
+                .join(format!("{}.{}", repo_name, new_ticket))
+        }
+        crate::config::WorktreeLayout::Internal => {
+            repo_root.join(&config.workspace.base_dir).join(new_ticket)
+        }
+    };
+
+    // Move worktree directory
+    if old_ws.path != new_path {
+        std::fs::rename(&old_ws.path, &new_path).with_context(|| {
+            format!(
+                "failed to move worktree from {:?} to {:?}",
+                old_ws.path, new_path
+            )
+        })?;
+
+        // Repair git worktree references after move
+        let _ = git::run(&repo_root, &["worktree", "repair"]);
+    }
+
+    // Update state
+    let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+    state.remove_workspace(old_ticket);
+
+    let new_ws = crate::worktree::Workspace {
+        ticket: new_ticket.to_owned(),
+        path: new_path,
+        branch: new_branch,
+        base_branch: old_ws.base_branch,
+        created_at: old_ws.created_at,
+        ticket_title: old_ws.ticket_title,
+        status: old_ws.status,
+        parent_ticket: old_ws.parent_ticket,
+    };
+    state.add_workspace(new_ws.clone());
+    state.save(&repo_root)?;
+
+    // Record in oplog
+    if let Err(e) = crate::oplog::record(
+        &repo_root,
+        crate::oplog::OpKind::Start,
+        Some(new_ticket),
+        &format!("Renamed {} -> {}", old_ticket, new_ticket),
+        None,
+    ) {
+        eprintln!("warning: failed to write oplog: {e}");
+    }
+
+    output::print_rename(old_ticket, new_ticket, &new_ws, mode);
+
+    Ok(())
+}

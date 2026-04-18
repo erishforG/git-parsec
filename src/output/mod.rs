@@ -280,3 +280,11 @@ pub fn print_create(ticket_id: &str, title: &str, url: &str, mode: Mode) {
         Mode::Human => human::print_create(ticket_id, title, url),
     }
 }
+
+pub fn print_rename(old_ticket: &str, new_ticket: &str, workspace: &Workspace, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_rename(old_ticket, new_ticket, workspace),
+        Mode::Human => human::print_rename(old_ticket, new_ticket, workspace),
+    }
+}
