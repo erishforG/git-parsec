@@ -1282,7 +1282,13 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
             // Determine exit code based on overall status
             let has_failure = statuses.iter().any(|(_t, ci)| ci.overall == "failing");
             if has_failure {
-                std::process::exit(1);
+                anyhow::bail!(
+                    "CI checks failing for {} ticket(s)",
+                    statuses
+                        .iter()
+                        .filter(|(_t, ci)| ci.overall == "failing")
+                        .count()
+                );
             }
             return Ok(());
         }
@@ -1295,7 +1301,13 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
         if all_completed {
             let has_failure = statuses.iter().any(|(_t, ci)| ci.overall == "failing");
             if has_failure {
-                std::process::exit(1);
+                anyhow::bail!(
+                    "CI checks failing for {} ticket(s)",
+                    statuses
+                        .iter()
+                        .filter(|(_t, ci)| ci.overall == "failing")
+                        .count()
+                );
             }
             return Ok(());
         }
