@@ -44,6 +44,19 @@ pub async fn start(
     };
 
     let manager = WorktreeManager::new(repo, &config)?;
+
+    // Idempotency: if workspace already exists, switch to it instead of failing
+    if let Ok(existing) = manager.get(ticket) {
+        if existing.path.exists() {
+            output::print_start(&existing, mode);
+            return Ok(());
+        }
+        // Path gone but state exists — remove stale state and proceed
+        let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+        state.remove_workspace(ticket);
+        state.save(&repo_root)?;
+    }
+
     let workspace = manager.create(ticket, base, ticket_title, on, existing_branch)?;
 
     output::print_start(&workspace, mode);
@@ -453,7 +466,35 @@ pub async fn ship(
     }
 
     // Phase 1: Push only (don't clean up yet)
-    let mut result = manager.ship_push(ticket)?;
+    // Idempotency: if workspace is already gone (cleaned up after a prior ship),
+    // treat push as a no-op — the branch is already on the remote.
+    let mut result = match manager.ship_push(ticket) {
+        Ok(r) => r,
+        Err(e) => {
+            // If workspace not in state, check if a PR already exists for this ticket.
+            // If so, the ticket was already shipped — succeed silently.
+            let remote_url = git::get_remote_url(manager.repo_root()).unwrap_or_default();
+            if !remote_url.is_empty() {
+                // Try to find a PR via oplog branch info
+                let oplog = crate::oplog::OpLog::load(manager.repo_root()).unwrap_or_default();
+                let branch = oplog
+                    .get_entries(Some(ticket))
+                    .into_iter()
+                    .rev()
+                    .filter(|entry| matches!(entry.op, crate::oplog::OpKind::Ship))
+                    .find_map(|entry| entry.undo_info.as_ref().and_then(|u| u.branch.clone()));
+                if let Some(ref br) = branch {
+                    if let Ok(Some(_)) = github::find_pr_by_branch(&remote_url, br, &config).await {
+                        if mode == Mode::Human {
+                            eprintln!("note: ticket {} already shipped. Nothing to do.", ticket);
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+            return Err(e);
+        }
+    };
 
     // Resolve base branch: --base CLI > config default_base > worktree's base_branch
     if let Some(base) = base_override {
@@ -637,9 +678,18 @@ pub async fn clean(
 
     // Single-ticket clean mode
     if let Some(ticket_id) = ticket {
-        let ws = manager
-            .get(ticket_id)
-            .with_context(|| format!("ticket {ticket_id} not found in active workspaces"))?;
+        let ws = match manager.get(ticket_id) {
+            Ok(ws) => ws,
+            Err(_) => {
+                if mode == Mode::Human {
+                    eprintln!(
+                        "Ticket {} already cleaned or not found. Nothing to do.",
+                        ticket_id
+                    );
+                }
+                return Ok(());
+            }
+        };
 
         if dry_run {
             output::print_clean(std::slice::from_ref(&ws), dry_run, mode);
@@ -924,6 +974,32 @@ pub async fn merge(
                 })?
         }
     };
+
+    // Idempotency: check if PR is already merged/closed
+    if let Ok(Some(status)) = github::get_pr_status(&remote_url, pr_number, &config).await {
+        if status.state == "closed" {
+            if mode == Mode::Human {
+                eprintln!(
+                    "PR #{} is already closed/merged. Skipping merge.",
+                    pr_number
+                );
+            }
+            // Still do cleanup if needed
+            if config.ship.auto_cleanup {
+                if let Ok(ws) = manager.get(&ticket_id) {
+                    if ws.path.exists() {
+                        if let Err(e) = git::worktree_remove(&repo_root, &ws.path) {
+                            eprintln!("warning: failed to remove worktree: {e}");
+                        }
+                    }
+                    let mut state = crate::worktree::ParsecState::load(&repo_root)?;
+                    state.remove_workspace(&ticket_id);
+                    state.save(&repo_root)?;
+                }
+            }
+            return Ok(());
+        }
+    }
 
     // Wait for CI to pass (unless --no-wait)
     if !no_wait {
