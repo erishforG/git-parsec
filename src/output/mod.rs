@@ -127,3 +127,11 @@ dispatch_output!(print_create, ticket_id: &str, title: &str, url: &str);
 pub fn print_diff_full_json(files: &[(String, String)], ticket: &str) {
     json::print_diff_full(files, ticket);
 }
+
+pub fn print_rename(old_ticket: &str, new_ticket: &str, workspace: &Workspace, mode: Mode) {
+    match mode {
+        Mode::Quiet => {}
+        Mode::Json => json::print_rename(old_ticket, new_ticket, workspace),
+        Mode::Human => human::print_rename(old_ticket, new_ticket, workspace),
+    }
+}

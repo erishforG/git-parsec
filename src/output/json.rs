@@ -321,3 +321,14 @@ pub fn print_create(ticket_id: &str, title: &str, url: &str) {
     });
     println!("{}", value);
 }
+
+pub fn print_rename(old_ticket: &str, new_ticket: &str, workspace: &crate::worktree::Workspace) {
+    let value = json!({
+        "action": "rename",
+        "old_ticket": old_ticket,
+        "new_ticket": new_ticket,
+        "branch": workspace.branch,
+        "path": workspace.path,
+    });
+    println!("{}", value);
+}
