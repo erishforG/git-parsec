@@ -390,3 +390,312 @@ fn test_status_json_format() {
     let _: serde_json::Value =
         serde_json::from_str(&stdout).expect("parsec status --json must produce valid JSON");
 }
+
+// ---------------------------------------------------------------------------
+// sync
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_sync_rebases_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Create a worktree for SYNC-001.
+    parsec()
+        .args(["start", "SYNC-001", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Make a new commit on main so the worktree branch is behind origin/main.
+    StdCommand::new("git")
+        .args(["commit", "--allow-empty", "-m", "advance main"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["push", "origin", "main"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    // parsec sync should rebase without error.
+    parsec()
+        .args(["sync", "SYNC-001", "--repo", repo_path])
+        .assert()
+        .success();
+}
+
+// ---------------------------------------------------------------------------
+// adopt
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_adopt_imports_existing_branch() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Create a branch manually in the main repo.
+    StdCommand::new("git")
+        .args(["branch", "feature/ADOPT-001"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    // parsec adopt should import it.
+    parsec()
+        .args([
+            "adopt",
+            "ADOPT-001",
+            "--branch",
+            "feature/ADOPT-001",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+
+    // The ticket should now appear in the list.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ADOPT-001"));
+}
+
+// ---------------------------------------------------------------------------
+// undo
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_undo_removes_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Start a worktree so there is something to undo.
+    parsec()
+        .args(["start", "UNDO-001", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Worktree should be listed before undo.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("UNDO-001"));
+
+    // Undo the start operation.
+    parsec()
+        .args(["undo", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // The workspace should no longer appear in the list.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("UNDO-001").not());
+}
+
+// ---------------------------------------------------------------------------
+// diff
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_diff_name_only_shows_changed_file() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Start a worktree for DIFF-001.
+    parsec()
+        .args(["start", "DIFF-001", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Locate the worktree path by reading state.json.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let state_contents = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_contents).unwrap();
+
+    // Extract the path from the state JSON – workspaces is an object keyed by ticket.
+    let wt_path = state["workspaces"]["DIFF-001"]["path"]
+        .as_str()
+        .expect("state.json should contain path for DIFF-001");
+
+    // Create and commit a file inside the worktree.
+    std::fs::write(format!("{}/changed.txt", wt_path), "hello").unwrap();
+    StdCommand::new("git")
+        .args(["add", "changed.txt"])
+        .current_dir(wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "add changed.txt"])
+        .current_dir(wt_path)
+        .output()
+        .unwrap();
+
+    // parsec diff --name-only should list changed.txt.
+    parsec()
+        .args(["diff", "DIFF-001", "--name-only", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("changed.txt"));
+}
+
+// ---------------------------------------------------------------------------
+// log
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_log_shows_operations() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "LOG-001", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // parsec log should list the start operation for LOG-001.
+    parsec()
+        .args(["log", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("LOG-001"));
+}
+
+#[test]
+fn test_log_json_format() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "LOG-JSON", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["--json", "log", "--repo", repo_path])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "parsec --json log should succeed");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("parsec --json log must produce valid JSON");
+
+    let arr = parsed.as_array().expect("log JSON should be an array");
+    assert!(!arr.is_empty(), "log array should have at least one entry");
+
+    // Each entry must have 'op' and 'ticket' fields.
+    let first = &arr[0];
+    assert!(
+        first.get("op").is_some(),
+        "log entry should have 'op' field"
+    );
+    assert!(
+        first.get("ticket").is_some(),
+        "log entry should have 'ticket' field"
+    );
+    assert_eq!(first["ticket"].as_str().unwrap(), "LOG-JSON");
+    assert_eq!(first["op"].as_str().unwrap(), "start");
+}
+
+// ---------------------------------------------------------------------------
+// ship --no-pr
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_ship_no_pr_pushes_branch() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "SHIP-NP", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Locate the worktree path.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let state_contents = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_contents).unwrap();
+    let wt_path = state["workspaces"]["SHIP-NP"]["path"]
+        .as_str()
+        .expect("state.json should contain path for SHIP-NP")
+        .to_owned();
+
+    // Make a commit in the worktree so git push has something to send.
+    std::fs::write(format!("{}/ship.txt", wt_path), "ship").unwrap();
+    StdCommand::new("git")
+        .args(["add", "ship.txt"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "ship commit"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+
+    // parsec ship --no-pr should push without attempting PR creation.
+    parsec()
+        .args(["ship", "SHIP-NP", "--no-pr", "--repo", repo_path])
+        .assert()
+        .success();
+}
+
+// ---------------------------------------------------------------------------
+// clean specific ticket
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_clean_specific_ticket_leaves_other() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Start two worktrees.
+    parsec()
+        .args(["start", "CLEAN-A", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args(["start", "CLEAN-B", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Clean only CLEAN-A.
+    parsec()
+        .args(["clean", "CLEAN-A", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // CLEAN-A should be gone; CLEAN-B should remain.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CLEAN-A").not())
+        .stdout(predicate::str::contains("CLEAN-B"));
+}
+
+// ---------------------------------------------------------------------------
+// root
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_root_prints_repo_path() {
+    let repo = setup_repo();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // parsec root should print a path that is a prefix of the repo path
+    // (may be the canonical/realpath form).
+    parsec()
+        .args(["root", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty().not());
+}
