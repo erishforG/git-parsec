@@ -35,216 +35,6 @@ pub enum Mode {
     Quiet,
 }
 
-pub fn print_start(workspace: &Workspace, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_start(workspace),
-        Mode::Human => human::print_start(workspace),
-    }
-}
-
-pub fn print_adopt(workspace: &Workspace, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_adopt(workspace),
-        Mode::Human => human::print_adopt(workspace),
-    }
-}
-
-pub fn print_list(
-    workspaces: &[Workspace],
-    pr_map: &std::collections::HashMap<String, (u64, String)>,
-    mode: Mode,
-) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_list(workspaces, pr_map),
-        Mode::Human => human::print_list(workspaces, pr_map),
-    }
-}
-
-pub fn print_status(workspaces: &[Workspace], mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_status(workspaces),
-        Mode::Human => human::print_status(workspaces),
-    }
-}
-
-pub fn print_ship(result: &ShipResult, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_ship(result),
-        Mode::Human => human::print_ship(result),
-    }
-}
-
-pub fn print_clean(removed: &[Workspace], dry_run: bool, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_clean(removed, dry_run),
-        Mode::Human => human::print_clean(removed, dry_run),
-    }
-}
-
-pub fn print_conflicts(conflicts: &[FileConflict], mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_conflicts(conflicts),
-        Mode::Human => human::print_conflicts(conflicts),
-    }
-}
-
-pub fn print_switch(workspace: &Workspace, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_switch(workspace),
-        Mode::Human => human::print_switch(workspace),
-    }
-}
-
-pub fn print_config_init(mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_config_init(),
-        Mode::Human => human::print_config_init(),
-    }
-}
-
-pub fn print_log(entries: &[&OpEntry], mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_log(entries),
-        Mode::Human => human::print_log(entries),
-    }
-}
-
-pub fn print_undo(entry: &OpEntry, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_undo(entry),
-        Mode::Human => human::print_undo(entry),
-    }
-}
-
-pub fn print_undo_preview(entry: &OpEntry, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_undo_preview(entry),
-        Mode::Human => human::print_undo_preview(entry),
-    }
-}
-
-pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_sync(synced, failed, strategy),
-        Mode::Human => human::print_sync(synced, failed, strategy),
-    }
-}
-
-pub fn print_pr_status(statuses: &[(String, crate::github::PrStatus)], mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_pr_status(statuses),
-        Mode::Human => human::print_pr_status(statuses),
-    }
-}
-
-pub fn print_merge(
-    ticket: &str,
-    pr_number: u64,
-    result: &crate::github::MergeResult,
-    method: &str,
-    mode: Mode,
-) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_merge(ticket, pr_number, result, method),
-        Mode::Human => human::print_merge(ticket, pr_number, result, method),
-    }
-}
-
-pub fn print_ci_status(statuses: &[(String, crate::github::CiStatus)], mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_ci_status(statuses),
-        Mode::Human => human::print_ci_status(statuses),
-    }
-}
-
-pub fn print_stack(workspaces: &[Workspace], mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_stack(workspaces),
-        Mode::Human => human::print_stack(workspaces),
-    }
-}
-
-pub fn print_config_show(config: &ParsecConfig, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_config_show(config),
-        Mode::Human => human::print_config_show(config),
-    }
-}
-
-pub fn print_diff_names(files: &[String], ticket: &str, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_diff_names(files, ticket),
-        Mode::Human => human::print_diff_names(files, ticket),
-    }
-}
-
-pub fn print_diff_stat(stat: &str, ticket: &str, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => {} // stat is human-only
-        Mode::Human => human::print_diff_stat(stat, ticket),
-    }
-}
-
-pub fn print_diff_full_json(files: &[(String, String)], ticket: &str) {
-    json::print_diff_full(files, ticket);
-}
-
-pub fn print_board(
-    sprint: Option<&SprintInfo>,
-    columns: &[(String, Vec<BoardTicketDisplay>)],
-    mode: Mode,
-) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_board(sprint, columns),
-        Mode::Human => human::print_board(sprint, columns),
-    }
-}
-
-pub fn print_ticket(ticket: &TrackerTicket, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_ticket(ticket),
-        Mode::Human => human::print_ticket(ticket),
-    }
-}
-
-pub fn print_comment(ticket_id: &str, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_comment(ticket_id),
-        Mode::Human => human::print_comment(ticket_id),
-    }
-}
-
-pub fn print_inbox(tickets: &[InboxTicket], mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_inbox(tickets),
-        Mode::Human => human::print_inbox(tickets),
-    }
-}
-
 /// A single diagnostic check result for `parsec doctor`.
 pub struct DoctorCheck {
     pub name: String,
@@ -253,30 +43,87 @@ pub struct DoctorCheck {
     pub fix: Option<String>,
 }
 
-pub fn print_doctor(checks: &[DoctorCheck], mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_doctor(checks),
-        Mode::Human => human::print_doctor(checks),
-    }
+/// Generate a dispatch function that routes to json:: and human:: based on Mode.
+///
+/// Standard form (both Json and Human):
+///   dispatch_output!(fn_name, arg1: Type1, arg2: Type2, ...);
+///
+/// Stat form (Human-only, skips Json):
+///   dispatch_output!(@human_only fn_name, arg1: Type1, ...);
+macro_rules! dispatch_output {
+    // Human-only variant (skips Json mode)
+    (@human_only $fn:ident $(, $arg:ident : $ty:ty)*) => {
+        pub fn $fn($($arg: $ty,)* mode: Mode) {
+            match mode {
+                Mode::Quiet => {}
+                Mode::Json => {} // human-only output
+                Mode::Human => human::$fn($($arg),*),
+            }
+        }
+    };
+    // Standard variant (routes to both Json and Human)
+    ($fn:ident $(, $arg:ident : $ty:ty)*) => {
+        pub fn $fn($($arg: $ty,)* mode: Mode) {
+            match mode {
+                Mode::Quiet => {}
+                Mode::Json => json::$fn($($arg),*),
+                Mode::Human => human::$fn($($arg),*),
+            }
+        }
+    };
 }
 
-pub fn print_list_full(
+dispatch_output!(print_start, workspace: &Workspace);
+dispatch_output!(print_adopt, workspace: &Workspace);
+dispatch_output!(
+    print_list,
+    workspaces: &[Workspace],
+    pr_map: &std::collections::HashMap<String, (u64, String)>
+);
+dispatch_output!(print_status, workspaces: &[Workspace]);
+dispatch_output!(print_ship, result: &ShipResult);
+dispatch_output!(print_clean, removed: &[Workspace], dry_run: bool);
+dispatch_output!(print_conflicts, conflicts: &[FileConflict]);
+dispatch_output!(print_switch, workspace: &Workspace);
+dispatch_output!(print_config_init);
+dispatch_output!(print_log, entries: &[&OpEntry]);
+dispatch_output!(print_undo, entry: &OpEntry);
+dispatch_output!(print_undo_preview, entry: &OpEntry);
+dispatch_output!(
+    print_sync,
+    synced: &[String],
+    failed: &[(String, String)],
+    strategy: &str
+);
+dispatch_output!(print_pr_status, statuses: &[(String, crate::github::PrStatus)]);
+dispatch_output!(
+    print_merge,
+    ticket: &str,
+    pr_number: u64,
+    result: &crate::github::MergeResult,
+    method: &str
+);
+dispatch_output!(print_ci_status, statuses: &[(String, crate::github::CiStatus)]);
+dispatch_output!(print_stack, workspaces: &[Workspace]);
+dispatch_output!(print_config_show, config: &ParsecConfig);
+dispatch_output!(print_diff_names, files: &[String], ticket: &str);
+dispatch_output!(@human_only print_diff_stat, stat: &str, ticket: &str);
+dispatch_output!(
+    print_board,
+    sprint: Option<&SprintInfo>,
+    columns: &[(String, Vec<BoardTicketDisplay>)]
+);
+dispatch_output!(print_ticket, ticket: &TrackerTicket);
+dispatch_output!(print_comment, ticket_id: &str);
+dispatch_output!(print_inbox, tickets: &[InboxTicket]);
+dispatch_output!(print_doctor, checks: &[DoctorCheck]);
+dispatch_output!(
+    print_list_full,
     infos: &[WorkspaceFullInfo],
-    pr_map: &std::collections::HashMap<String, (u64, String)>,
-    mode: Mode,
-) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_list_full(infos, pr_map),
-        Mode::Human => human::print_list_full(infos, pr_map),
-    }
-}
+    pr_map: &std::collections::HashMap<String, (u64, String)>
+);
+dispatch_output!(print_create, ticket_id: &str, title: &str, url: &str);
 
-pub fn print_create(ticket_id: &str, title: &str, url: &str, mode: Mode) {
-    match mode {
-        Mode::Quiet => {}
-        Mode::Json => json::print_create(ticket_id, title, url),
-        Mode::Human => human::print_create(ticket_id, title, url),
-    }
+pub fn print_diff_full_json(files: &[(String, String)], ticket: &str) {
+    json::print_diff_full(files, ticket);
 }
