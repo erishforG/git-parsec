@@ -236,7 +236,7 @@ fn test_start_then_switch() {
 }
 
 #[test]
-fn test_start_duplicate_fails() {
+fn test_start_duplicate_is_idempotent() {
     let (repo, _bare) = setup_repo_with_remote();
     let repo_path = repo.path().to_str().unwrap();
 
@@ -245,11 +245,11 @@ fn test_start_duplicate_fails() {
         .assert()
         .success();
 
-    // Starting the same ticket a second time must fail.
+    // Starting the same ticket a second time succeeds (idempotent — switches to existing).
     parsec()
         .args(["start", "TEST-DUP", "--repo", repo_path])
         .assert()
-        .failure();
+        .success();
 }
 
 // ---------------------------------------------------------------------------
