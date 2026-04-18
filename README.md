@@ -125,11 +125,32 @@ parsec board --json
 
 ## Installation
 
+### Pre-built binaries (recommended)
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/erishforG/git-parsec/releases):
+
+```bash
+# macOS (Apple Silicon)
+curl -LO https://github.com/erishforG/git-parsec/releases/latest/download/parsec-{version}-aarch64-apple-darwin.tar.gz
+tar xzf parsec-*-aarch64-apple-darwin.tar.gz
+sudo mv parsec /usr/local/bin/
+
+# macOS (Intel)
+curl -LO https://github.com/erishforG/git-parsec/releases/latest/download/parsec-{version}-x86_64-apple-darwin.tar.gz
+
+# Linux (x86_64)
+curl -LO https://github.com/erishforG/git-parsec/releases/latest/download/parsec-{version}-x86_64-unknown-linux-gnu.tar.gz
+
+# Windows — download .zip from the Releases page
+```
+
+### Via Cargo
+
 ```bash
 cargo install git-parsec
 ```
 
-Or build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/erishforG/git-parsec.git
