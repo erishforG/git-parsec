@@ -88,7 +88,6 @@ pub async fn start(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub async fn create(
     repo: &Path,
     title: &str,
@@ -143,7 +142,9 @@ pub async fn create(
 
             let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
             let jira = crate::tracker::jira::JiraTracker::new(&base_url, email.as_deref());
-            let (key, url) = jira.create_issue(&project_key, title, body, issue_type).await?;
+            let (key, url) = jira
+                .create_issue(&project_key, title, body, issue_type)
+                .await?;
             (key, url)
         }
         TrackerProvider::Gitlab | TrackerProvider::None => {
@@ -2947,7 +2948,6 @@ fn build_pr_body(ticket: &str, title: Option<&str>, ticket_url: Option<&str>) ->
 
     body
 }
-
 
 // ---------------------------------------------------------------------------
 // rename
