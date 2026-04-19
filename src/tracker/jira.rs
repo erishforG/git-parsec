@@ -55,28 +55,32 @@ impl JiraTracker {
         })
     }
 
+    /// Apply authentication to a request builder.
+    /// Uses Basic auth (email + token) for Jira Cloud, Bearer token for Server/DC.
+    fn authenticate(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder> {
+        let token = Self::resolve_token()?;
+        Ok(if let Some(ref email) = self.email {
+            request.basic_auth(email, Some(&token))
+        } else {
+            request.bearer_auth(&token)
+        })
+    }
+
     /// Fetch a single issue via Jira REST API v2.
     /// Requires: Jira (Cloud or Server/DC 7.x+)
     /// Endpoint: GET /rest/api/2/issue/{id}
     pub async fn fetch_ticket(&self, id: &str) -> Result<Ticket> {
-        let token = Self::resolve_token()?;
-
         let url = format!("{}/rest/api/2/issue/{}", self.base_url, id);
 
-        let mut request = self
-            .client
-            .get(&url)
-            .header("Content-Type", "application/json");
-
-        // If email is configured: Basic auth (Jira Cloud with API token)
-        // Otherwise: Bearer token (Jira Server/DC with PAT)
-        if let Some(ref email) = self.email {
-            request = request.basic_auth(email, Some(&token));
-        } else {
-            request = request.bearer_auth(&token);
-        }
-
-        let response = request
+        let response = self
+            .authenticate(
+                self.client
+                    .get(&url)
+                    .header("Content-Type", "application/json"),
+            )?
             .send()
             .await
             .context("Failed to send request to Jira")?;
@@ -116,24 +120,17 @@ impl JiraTracker {
     /// Requires: Jira Software (Cloud or Server/DC 7.x+)
     /// Endpoint: GET /rest/agile/1.0/board?projectKeyOrId={project}
     pub async fn fetch_board_id(&self, project: &str) -> Result<u64> {
-        let token = Self::resolve_token()?;
         let url = format!(
             "{}/rest/agile/1.0/board?projectKeyOrId={}",
             self.base_url, project
         );
 
-        let mut request = self
-            .client
-            .get(&url)
-            .header("Content-Type", "application/json");
-
-        if let Some(ref email) = self.email {
-            request = request.basic_auth(email, Some(&token));
-        } else {
-            request = request.bearer_auth(&token);
-        }
-
-        let response = request
+        let response = self
+            .authenticate(
+                self.client
+                    .get(&url)
+                    .header("Content-Type", "application/json"),
+            )?
             .send()
             .await
             .context("Failed to fetch boards from Jira")?;
@@ -160,24 +157,17 @@ impl JiraTracker {
     /// Requires: Jira Software (Cloud or Server/DC 7.x+)
     /// Endpoint: GET /rest/agile/1.0/board/{id}/sprint?state=active
     pub async fn fetch_active_sprint(&self, board_id: u64) -> Result<SprintInfo> {
-        let token = Self::resolve_token()?;
         let url = format!(
             "{}/rest/agile/1.0/board/{}/sprint?state=active",
             self.base_url, board_id
         );
 
-        let mut request = self
-            .client
-            .get(&url)
-            .header("Content-Type", "application/json");
-
-        if let Some(ref email) = self.email {
-            request = request.basic_auth(email, Some(&token));
-        } else {
-            request = request.bearer_auth(&token);
-        }
-
-        let response = request
+        let response = self
+            .authenticate(
+                self.client
+                    .get(&url)
+                    .header("Content-Type", "application/json"),
+            )?
             .send()
             .await
             .context("Failed to fetch sprints from Jira")?;
@@ -209,21 +199,14 @@ impl JiraTracker {
     /// Fetch available transitions for an issue.
     /// Endpoint: GET /rest/api/2/issue/{key}/transitions
     pub async fn fetch_transitions(&self, key: &str) -> Result<Vec<(String, String)>> {
-        let token = Self::resolve_token()?;
         let url = format!("{}/rest/api/2/issue/{}/transitions", self.base_url, key);
 
-        let mut request = self
-            .client
-            .get(&url)
-            .header("Content-Type", "application/json");
-
-        if let Some(ref email) = self.email {
-            request = request.basic_auth(email, Some(&token));
-        } else {
-            request = request.bearer_auth(&token);
-        }
-
-        let response = request
+        let response = self
+            .authenticate(
+                self.client
+                    .get(&url)
+                    .header("Content-Type", "application/json"),
+            )?
             .send()
             .await
             .context("Failed to fetch transitions")?;
@@ -282,26 +265,19 @@ impl JiraTracker {
                 )
             })?;
 
-        let token = Self::resolve_token()?;
         let url = format!("{}/rest/api/2/issue/{}/transitions", self.base_url, key);
 
         let payload = serde_json::json!({
             "transition": { "id": transition_id }
         });
 
-        let mut request = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&payload);
-
-        if let Some(ref email) = self.email {
-            request = request.basic_auth(email, Some(&token));
-        } else {
-            request = request.bearer_auth(&token);
-        }
-
-        let response = request
+        let response = self
+            .authenticate(
+                self.client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .json(&payload),
+            )?
             .send()
             .await
             .context("Failed to send transition request")?;
@@ -323,26 +299,19 @@ impl JiraTracker {
     /// Post a comment on a Jira issue.
     /// Endpoint: POST /rest/api/2/issue/{key}/comment
     pub async fn add_comment(&self, key: &str, body: &str) -> Result<()> {
-        let token = Self::resolve_token()?;
         let url = format!("{}/rest/api/2/issue/{}/comment", self.base_url, key);
 
         let payload = serde_json::json!({
             "body": body
         });
 
-        let mut request = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&payload);
-
-        if let Some(ref email) = self.email {
-            request = request.basic_auth(email, Some(&token));
-        } else {
-            request = request.bearer_auth(&token);
-        }
-
-        let response = request
+        let response = self
+            .authenticate(
+                self.client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .json(&payload),
+            )?
             .send()
             .await
             .context("Failed to send comment request to Jira")?;
@@ -365,24 +334,17 @@ impl JiraTracker {
     /// Requires: Jira Software (Cloud or Server/DC 7.x+)
     /// Endpoint: GET /rest/agile/1.0/sprint/{id}/issue?fields=summary,status,assignee
     pub async fn fetch_sprint_issues(&self, sprint_id: u64) -> Result<Vec<BoardTicket>> {
-        let token = Self::resolve_token()?;
         let url = format!(
             "{}/rest/agile/1.0/sprint/{}/issue?fields=summary,status,assignee&maxResults=200",
             self.base_url, sprint_id
         );
 
-        let mut request = self
-            .client
-            .get(&url)
-            .header("Content-Type", "application/json");
-
-        if let Some(ref email) = self.email {
-            request = request.basic_auth(email, Some(&token));
-        } else {
-            request = request.bearer_auth(&token);
-        }
-
-        let response = request
+        let response = self
+            .authenticate(
+                self.client
+                    .get(&url)
+                    .header("Content-Type", "application/json"),
+            )?
             .send()
             .await
             .context("Failed to fetch sprint issues from Jira")?;
@@ -437,7 +399,6 @@ impl JiraTracker {
         description: Option<&str>,
         issue_type: &str,
     ) -> Result<(String, String)> {
-        let token = Self::resolve_token()?;
         let url = format!("{}/rest/api/2/issue", self.base_url);
 
         let mut fields = serde_json::json!({
@@ -451,19 +412,13 @@ impl JiraTracker {
 
         let payload = serde_json::json!({ "fields": fields });
 
-        let mut request = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&payload);
-
-        if let Some(ref email) = self.email {
-            request = request.basic_auth(email, Some(&token));
-        } else {
-            request = request.bearer_auth(&token);
-        }
-
-        let response = request
+        let response = self
+            .authenticate(
+                self.client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .json(&payload),
+            )?
             .send()
             .await
             .context("Failed to send issue creation request to Jira")?;
@@ -492,26 +447,19 @@ impl JiraTracker {
     /// Search for issues assigned to the current user via JQL.
     /// Endpoint: GET /rest/api/2/search?jql=...&fields=summary,status,priority,assignee
     pub async fn search_assigned_issues(&self, jql: &str) -> Result<Vec<InboxTicket>> {
-        let token = Self::resolve_token()?;
         let url = format!("{}/rest/api/2/search", self.base_url);
 
-        let mut request = self
-            .client
-            .get(&url)
-            .header("Content-Type", "application/json")
-            .query(&[
-                ("jql", jql),
-                ("fields", "summary,status,priority,assignee"),
-                ("maxResults", "50"),
-            ]);
-
-        if let Some(ref email) = self.email {
-            request = request.basic_auth(email, Some(&token));
-        } else {
-            request = request.bearer_auth(&token);
-        }
-
-        let response = request
+        let response = self
+            .authenticate(
+                self.client
+                    .get(&url)
+                    .header("Content-Type", "application/json")
+                    .query(&[
+                        ("jql", jql),
+                        ("fields", "summary,status,priority,assignee"),
+                        ("maxResults", "50"),
+                    ]),
+            )?
             .send()
             .await
             .context("Failed to search Jira issues")?;
