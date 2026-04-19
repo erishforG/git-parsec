@@ -57,10 +57,7 @@ impl JiraTracker {
 
     /// Apply authentication to a request builder.
     /// Uses Basic auth (email + token) for Jira Cloud, Bearer token for Server/DC.
-    fn authenticate(
-        &self,
-        request: reqwest::RequestBuilder,
-    ) -> Result<reqwest::RequestBuilder> {
+    fn authenticate(&self, request: reqwest::RequestBuilder) -> Result<reqwest::RequestBuilder> {
         let token = Self::resolve_token()?;
         Ok(if let Some(ref email) = self.email {
             request.basic_auth(email, Some(&token))
