@@ -88,30 +88,27 @@ pub async fn start(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
     repo: &Path,
     title: &str,
-    body: Option<String>,
-    label: Option<String>,
-    project: Option<String>,
+    body: Option<&str>,
+    labels: &[String],
+    project: Option<&str>,
+    issue_type: &str,
     start_worktree: bool,
     mode: Mode,
 ) -> Result<()> {
+    crate::tracker::load_atlassian_env();
+
     let mut config = ParsecConfig::load()?;
     let repo_root = git::get_repo_root(repo)?;
     config.resolve_for_repo(&repo_root);
 
-    let labels: Vec<String> = label
-        .as_deref()
-        .map(|l| l.split(',').map(|s| s.trim().to_string()).collect())
-        .unwrap_or_default();
-
     let (ticket_id, ticket_url) = match config.tracker.provider {
-        crate::config::TrackerProvider::Github => {
+        TrackerProvider::Github => {
             let remote_url = git::get_remote_url(&repo_root)?;
-            match github::create_issue(&remote_url, title, body.as_deref(), &labels, &config)
-                .await?
-            {
+            match github::create_issue(&remote_url, title, body, labels, &config).await? {
                 Some(result) => (format!("#{}", result.number), result.url),
                 None => anyhow::bail!(
                     "GitHub token not configured. Set GITHUB_TOKEN or configure \
@@ -119,9 +116,7 @@ pub async fn create(
                 ),
             }
         }
-        crate::config::TrackerProvider::Jira => {
-            crate::tracker::load_atlassian_env();
-
+        TrackerProvider::Jira => {
             let base_url = config
                 .tracker
                 .jira
@@ -136,7 +131,9 @@ pub async fn create(
                 })?;
 
             let project_key = project
+                .map(str::to_owned)
                 .or_else(|| config.tracker.jira.as_ref().and_then(|j| j.project.clone()))
+                .or_else(|| std::env::var(crate::env::PARSEC_JIRA_PROJECT).ok())
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "Jira project key required. Pass --project PROJ or set \
@@ -146,24 +143,14 @@ pub async fn create(
 
             let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
             let jira = crate::tracker::jira::JiraTracker::new(&base_url, email.as_deref());
-            let (key, url) = jira
-                .create_issue(&project_key, title, body.as_deref(), "Task")
-                .await?;
+            let (key, url) = jira.create_issue(&project_key, title, body, issue_type).await?;
             (key, url)
         }
-        crate::config::TrackerProvider::Gitlab | crate::config::TrackerProvider::None => {
+        TrackerProvider::Gitlab | TrackerProvider::None => {
             // Auto-detect: try GitHub if remote points to github.com
             if let Ok(remote_url) = git::get_remote_url(&repo_root) {
                 if github::parse_github_remote(&remote_url).is_some() {
-                    match github::create_issue(
-                        &remote_url,
-                        title,
-                        body.as_deref(),
-                        &labels,
-                        &config,
-                    )
-                    .await?
-                    {
+                    match github::create_issue(&remote_url, title, body, labels, &config).await? {
                         Some(result) => (format!("#{}", result.number), result.url),
                         None => anyhow::bail!(
                             "GitHub token not configured. Set GITHUB_TOKEN or configure \
@@ -2961,143 +2948,6 @@ fn build_pr_body(ticket: &str, title: Option<&str>, ticket_url: Option<&str>) ->
     body
 }
 
-// ---------------------------------------------------------------------------
-// new-issue
-// ---------------------------------------------------------------------------
-
-#[allow(clippy::too_many_arguments)]
-pub async fn new_issue(
-    repo: &Path,
-    title: &str,
-    body: Option<&str>,
-    labels: &[String],
-    project: Option<&str>,
-    issue_type: &str,
-    auto_start: bool,
-    mode: Mode,
-) -> Result<()> {
-    tracker::load_atlassian_env();
-
-    let mut config = ParsecConfig::load()?;
-    let repo_root = git::get_repo_root(repo)?;
-    config.resolve_for_repo(&repo_root);
-
-    let ticket_id: String = match config.tracker.provider {
-        TrackerProvider::Jira => {
-            // Resolve project: flag > config
-            let proj = project
-                .map(str::to_owned)
-                .or_else(|| {
-                    config
-                        .tracker
-                        .jira
-                        .as_ref()
-                        .and_then(|j| j.project.clone())
-                })
-                .or_else(|| std::env::var("JIRA_PROJECT").ok())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Jira project key required. Pass --project or set tracker.jira.project in config."
-                    )
-                })?;
-
-            let base_url = config
-                .tracker
-                .jira
-                .as_ref()
-                .map(|j| j.base_url.clone())
-                .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Jira base URL not found. Set it in config or {} env var.",
-                        crate::env::JIRA_BASE_URL,
-                    )
-                })?;
-
-            let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-            let jira = crate::tracker::jira::JiraTracker::new(&base_url, email.as_deref());
-
-            let (key, url) = jira
-                .create_issue(&proj, title, body, issue_type)
-                .await
-                .context("Failed to create Jira issue")?;
-
-            match mode {
-                Mode::Json => {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "key": key,
-                            "title": title,
-                            "url": url,
-                        })
-                    );
-                }
-                Mode::Human => {
-                    println!("Created {}: {}", key, title);
-                    println!("  {}", url);
-                }
-                Mode::Quiet => {}
-            }
-
-            key
-        }
-        TrackerProvider::Github | TrackerProvider::None => {
-            // GitHub: resolve remote URL from git
-            let remote_url = git::get_remote_url(&repo_root)
-                .context("Could not get remote URL from git. Is this a GitHub repo?")?;
-
-            let result = github::create_issue(&remote_url, title, body, labels, &config)
-                .await
-                .context("Failed to create GitHub issue")?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "No GitHub token found. Set GITHUB_TOKEN or configure it in parsec config."
-                    )
-                })?;
-
-            match mode {
-                Mode::Json => {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "number": result.number,
-                            "title": title,
-                            "url": result.url,
-                        })
-                    );
-                }
-                Mode::Human => {
-                    println!("Created #{}: {}", result.number, title);
-                    println!("  {}", result.url);
-                }
-                Mode::Quiet => {}
-            }
-
-            result.number.to_string()
-        }
-        TrackerProvider::Gitlab => {
-            anyhow::bail!("GitLab issue creation is not yet supported.");
-        }
-    };
-
-    // If --start, create a worktree for the new issue
-    if auto_start {
-        start(
-            repo,
-            &ticket_id,
-            None,
-            Some(title.to_owned()),
-            None,
-            None,
-            None,
-            mode,
-        )
-        .await?;
-    }
-
-    Ok(())
-}
 
 // ---------------------------------------------------------------------------
 // rename

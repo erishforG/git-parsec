@@ -411,9 +411,10 @@ pub enum Command {
 
     /// Create a new issue on the tracker
     ///
-    /// Creates a new ticket on GitHub Issues (or Jira) and optionally
-    /// starts a worktree for it immediately. Use --start to chain into
-    /// parsec start after creation.
+    /// Creates a new ticket on GitHub Issues, Jira, or GitLab from the
+    /// command line. Auto-detects the tracker from config. Use --start
+    /// to immediately create a worktree for the new issue.
+    #[command(visible_alias = "new-issue")]
     Create {
         /// Issue title
         #[arg(long)]
@@ -423,13 +424,17 @@ pub enum Command {
         #[arg(long)]
         body: Option<String>,
 
-        /// Labels to add (comma-separated)
+        /// Labels to add (can be specified multiple times)
         #[arg(long)]
-        label: Option<String>,
+        label: Vec<String>,
 
         /// Jira project key (e.g. PROJ). Auto-detected from config if omitted
         #[arg(long, short)]
         project: Option<String>,
+
+        /// Jira issue type (default: Task)
+        #[arg(long, default_value = "Task")]
+        issue_type: String,
 
         /// Start a worktree after creation
         #[arg(long)]
@@ -444,38 +449,6 @@ pub enum Command {
         old_ticket: String,
         /// New ticket identifier
         new_ticket: String,
-    },
-
-    /// Create a new issue on the tracker (alias)
-    ///
-    /// Creates a new ticket on GitHub Issues, Jira, or GitLab from the
-    /// command line. Auto-detects the tracker from config. Use --start
-    /// to immediately create a worktree for the new issue.
-    #[command(name = "new-issue")]
-    NewIssue {
-        /// Issue title
-        #[arg(long)]
-        title: String,
-
-        /// Issue body/description
-        #[arg(long)]
-        body: Option<String>,
-
-        /// Labels to add (can be specified multiple times)
-        #[arg(long)]
-        label: Vec<String>,
-
-        /// Jira project key (auto-detected from config if omitted)
-        #[arg(long, short)]
-        project: Option<String>,
-
-        /// Jira issue type (default: Task)
-        #[arg(long, default_value = "Task")]
-        issue_type: String,
-
-        /// Auto-start a worktree for the new issue
-        #[arg(long)]
-        start: bool,
     },
 }
 
@@ -712,21 +685,10 @@ pub async fn run(cli: Cli) -> Result<()> {
             body,
             label,
             project,
-            start,
-        } => commands::create(&repo_path, &title, body, label, project, start, output_mode).await,
-        Command::Rename {
-            old_ticket,
-            new_ticket,
-        } => commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await,
-        Command::NewIssue {
-            title,
-            body,
-            label,
-            project,
             issue_type,
             start,
         } => {
-            commands::new_issue(
+            commands::create(
                 &repo_path,
                 &title,
                 body.as_deref(),
@@ -738,5 +700,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
+        Command::Rename {
+            old_ticket,
+            new_ticket,
+        } => commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await,
     }
 }
