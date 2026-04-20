@@ -218,6 +218,88 @@ pub fn resolve_github_token(host: &str, config: &ParsecConfig) -> Option<String>
 // GitHubClient
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// GitHub API response types (private, for deserialization)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize, Default)]
+struct ApiPrHead {
+    #[serde(default)]
+    sha: String,
+    #[serde(rename = "ref", default)]
+    ref_name: String,
+}
+
+#[derive(Deserialize)]
+struct ApiPr {
+    #[serde(default)]
+    number: u64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    state: String,
+    mergeable: Option<bool>,
+    #[serde(default)]
+    html_url: String,
+    #[serde(default)]
+    head: ApiPrHead,
+    /// Present on error responses (e.g. 404 "Not Found").
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ApiCombinedStatus {
+    #[serde(default)]
+    state: String,
+}
+
+#[derive(Deserialize)]
+struct ApiReview {
+    #[serde(default)]
+    state: String,
+}
+
+#[derive(Deserialize)]
+struct ApiCheckRunEntry {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    status: String,
+    conclusion: Option<String>,
+    started_at: Option<String>,
+    completed_at: Option<String>,
+    html_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ApiCheckRunsResponse {
+    #[serde(default)]
+    check_runs: Vec<ApiCheckRunEntry>,
+}
+
+#[derive(Deserialize)]
+struct ApiMergeResponse {
+    #[serde(default)]
+    sha: String,
+    #[serde(default)]
+    message: String,
+}
+
+#[derive(Deserialize)]
+struct ApiCreateResponse {
+    number: Option<u64>,
+    html_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ApiPrListItem {
+    number: Option<u64>,
+}
+
+// ---------------------------------------------------------------------------
+// GitHubClient
+// ---------------------------------------------------------------------------
+
 /// Authenticated GitHub API client that eliminates per-call boilerplate.
 ///
 /// Encapsulates remote parsing, token resolution, HTTP client creation,
@@ -313,50 +395,47 @@ impl GitHubClient {
         let rp = self.repo_path();
 
         // Fetch PR details
-        let pr_resp: serde_json::Value =
-            send_with_retry(self.get(&format!("{}/pulls/{}", rp, pr_number)))
-                .await?
-                .json()
-                .await?;
+        let pr: ApiPr = send_with_retry(self.get(&format!("{}/pulls/{}", rp, pr_number)))
+            .await?
+            .json()
+            .await?;
 
-        let title = pr_resp["title"].as_str().unwrap_or("").to_string();
-        let state = pr_resp["state"].as_str().unwrap_or("unknown").to_string();
-        let mergeable = pr_resp["mergeable"].as_bool();
-        let html_url = pr_resp["html_url"].as_str().unwrap_or("").to_string();
-        let head_sha = pr_resp["head"]["sha"].as_str().unwrap_or("");
+        let title = pr.title;
+        let state = if pr.state.is_empty() {
+            "unknown".to_string()
+        } else {
+            pr.state
+        };
+        let mergeable = pr.mergeable;
+        let html_url = pr.html_url;
+        let head_sha = pr.head.sha;
 
         // Fetch combined commit status
         let ci_status = if !head_sha.is_empty() {
-            let status_resp: serde_json::Value =
+            let status_resp: ApiCombinedStatus =
                 send_with_retry(self.get(&format!("{}/commits/{}/status", rp, head_sha)))
                     .await?
                     .json()
                     .await?;
-            status_resp["state"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string()
+            if status_resp.state.is_empty() {
+                "unknown".to_string()
+            } else {
+                status_resp.state
+            }
         } else {
             "unknown".to_string()
         };
 
         // Fetch reviews
-        let reviews_resp: Vec<serde_json::Value> =
+        let reviews_resp: Vec<ApiReview> =
             send_with_retry(self.get(&format!("{}/pulls/{}/reviews", rp, pr_number)))
                 .await?
                 .json()
                 .await?;
 
-        let review_status = if reviews_resp.iter().any(|r| {
-            r["state"]
-                .as_str()
-                .is_some_and(|s| s == "CHANGES_REQUESTED")
-        }) {
+        let review_status = if reviews_resp.iter().any(|r| r.state == "CHANGES_REQUESTED") {
             "changes_requested".to_string()
-        } else if reviews_resp
-            .iter()
-            .any(|r| r["state"].as_str().is_some_and(|s| s == "APPROVED"))
-        {
+        } else if reviews_resp.iter().any(|r| r.state == "APPROVED") {
             "approved".to_string()
         } else if reviews_resp.is_empty() {
             "no reviews".to_string()
@@ -380,35 +459,33 @@ impl GitHubClient {
         let rp = self.repo_path();
 
         // Fetch PR to get head SHA
-        let pr_resp: serde_json::Value =
-            send_with_retry(self.get(&format!("{}/pulls/{}", rp, pr_number)))
-                .await?
-                .json()
-                .await?;
+        let pr_resp: ApiPr = send_with_retry(self.get(&format!("{}/pulls/{}", rp, pr_number)))
+            .await?
+            .json()
+            .await?;
 
-        let head_sha = pr_resp["head"]["sha"].as_str().unwrap_or("").to_string();
+        let head_sha = pr_resp.head.sha;
         if head_sha.is_empty() {
             bail!("could not determine head SHA for PR #{}", pr_number);
         }
 
         // Fetch check runs for the head SHA
-        let checks_resp: serde_json::Value =
+        let checks_resp: ApiCheckRunsResponse =
             send_with_retry(self.get(&format!("{}/commits/{}/check-runs", rp, head_sha)))
                 .await?
                 .json()
                 .await?;
 
-        let checks: Vec<CheckRun> = checks_resp["check_runs"]
-            .as_array()
-            .unwrap_or(&vec![])
-            .iter()
+        let checks: Vec<CheckRun> = checks_resp
+            .check_runs
+            .into_iter()
             .map(|c| CheckRun {
-                name: c["name"].as_str().unwrap_or("").to_string(),
-                status: c["status"].as_str().unwrap_or("").to_string(),
-                conclusion: c["conclusion"].as_str().map(|s| s.to_string()),
-                started_at: c["started_at"].as_str().map(|s| s.to_string()),
-                completed_at: c["completed_at"].as_str().map(|s| s.to_string()),
-                html_url: c["html_url"].as_str().map(|s| s.to_string()),
+                name: c.name,
+                status: c.status,
+                conclusion: c.conclusion,
+                started_at: c.started_at,
+                completed_at: c.completed_at,
+                html_url: c.html_url,
             })
             .collect();
 
@@ -445,9 +522,9 @@ impl GitHubClient {
             self.remote.owner,
             branch
         );
-        let resp: Vec<serde_json::Value> = send_with_retry(self.get(&url)).await?.json().await?;
+        let resp: Vec<ApiPrListItem> = send_with_retry(self.get(&url)).await?.json().await?;
 
-        Ok(resp.first().and_then(|pr| pr["number"].as_u64()))
+        Ok(resp.first().and_then(|pr| pr.number))
     }
 
     /// Merge a GitHub PR.
@@ -478,19 +555,19 @@ impl GitHubClient {
             bail!("GitHub merge API returned {}: {}", status_code, body);
         }
 
-        let resp: serde_json::Value = response.json().await?;
-        let sha = resp["sha"].as_str().unwrap_or("").to_string();
-        let message = resp["message"].as_str().unwrap_or("").to_string();
+        let resp: ApiMergeResponse = response.json().await?;
+        let sha = resp.sha;
+        let message = resp.message;
 
         // Delete remote branch if requested
         if delete_branch {
-            let pr_resp: serde_json::Value =
-                send_with_retry(self.get(&format!("{}/pulls/{}", rp, pr_number)))
-                    .await?
-                    .json()
-                    .await?;
+            let pr_resp: ApiPr = send_with_retry(self.get(&format!("{}/pulls/{}", rp, pr_number)))
+                .await?
+                .json()
+                .await?;
 
-            if let Some(branch_name) = pr_resp["head"]["ref"].as_str() {
+            let branch_name = &pr_resp.head.ref_name;
+            if !branch_name.is_empty() {
                 let del_url = format!("{}/git/refs/heads/{}", rp, branch_name);
                 match self.delete_req(&del_url).send().await {
                     Ok(resp) if !resp.status().is_success() => {
@@ -544,22 +621,22 @@ impl GitHubClient {
 
     /// Fetch basic info about a GitHub PR by number.
     pub async fn get_pr_info(&self, pr_number: u64) -> Result<Option<PrInfo>> {
-        let pr_resp: serde_json::Value =
+        let pr_resp: ApiPr =
             send_with_retry(self.get(&format!("{}/pulls/{}", self.repo_path(), pr_number)))
                 .await?
                 .json()
                 .await?;
 
-        // GitHub returns a JSON object with a "message" field (not an array) when not found
-        if pr_resp.get("message").is_some() && pr_resp.get("number").is_none() {
+        // GitHub returns a JSON object with a "message" field when not found
+        if pr_resp.message.is_some() && pr_resp.number == 0 {
             return Ok(None);
         }
 
-        if pr_resp["number"].as_u64().is_none() {
+        if pr_resp.number == 0 {
             return Ok(None);
         }
-        let title = pr_resp["title"].as_str().unwrap_or("").to_string();
-        let head_branch = pr_resp["head"]["ref"].as_str().unwrap_or("").to_string();
+        let title = pr_resp.title;
+        let head_branch = pr_resp.head.ref_name;
 
         if head_branch.is_empty() {
             anyhow::bail!("PR #{} response missing head.ref field", pr_number);
@@ -592,14 +669,12 @@ impl GitHubClient {
             bail!("GitHub API returned {}: {}", status, body_text);
         }
 
-        let resp: serde_json::Value = response
+        let resp: ApiCreateResponse = response
             .json()
             .await
             .context("Failed to parse GitHub API response")?;
 
-        resp["html_url"]
-            .as_str()
-            .map(|s| s.to_owned())
+        resp.html_url
             .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))
     }
 
@@ -631,18 +706,17 @@ impl GitHubClient {
             bail!("GitHub API returned {}: {}", status, body);
         }
 
-        let resp: serde_json::Value = response
+        let resp: ApiCreateResponse = response
             .json()
             .await
             .context("Failed to parse GitHub API response")?;
 
-        let html_url = resp["html_url"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?
-            .to_owned();
+        let html_url = resp
+            .html_url
+            .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?;
 
-        let number = resp["number"]
-            .as_u64()
+        let number = resp
+            .number
             .ok_or_else(|| anyhow::anyhow!("GitHub response missing number"))?;
 
         Ok(IssueResult {
@@ -708,17 +782,16 @@ impl GitHubClient {
             bail!("GitHub API returned {}: {}", status, body);
         }
 
-        let resp: serde_json::Value = response
+        let resp: ApiCreateResponse = response
             .json()
             .await
             .context("Failed to parse GitHub API response")?;
 
-        let html_url = resp["html_url"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?
-            .to_owned();
+        let html_url = resp
+            .html_url
+            .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?;
 
-        let number = resp["number"].as_u64().unwrap_or(0);
+        let number = resp.number.unwrap_or(0);
 
         Ok(PrResult {
             url: html_url,
