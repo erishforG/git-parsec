@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::ParsecConfig;
 
+// ---------------------------------------------------------------------------
+// HTTP helpers (private)
+// ---------------------------------------------------------------------------
+
 /// Create a configured HTTP client with timeout.
 fn http_client() -> Result<Client> {
     Client::builder()
@@ -50,6 +54,10 @@ async fn send_with_retry(request_builder: reqwest::RequestBuilder) -> Result<Res
     }
 }
 
+// ---------------------------------------------------------------------------
+// Data types
+// ---------------------------------------------------------------------------
+
 /// Result of PR creation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrResult {
@@ -86,6 +94,64 @@ impl GitHubRemote {
         )
     }
 }
+
+/// PR status information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrStatus {
+    pub number: u64,
+    pub title: String,
+    pub state: String,
+    pub mergeable: Option<bool>,
+    pub ci_status: String,
+    pub review_status: String,
+    pub url: String,
+}
+
+/// A single CI check run
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckRun {
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub html_url: Option<String>,
+}
+
+/// Aggregated CI status for a PR
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CiStatus {
+    pub pr_number: u64,
+    pub head_sha: String,
+    pub overall: String,
+    pub checks: Vec<CheckRun>,
+}
+
+/// Result of merging a PR
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergeResult {
+    pub sha: String,
+    pub message: String,
+    pub merged: bool,
+}
+
+/// Basic PR info for checkout/review workflows.
+#[derive(Debug, Clone)]
+pub struct PrInfo {
+    pub title: String,
+    pub head_branch: String,
+}
+
+/// Result of issue creation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueResult {
+    pub number: u64,
+    pub url: String,
+}
+
+// ---------------------------------------------------------------------------
+// Free functions (parsing, token resolution)
+// ---------------------------------------------------------------------------
 
 /// Parse any GitHub remote URL (github.com or Enterprise) into GitHubRemote.
 ///
@@ -148,756 +214,515 @@ pub fn resolve_github_token(host: &str, config: &ParsecConfig) -> Option<String>
     None
 }
 
-/// PR status information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PrStatus {
-    pub number: u64,
-    pub title: String,
-    pub state: String,
-    pub mergeable: Option<bool>,
-    pub ci_status: String,
-    pub review_status: String,
-    pub url: String,
+// ---------------------------------------------------------------------------
+// GitHubClient
+// ---------------------------------------------------------------------------
+
+/// Authenticated GitHub API client that eliminates per-call boilerplate.
+///
+/// Encapsulates remote parsing, token resolution, HTTP client creation,
+/// and standard header injection. Construct via `GitHubClient::new()` which
+/// returns `Ok(None)` when no token is available.
+pub struct GitHubClient {
+    client: Client,
+    remote: GitHubRemote,
+    token: String,
+    api_base: String,
 }
 
-/// Fetch the status of a GitHub PR by number.
-pub async fn get_pr_status(
-    remote_url: &str,
-    pr_number: u64,
-    config: &ParsecConfig,
-) -> Result<Option<PrStatus>> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
+impl GitHubClient {
+    /// Create a new client for the given remote URL.
+    /// Returns `Ok(None)` when no GitHub token is available.
+    pub fn new(remote_url: &str, config: &ParsecConfig) -> Result<Option<Self>> {
+        let remote = parse_github_remote(remote_url).ok_or_else(|| {
+            anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
+        })?;
 
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
+        let token = match resolve_github_token(&remote.host, config) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
 
-    let api_base = remote.api_base();
-    let client = http_client()?;
+        let api_base = remote.api_base();
+        let client = http_client()?;
 
-    // Fetch PR details
-    let pr_url = format!(
-        "{}/repos/{}/{}/pulls/{}",
-        api_base, remote.owner, remote.repo, pr_number
-    );
-    let pr_resp: serde_json::Value = send_with_retry(
-        client
-            .get(&pr_url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .bearer_auth(&token),
-    )
-    .await?
-    .json()
-    .await?;
-
-    let title = pr_resp["title"].as_str().unwrap_or("").to_string();
-    let state = pr_resp["state"].as_str().unwrap_or("unknown").to_string();
-    let mergeable = pr_resp["mergeable"].as_bool();
-    let html_url = pr_resp["html_url"].as_str().unwrap_or("").to_string();
-    let head_sha = pr_resp["head"]["sha"].as_str().unwrap_or("");
-
-    // Fetch combined commit status
-    let ci_status = if !head_sha.is_empty() {
-        let status_url = format!(
-            "{}/repos/{}/{}/commits/{}/status",
-            api_base, remote.owner, remote.repo, head_sha
-        );
-        let status_resp: serde_json::Value = send_with_retry(
-            client
-                .get(&status_url)
-                .header("Accept", "application/vnd.github+json")
-                .header("X-GitHub-Api-Version", "2022-11-28")
-                .bearer_auth(&token),
-        )
-        .await?
-        .json()
-        .await?;
-        status_resp["state"]
-            .as_str()
-            .unwrap_or("unknown")
-            .to_string()
-    } else {
-        "unknown".to_string()
-    };
-
-    // Fetch reviews
-    let reviews_url = format!(
-        "{}/repos/{}/{}/pulls/{}/reviews",
-        api_base, remote.owner, remote.repo, pr_number
-    );
-    let reviews_resp: Vec<serde_json::Value> = send_with_retry(
-        client
-            .get(&reviews_url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .bearer_auth(&token),
-    )
-    .await?
-    .json()
-    .await?;
-
-    let review_status = if reviews_resp.iter().any(|r| {
-        r["state"]
-            .as_str()
-            .is_some_and(|s| s == "CHANGES_REQUESTED")
-    }) {
-        "changes_requested".to_string()
-    } else if reviews_resp
-        .iter()
-        .any(|r| r["state"].as_str().is_some_and(|s| s == "APPROVED"))
-    {
-        "approved".to_string()
-    } else if reviews_resp.is_empty() {
-        "no reviews".to_string()
-    } else {
-        "pending".to_string()
-    };
-
-    Ok(Some(PrStatus {
-        number: pr_number,
-        title,
-        state,
-        mergeable,
-        ci_status,
-        review_status,
-        url: html_url,
-    }))
-}
-
-/// A single CI check run
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CheckRun {
-    pub name: String,
-    pub status: String,
-    pub conclusion: Option<String>,
-    pub started_at: Option<String>,
-    pub completed_at: Option<String>,
-    pub html_url: Option<String>,
-}
-
-/// Aggregated CI status for a PR
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CiStatus {
-    pub pr_number: u64,
-    pub head_sha: String,
-    pub overall: String,
-    pub checks: Vec<CheckRun>,
-}
-
-/// Fetch check runs for a PR by number.
-/// Returns None if no GitHub token is available.
-pub async fn get_check_runs(
-    remote_url: &str,
-    pr_number: u64,
-    config: &ParsecConfig,
-) -> Result<Option<CiStatus>> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
-
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
-    let api_base = remote.api_base();
-    let client = http_client()?;
-
-    // Fetch PR to get head SHA
-    let pr_url = format!(
-        "{}/repos/{}/{}/pulls/{}",
-        api_base, remote.owner, remote.repo, pr_number
-    );
-    let pr_resp: serde_json::Value = send_with_retry(
-        client
-            .get(&pr_url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .bearer_auth(&token),
-    )
-    .await?
-    .json()
-    .await?;
-
-    let head_sha = pr_resp["head"]["sha"].as_str().unwrap_or("").to_string();
-
-    if head_sha.is_empty() {
-        bail!("could not determine head SHA for PR #{}", pr_number);
+        Ok(Some(Self {
+            client,
+            remote,
+            token,
+            api_base,
+        }))
     }
 
-    // Fetch check runs for the head SHA
-    let checks_url = format!(
-        "{}/repos/{}/{}/commits/{}/check-runs",
-        api_base, remote.owner, remote.repo, head_sha
-    );
-    let checks_resp: serde_json::Value = send_with_retry(
-        client
-            .get(&checks_url)
+    /// Access the parsed remote info.
+    pub fn remote(&self) -> &GitHubRemote {
+        &self.remote
+    }
+
+    /// `/repos/{owner}/{repo}` path prefix.
+    fn repo_path(&self) -> String {
+        format!("/repos/{}/{}", self.remote.owner, self.remote.repo)
+    }
+
+    // -- HTTP verb helpers with standard GitHub headers ----------------------
+
+    fn get(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .get(format!("{}{}", self.api_base, path))
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
-            .bearer_auth(&token),
-    )
-    .await?
-    .json()
-    .await?;
+            .bearer_auth(&self.token)
+    }
 
-    let checks: Vec<CheckRun> = checks_resp["check_runs"]
-        .as_array()
-        .unwrap_or(&vec![])
-        .iter()
-        .map(|c| CheckRun {
-            name: c["name"].as_str().unwrap_or("").to_string(),
-            status: c["status"].as_str().unwrap_or("").to_string(),
-            conclusion: c["conclusion"].as_str().map(|s| s.to_string()),
-            started_at: c["started_at"].as_str().map(|s| s.to_string()),
-            completed_at: c["completed_at"].as_str().map(|s| s.to_string()),
-            html_url: c["html_url"].as_str().map(|s| s.to_string()),
+    fn post(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .post(format!("{}{}", self.api_base, path))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&self.token)
+    }
+
+    fn put(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .put(format!("{}{}", self.api_base, path))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&self.token)
+    }
+
+    fn patch(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .patch(format!("{}{}", self.api_base, path))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&self.token)
+    }
+
+    fn delete_req(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .delete(format!("{}{}", self.api_base, path))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .bearer_auth(&self.token)
+    }
+
+    // -- API methods ---------------------------------------------------------
+
+    /// Fetch the status of a GitHub PR by number.
+    pub async fn get_pr_status(&self, pr_number: u64) -> Result<PrStatus> {
+        let rp = self.repo_path();
+
+        // Fetch PR details
+        let pr_resp: serde_json::Value =
+            send_with_retry(self.get(&format!("{}/pulls/{}", rp, pr_number)))
+                .await?
+                .json()
+                .await?;
+
+        let title = pr_resp["title"].as_str().unwrap_or("").to_string();
+        let state = pr_resp["state"].as_str().unwrap_or("unknown").to_string();
+        let mergeable = pr_resp["mergeable"].as_bool();
+        let html_url = pr_resp["html_url"].as_str().unwrap_or("").to_string();
+        let head_sha = pr_resp["head"]["sha"].as_str().unwrap_or("");
+
+        // Fetch combined commit status
+        let ci_status = if !head_sha.is_empty() {
+            let status_resp: serde_json::Value =
+                send_with_retry(self.get(&format!("{}/commits/{}/status", rp, head_sha)))
+                    .await?
+                    .json()
+                    .await?;
+            status_resp["state"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            "unknown".to_string()
+        };
+
+        // Fetch reviews
+        let reviews_resp: Vec<serde_json::Value> =
+            send_with_retry(self.get(&format!("{}/pulls/{}/reviews", rp, pr_number)))
+                .await?
+                .json()
+                .await?;
+
+        let review_status = if reviews_resp.iter().any(|r| {
+            r["state"]
+                .as_str()
+                .is_some_and(|s| s == "CHANGES_REQUESTED")
+        }) {
+            "changes_requested".to_string()
+        } else if reviews_resp
+            .iter()
+            .any(|r| r["state"].as_str().is_some_and(|s| s == "APPROVED"))
+        {
+            "approved".to_string()
+        } else if reviews_resp.is_empty() {
+            "no reviews".to_string()
+        } else {
+            "pending".to_string()
+        };
+
+        Ok(PrStatus {
+            number: pr_number,
+            title,
+            state,
+            mergeable,
+            ci_status,
+            review_status,
+            url: html_url,
         })
-        .collect();
-
-    // Derive overall status
-    let overall = if checks.is_empty() {
-        "no checks".to_string()
-    } else if checks
-        .iter()
-        .any(|c| c.conclusion.as_deref() == Some("failure"))
-    {
-        "failing".to_string()
-    } else if checks.iter().all(|c| {
-        c.conclusion.as_deref() == Some("success") || c.conclusion.as_deref() == Some("skipped")
-    }) {
-        "passing".to_string()
-    } else {
-        "pending".to_string()
-    };
-
-    Ok(Some(CiStatus {
-        pr_number,
-        head_sha,
-        overall,
-        checks,
-    }))
-}
-
-/// Find an open PR by branch name.
-/// Returns the PR number if found, None if no token or no matching PR.
-pub async fn find_pr_by_branch(
-    remote_url: &str,
-    branch: &str,
-    config: &ParsecConfig,
-) -> Result<Option<u64>> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
-
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
-    let api_base = remote.api_base();
-    let client = http_client()?;
-
-    let url = format!(
-        "{}/repos/{}/{}/pulls?head={}:{}&state=open",
-        api_base, remote.owner, remote.repo, remote.owner, branch
-    );
-    let resp: Vec<serde_json::Value> = send_with_retry(
-        client
-            .get(&url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .bearer_auth(&token),
-    )
-    .await?
-    .json()
-    .await?;
-
-    Ok(resp.first().and_then(|pr| pr["number"].as_u64()))
-}
-
-/// Result of merging a PR
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MergeResult {
-    pub sha: String,
-    pub message: String,
-    pub merged: bool,
-}
-
-/// Merge a GitHub PR.
-/// `method` should be "squash", "rebase", or "merge".
-/// Returns None if no token, Some(MergeResult) on success.
-pub async fn merge_pr(
-    remote_url: &str,
-    pr_number: u64,
-    method: &str,
-    delete_branch: bool,
-    config: &ParsecConfig,
-) -> Result<Option<MergeResult>> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
-
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
-    let api_base = remote.api_base();
-    let client = http_client()?;
-
-    // Merge the PR
-    let url = format!(
-        "{}/repos/{}/{}/pulls/{}/merge",
-        api_base, remote.owner, remote.repo, pr_number
-    );
-    let payload = serde_json::json!({
-        "merge_method": method,
-    });
-
-    let response = client
-        .put(&url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .bearer_auth(&token)
-        .json(&payload)
-        .send()
-        .await
-        .context("Failed to send merge request to GitHub")?;
-
-    if !response.status().is_success() {
-        let status_code = response.status().as_u16();
-        let body = response.text().await.unwrap_or_default();
-        if status_code == 405 || status_code == 409 {
-            bail!("not mergeable: {}", body);
-        }
-        bail!("GitHub merge API returned {}: {}", status_code, body);
     }
 
-    let resp: serde_json::Value = response.json().await?;
-    let sha = resp["sha"].as_str().unwrap_or("").to_string();
-    let message = resp["message"].as_str().unwrap_or("").to_string();
+    /// Fetch check runs for a PR by number.
+    pub async fn get_check_runs(&self, pr_number: u64) -> Result<CiStatus> {
+        let rp = self.repo_path();
 
-    // Delete remote branch if requested
-    if delete_branch {
-        let branch_url = format!(
-            "{}/repos/{}/{}/pulls/{}",
-            api_base, remote.owner, remote.repo, pr_number
+        // Fetch PR to get head SHA
+        let pr_resp: serde_json::Value =
+            send_with_retry(self.get(&format!("{}/pulls/{}", rp, pr_number)))
+                .await?
+                .json()
+                .await?;
+
+        let head_sha = pr_resp["head"]["sha"].as_str().unwrap_or("").to_string();
+        if head_sha.is_empty() {
+            bail!("could not determine head SHA for PR #{}", pr_number);
+        }
+
+        // Fetch check runs for the head SHA
+        let checks_resp: serde_json::Value =
+            send_with_retry(self.get(&format!("{}/commits/{}/check-runs", rp, head_sha)))
+                .await?
+                .json()
+                .await?;
+
+        let checks: Vec<CheckRun> = checks_resp["check_runs"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|c| CheckRun {
+                name: c["name"].as_str().unwrap_or("").to_string(),
+                status: c["status"].as_str().unwrap_or("").to_string(),
+                conclusion: c["conclusion"].as_str().map(|s| s.to_string()),
+                started_at: c["started_at"].as_str().map(|s| s.to_string()),
+                completed_at: c["completed_at"].as_str().map(|s| s.to_string()),
+                html_url: c["html_url"].as_str().map(|s| s.to_string()),
+            })
+            .collect();
+
+        // Derive overall status
+        let overall = if checks.is_empty() {
+            "no checks".to_string()
+        } else if checks
+            .iter()
+            .any(|c| c.conclusion.as_deref() == Some("failure"))
+        {
+            "failing".to_string()
+        } else if checks.iter().all(|c| {
+            c.conclusion.as_deref() == Some("success") || c.conclusion.as_deref() == Some("skipped")
+        }) {
+            "passing".to_string()
+        } else {
+            "pending".to_string()
+        };
+
+        Ok(CiStatus {
+            pr_number,
+            head_sha,
+            overall,
+            checks,
+        })
+    }
+
+    /// Find an open PR by branch name.
+    /// Returns the PR number if found.
+    pub async fn find_pr_by_branch(&self, branch: &str) -> Result<Option<u64>> {
+        let url = format!(
+            "{}/pulls?head={}:{}&state=open",
+            self.repo_path(),
+            self.remote.owner,
+            branch
         );
-        let pr_resp: serde_json::Value = send_with_retry(
-            client
-                .get(&branch_url)
-                .header("Accept", "application/vnd.github+json")
-                .header("X-GitHub-Api-Version", "2022-11-28")
-                .bearer_auth(&token),
-        )
-        .await?
-        .json()
-        .await?;
+        let resp: Vec<serde_json::Value> = send_with_retry(self.get(&url)).await?.json().await?;
 
-        if let Some(branch_name) = pr_resp["head"]["ref"].as_str() {
-            let del_url = format!(
-                "{}/repos/{}/{}/git/refs/heads/{}",
-                api_base, remote.owner, remote.repo, branch_name
-            );
-            match client
-                .delete(&del_url)
-                .header("Accept", "application/vnd.github+json")
-                .header("X-GitHub-Api-Version", "2022-11-28")
-                .bearer_auth(&token)
-                .send()
-                .await
-            {
-                Ok(resp) if !resp.status().is_success() => {
-                    let status = resp.status();
-                    let body = resp.text().await.unwrap_or_default();
-                    eprintln!(
-                        "warning: failed to delete remote branch '{}': {} {}",
-                        branch_name, status, body
-                    );
+        Ok(resp.first().and_then(|pr| pr["number"].as_u64()))
+    }
+
+    /// Merge a GitHub PR.
+    /// `method` should be "squash", "rebase", or "merge".
+    pub async fn merge_pr(
+        &self,
+        pr_number: u64,
+        method: &str,
+        delete_branch: bool,
+    ) -> Result<MergeResult> {
+        let rp = self.repo_path();
+
+        let payload = serde_json::json!({ "merge_method": method });
+
+        let response = self
+            .put(&format!("{}/pulls/{}/merge", rp, pr_number))
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to send merge request to GitHub")?;
+
+        if !response.status().is_success() {
+            let status_code = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            if status_code == 405 || status_code == 409 {
+                bail!("not mergeable: {}", body);
+            }
+            bail!("GitHub merge API returned {}: {}", status_code, body);
+        }
+
+        let resp: serde_json::Value = response.json().await?;
+        let sha = resp["sha"].as_str().unwrap_or("").to_string();
+        let message = resp["message"].as_str().unwrap_or("").to_string();
+
+        // Delete remote branch if requested
+        if delete_branch {
+            let pr_resp: serde_json::Value =
+                send_with_retry(self.get(&format!("{}/pulls/{}", rp, pr_number)))
+                    .await?
+                    .json()
+                    .await?;
+
+            if let Some(branch_name) = pr_resp["head"]["ref"].as_str() {
+                let del_url = format!("{}/git/refs/heads/{}", rp, branch_name);
+                match self.delete_req(&del_url).send().await {
+                    Ok(resp) if !resp.status().is_success() => {
+                        let status = resp.status();
+                        let body = resp.text().await.unwrap_or_default();
+                        eprintln!(
+                            "warning: failed to delete remote branch '{}': {} {}",
+                            branch_name, status, body
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "warning: failed to delete remote branch '{}': {}",
+                            branch_name, e
+                        );
+                    }
+                    _ => {} // success
                 }
-                Err(e) => {
-                    eprintln!(
-                        "warning: failed to delete remote branch '{}': {}",
-                        branch_name, e
-                    );
-                }
-                _ => {} // success
             }
         }
+
+        Ok(MergeResult {
+            sha,
+            message,
+            merged: true,
+        })
     }
 
-    Ok(Some(MergeResult {
-        sha,
-        message,
-        merged: true,
-    }))
-}
+    /// Update a PR branch with the base branch (to make it mergeable).
+    /// Returns Ok(true) on success, Ok(false) if conflicts prevent update.
+    pub async fn update_pr_branch(&self, pr_number: u64) -> Result<bool> {
+        let url = format!("{}/pulls/{}/update-branch", self.repo_path(), pr_number);
 
-/// Update a PR branch with the base branch (to make it mergeable).
-/// Uses GitHub's "Update a pull request branch" API.
-/// Returns Ok(true) on success, Ok(false) if conflicts prevent update.
-pub async fn update_pr_branch(
-    remote_url: &str,
-    pr_number: u64,
-    config: &ParsecConfig,
-) -> Result<bool> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
+        let response = self
+            .put(&url)
+            .send()
+            .await
+            .context("Failed to send update-branch request to GitHub")?;
 
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => bail!("no GitHub token found"),
-    };
+        if response.status().is_success() {
+            Ok(true)
+        } else if response.status().as_u16() == 422 {
+            // 422 = conflicts, cannot auto-update
+            Ok(false)
+        } else {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("GitHub update-branch API returned {}: {}", status, body);
+        }
+    }
 
-    let api_base = remote.api_base();
-    let client = http_client()?;
+    /// Fetch basic info about a GitHub PR by number.
+    pub async fn get_pr_info(&self, pr_number: u64) -> Result<Option<PrInfo>> {
+        let pr_resp: serde_json::Value =
+            send_with_retry(self.get(&format!("{}/pulls/{}", self.repo_path(), pr_number)))
+                .await?
+                .json()
+                .await?;
 
-    let url = format!(
-        "{}/repos/{}/{}/pulls/{}/update-branch",
-        api_base, remote.owner, remote.repo, pr_number
-    );
+        // GitHub returns a JSON object with a "message" field (not an array) when not found
+        if pr_resp.get("message").is_some() && pr_resp.get("number").is_none() {
+            return Ok(None);
+        }
 
-    let response = client
-        .put(&url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .bearer_auth(&token)
-        .send()
-        .await
-        .context("Failed to send update-branch request to GitHub")?;
+        if pr_resp["number"].as_u64().is_none() {
+            return Ok(None);
+        }
+        let title = pr_resp["title"].as_str().unwrap_or("").to_string();
+        let head_branch = pr_resp["head"]["ref"].as_str().unwrap_or("").to_string();
 
-    if response.status().is_success() {
+        if head_branch.is_empty() {
+            anyhow::bail!("PR #{} response missing head.ref field", pr_number);
+        }
+
+        Ok(Some(PrInfo { title, head_branch }))
+    }
+
+    /// Create a GitHub Release.
+    /// Returns the html_url of the created release.
+    pub async fn create_release(&self, tag: &str, name: &str, body: &str) -> Result<String> {
+        let payload = serde_json::json!({
+            "tag_name": tag,
+            "name": name,
+            "body": body,
+            "draft": false,
+            "prerelease": false,
+        });
+
+        let response = self
+            .post(&format!("{}/releases", self.repo_path()))
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to send release creation request to GitHub")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body_text = response.text().await.unwrap_or_default();
+            bail!("GitHub API returned {}: {}", status, body_text);
+        }
+
+        let resp: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse GitHub API response")?;
+
+        resp["html_url"]
+            .as_str()
+            .map(|s| s.to_owned())
+            .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))
+    }
+
+    /// Create a GitHub issue.
+    pub async fn create_issue(
+        &self,
+        title: &str,
+        body: Option<&str>,
+        labels: &[String],
+    ) -> Result<IssueResult> {
+        let mut payload = serde_json::json!({ "title": title });
+        if let Some(b) = body {
+            payload["body"] = serde_json::json!(b);
+        }
+        if !labels.is_empty() {
+            payload["labels"] = serde_json::json!(labels);
+        }
+
+        let response = self
+            .post(&format!("{}/issues", self.repo_path()))
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to send issue creation request to GitHub")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("GitHub API returned {}: {}", status, body);
+        }
+
+        let resp: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse GitHub API response")?;
+
+        let html_url = resp["html_url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?
+            .to_owned();
+
+        let number = resp["number"]
+            .as_u64()
+            .ok_or_else(|| anyhow::anyhow!("GitHub response missing number"))?;
+
+        Ok(IssueResult {
+            number,
+            url: html_url,
+        })
+    }
+
+    /// Close a GitHub issue by number.
+    pub async fn close_issue(&self, issue_number: u64) -> Result<bool> {
+        let payload = serde_json::json!({
+            "state": "closed",
+            "state_reason": "completed",
+        });
+
+        let response = self
+            .patch(&format!("{}/issues/{}", self.repo_path(), issue_number))
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to send close issue request to GitHub")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            eprintln!(
+                "warning: failed to close issue #{}: {} {}",
+                issue_number, status, body
+            );
+            return Ok(false);
+        }
+
         Ok(true)
-    } else if response.status().as_u16() == 422 {
-        // 422 = conflicts, cannot auto-update
-        Ok(false)
-    } else {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        bail!("GitHub update-branch API returned {}: {}", status, body);
-    }
-}
-
-/// Basic PR info for checkout/review workflows.
-#[derive(Debug, Clone)]
-pub struct PrInfo {
-    pub title: String,
-    pub head_branch: String,
-}
-
-/// Fetch basic info about a GitHub PR by number.
-/// Returns None if no GitHub token is available.
-pub async fn get_pr_info(
-    remote_url: &str,
-    pr_number: u64,
-    config: &ParsecConfig,
-) -> Result<Option<PrInfo>> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
-
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
-    let api_base = remote.api_base();
-    let client = http_client()?;
-
-    let pr_url = format!(
-        "{}/repos/{}/{}/pulls/{}",
-        api_base, remote.owner, remote.repo, pr_number
-    );
-    let pr_resp: serde_json::Value = send_with_retry(
-        client
-            .get(&pr_url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .bearer_auth(&token),
-    )
-    .await?
-    .json()
-    .await?;
-
-    // GitHub returns a JSON object with a "message" field (not an array) when not found
-    if pr_resp.get("message").is_some() && pr_resp.get("number").is_none() {
-        return Ok(None);
     }
 
-    if pr_resp["number"].as_u64().is_none() {
-        return Ok(None);
+    /// Create a GitHub pull request.
+    pub async fn create_pr(
+        &self,
+        branch: &str,
+        base: &str,
+        title: &str,
+        body: &str,
+        draft: bool,
+    ) -> Result<PrResult> {
+        let payload = serde_json::json!({
+            "title": title,
+            "head": branch,
+            "base": base,
+            "body": body,
+            "draft": draft,
+        });
+
+        let response = self
+            .post(&format!("{}/pulls", self.repo_path()))
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to send PR creation request to GitHub")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("GitHub API returned {}: {}", status, body);
+        }
+
+        let resp: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse GitHub API response")?;
+
+        let html_url = resp["html_url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?
+            .to_owned();
+
+        let number = resp["number"].as_u64().unwrap_or(0);
+
+        Ok(PrResult {
+            url: html_url,
+            number,
+        })
     }
-    let title = pr_resp["title"].as_str().unwrap_or("").to_string();
-    let head_branch = pr_resp["head"]["ref"].as_str().unwrap_or("").to_string();
-
-    if head_branch.is_empty() {
-        anyhow::bail!("PR #{} response missing head.ref field", pr_number);
-    }
-
-    Ok(Some(PrInfo { title, head_branch }))
-}
-
-/// Create a GitHub Release.
-/// Returns the html_url of the created release, or None if no token is available.
-pub async fn create_release(
-    remote_url: &str,
-    tag: &str,
-    name: &str,
-    body: &str,
-    config: &ParsecConfig,
-) -> Result<Option<String>> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
-
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
-    let api_url = format!(
-        "{}/repos/{}/{}/releases",
-        remote.api_base(),
-        remote.owner,
-        remote.repo
-    );
-
-    let payload = serde_json::json!({
-        "tag_name": tag,
-        "name": name,
-        "body": body,
-        "draft": false,
-        "prerelease": false,
-    });
-
-    let client = http_client()?;
-    let response = client
-        .post(&api_url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .bearer_auth(&token)
-        .json(&payload)
-        .send()
-        .await
-        .context("Failed to send release creation request to GitHub")?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body_text = response.text().await.unwrap_or_default();
-        bail!("GitHub API returned {}: {}", status, body_text);
-    }
-
-    let resp: serde_json::Value = response
-        .json()
-        .await
-        .context("Failed to parse GitHub API response")?;
-
-    let html_url = resp["html_url"].as_str().map(|s| s.to_owned());
-    Ok(html_url)
-}
-
-/// Result of issue creation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IssueResult {
-    pub number: u64,
-    pub url: String,
-}
-
-/// Create a GitHub issue.
-/// Returns None if no GitHub token is available.
-pub async fn create_issue(
-    remote_url: &str,
-    title: &str,
-    body: Option<&str>,
-    labels: &[String],
-    config: &ParsecConfig,
-) -> Result<Option<IssueResult>> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
-
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
-    let api_url = format!(
-        "{}/repos/{}/{}/issues",
-        remote.api_base(),
-        remote.owner,
-        remote.repo
-    );
-
-    let mut payload = serde_json::json!({ "title": title });
-    if let Some(b) = body {
-        payload["body"] = serde_json::json!(b);
-    }
-    if !labels.is_empty() {
-        payload["labels"] = serde_json::json!(labels);
-    }
-
-    let client = http_client()?;
-    let response = client
-        .post(&api_url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .bearer_auth(&token)
-        .json(&payload)
-        .send()
-        .await
-        .context("Failed to send issue creation request to GitHub")?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        bail!("GitHub API returned {}: {}", status, body);
-    }
-
-    let resp: serde_json::Value = response
-        .json()
-        .await
-        .context("Failed to parse GitHub API response")?;
-
-    let html_url = resp["html_url"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?
-        .to_owned();
-
-    let number = resp["number"]
-        .as_u64()
-        .ok_or_else(|| anyhow::anyhow!("GitHub response missing number"))?;
-
-    Ok(Some(IssueResult {
-        number,
-        url: html_url,
-    }))
-}
-
-/// Close a GitHub issue by number.
-/// Returns Ok(true) on success, Ok(false) if no token available.
-pub async fn close_issue(
-    remote_url: &str,
-    issue_number: u64,
-    config: &ParsecConfig,
-) -> Result<bool> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
-
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => return Ok(false),
-    };
-
-    let api_url = format!(
-        "{}/repos/{}/{}/issues/{}",
-        remote.api_base(),
-        remote.owner,
-        remote.repo,
-        issue_number
-    );
-
-    let payload = serde_json::json!({
-        "state": "closed",
-        "state_reason": "completed",
-    });
-
-    let client = http_client()?;
-    let response = client
-        .patch(&api_url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .bearer_auth(&token)
-        .json(&payload)
-        .send()
-        .await
-        .context("Failed to send close issue request to GitHub")?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        eprintln!(
-            "warning: failed to close issue #{}: {} {}",
-            issue_number, status, body
-        );
-        return Ok(false);
-    }
-
-    Ok(true)
-}
-
-/// Create a GitHub pull request.
-/// Returns None if no GitHub token is available.
-pub async fn create_pr(
-    remote_url: &str,
-    branch: &str,
-    base: &str,
-    title: &str,
-    body: &str,
-    draft: bool,
-    config: &ParsecConfig,
-) -> Result<Option<PrResult>> {
-    let remote = parse_github_remote(remote_url).ok_or_else(|| {
-        anyhow::anyhow!("could not parse owner/repo from remote URL: {}", remote_url)
-    })?;
-
-    let token = match resolve_github_token(&remote.host, config) {
-        Some(t) => t,
-        None => return Ok(None),
-    };
-
-    let api_url = format!(
-        "{}/repos/{}/{}/pulls",
-        remote.api_base(),
-        remote.owner,
-        remote.repo
-    );
-
-    let payload = serde_json::json!({
-        "title": title,
-        "head": branch,
-        "base": base,
-        "body": body,
-        "draft": draft,
-    });
-
-    let client = http_client()?;
-    let response = client
-        .post(&api_url)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .bearer_auth(&token)
-        .json(&payload)
-        .send()
-        .await
-        .context("Failed to send PR creation request to GitHub")?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        bail!("GitHub API returned {}: {}", status, body);
-    }
-
-    let resp: serde_json::Value = response
-        .json()
-        .await
-        .context("Failed to parse GitHub API response")?;
-
-    let html_url = resp["html_url"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("GitHub response missing html_url"))?
-        .to_owned();
-
-    let number = resp["number"].as_u64().unwrap_or(0);
-
-    Ok(Some(PrResult {
-        url: html_url,
-        number,
-    }))
 }

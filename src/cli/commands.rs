@@ -120,13 +120,14 @@ pub async fn create(
     let (ticket_id, ticket_url) = match config.tracker.provider {
         TrackerProvider::Github => {
             let remote_url = git::get_remote_url(&repo_root)?;
-            match github::create_issue(&remote_url, title, body, labels, &config).await? {
-                Some(result) => (format!("#{}", result.number), result.url),
-                None => anyhow::bail!(
+            let gh = github::GitHubClient::new(&remote_url, &config)?.ok_or_else(|| {
+                anyhow::anyhow!(
                     "GitHub token not configured. Set GITHUB_TOKEN or configure \
                      [github.\"github.com\"] in parsec config."
-                ),
-            }
+                )
+            })?;
+            let result = gh.create_issue(title, body, labels).await?;
+            (format!("#{}", result.number), result.url)
         }
         TrackerProvider::Jira => {
             let base_url = config
@@ -164,13 +165,14 @@ pub async fn create(
             // Auto-detect: try GitHub if remote points to github.com
             if let Ok(remote_url) = git::get_remote_url(&repo_root) {
                 if github::parse_github_remote(&remote_url).is_some() {
-                    match github::create_issue(&remote_url, title, body, labels, &config).await? {
-                        Some(result) => (format!("#{}", result.number), result.url),
-                        None => anyhow::bail!(
+                    let gh = github::GitHubClient::new(&remote_url, &config)?.ok_or_else(|| {
+                        anyhow::anyhow!(
                             "GitHub token not configured. Set GITHUB_TOKEN or configure \
                              [github.\"github.com\"] in parsec config."
-                        ),
-                    }
+                        )
+                    })?;
+                    let result = gh.create_issue(title, body, labels).await?;
+                    (format!("#{}", result.number), result.url)
                 } else {
                     anyhow::bail!(
                         "Tracker not configured (or not yet supported). \
@@ -251,28 +253,25 @@ pub async fn adopt(
 
     // Auto-detect existing PR for the adopted branch
     if let Ok(remote_url) = git::run_output(manager.repo_root(), &["remote", "get-url", "origin"]) {
-        if let Ok(Some(pr_number)) =
-            github::find_pr_by_branch(&remote_url, &workspace.branch, &config).await
-        {
-            // Record synthetic Ship entry so merge/pr-status can find the PR
-            let pr_url = if let Some(remote) = github::parse_github_remote(&remote_url) {
-                format!(
+        if let Ok(Some(gh)) = github::GitHubClient::new(&remote_url, &config) {
+            if let Ok(Some(pr_number)) = gh.find_pr_by_branch(&workspace.branch).await {
+                // Record synthetic Ship entry so merge/pr-status can find the PR
+                let remote = gh.remote();
+                let pr_url = format!(
                     "https://{}/{}/{}/pull/{}",
                     remote.host, remote.owner, remote.repo, pr_number
-                )
-            } else {
-                format!("pull/{}", pr_number)
-            };
-            if let Err(e) = crate::oplog::record(
-                manager.repo_root(),
-                crate::oplog::OpKind::Ship,
-                Some(ticket),
-                &format!("Adopted branch '{}' -> {}", workspace.branch, pr_url),
-                None,
-            ) {
-                eprintln!("warning: failed to record PR in oplog: {e}");
-            } else if mode != Mode::Quiet {
-                eprintln!("  Detected existing PR #{}", pr_number);
+                );
+                if let Err(e) = crate::oplog::record(
+                    manager.repo_root(),
+                    crate::oplog::OpKind::Ship,
+                    Some(ticket),
+                    &format!("Adopted branch '{}' -> {}", workspace.branch, pr_url),
+                    None,
+                ) {
+                    eprintln!("warning: failed to record PR in oplog: {e}");
+                } else if mode != Mode::Quiet {
+                    eprintln!("  Detected existing PR #{}", pr_number);
+                }
             }
         }
     }
@@ -307,11 +306,11 @@ pub async fn list(repo: &Path, no_pr: bool, full: bool, mode: Mode) -> Result<()
 
             // Fetch live PR status from GitHub
             if let Some(ref remote_url) = remote_url {
-                for (_ticket, (pr_num, state)) in pr_map.iter_mut() {
-                    if let Ok(Some(status)) =
-                        github::get_pr_status(remote_url, *pr_num, &config).await
-                    {
-                        *state = status.state;
+                if let Ok(Some(gh)) = github::GitHubClient::new(remote_url, &config) {
+                    for (_ticket, (pr_num, state)) in pr_map.iter_mut() {
+                        if let Ok(status) = gh.get_pr_status(*pr_num).await {
+                            *state = status.state;
+                        }
                     }
                 }
             }
@@ -472,7 +471,13 @@ pub async fn ship(
                     .filter(|entry| matches!(entry.op, crate::oplog::OpKind::Ship))
                     .find_map(|entry| entry.undo_info.as_ref().and_then(|u| u.branch.clone()));
                 if let Some(ref br) = branch {
-                    if let Ok(Some(_)) = github::find_pr_by_branch(&remote_url, br, &config).await {
+                    let already_shipped =
+                        if let Ok(Some(gh)) = github::GitHubClient::new(&remote_url, &config) {
+                            matches!(gh.find_pr_by_branch(br).await, Ok(Some(_)))
+                        } else {
+                            false
+                        };
+                    if already_shipped {
                         if mode == Mode::Human {
                             eprintln!("note: ticket {} already shipped. Nothing to do.", ticket);
                         }
@@ -512,39 +517,18 @@ pub async fn ship(
 
         let remote_url = git::get_remote_url(manager.repo_root());
         if let Ok(ref remote_url) = remote_url {
-            // Check if a PR already exists for this branch (#98)
-            if let Ok(Some(existing_pr)) =
-                github::find_pr_by_branch(remote_url, &result.branch, &config).await
-            {
-                let remote = github::parse_github_remote(remote_url);
-                let pr_url = if let Some(r) = remote {
-                    format!(
+            if let Some(gh) = github::GitHubClient::new(remote_url, &config)? {
+                // Check if a PR already exists for this branch (#98)
+                if let Ok(Some(existing_pr)) = gh.find_pr_by_branch(&result.branch).await {
+                    let r = gh.remote();
+                    let pr_url = format!(
                         "https://{}/{}/{}/pull/{}",
                         r.host, r.owner, r.repo, existing_pr
-                    )
+                    );
+                    result.pr_url = Some(pr_url);
                 } else {
-                    format!("PR #{}", existing_pr)
-                };
-                result.pr_url = Some(pr_url);
-            } else {
-                match github::create_pr(
-                    remote_url,
-                    &result.branch,
-                    &result.base_branch,
-                    &pr_title,
-                    &pr_body,
-                    draft || config.ship.draft,
-                    &config,
-                )
-                .await
-                {
-                    Ok(Some(pr)) => {
-                        result.pr_url = Some(pr.url);
-                    }
-                    Ok(None) => {
-                        // GitHub had no token — try GitLab
-                        match gitlab::create_mr(
-                            remote_url,
+                    match gh
+                        .create_pr(
                             &result.branch,
                             &result.base_branch,
                             &pr_title,
@@ -552,25 +536,40 @@ pub async fn ship(
                             draft || config.ship.draft,
                         )
                         .await
-                        {
-                            Ok(Some(mr)) => {
-                                result.pr_url = Some(mr.url);
-                            }
-                            Ok(None) => {
-                                eprintln!(
-                                    "note: PR/MR creation skipped — no token found.\n      \
-                                     Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
-                                );
-                                pr_failed = true;
-                            }
-                            Err(e) => {
-                                eprintln!("error: GitLab MR creation failed: {e}");
-                                pr_failed = true;
-                            }
+                    {
+                        Ok(pr) => {
+                            result.pr_url = Some(pr.url);
+                        }
+                        Err(e) => {
+                            eprintln!("error: PR creation failed: {e}");
+                            pr_failed = true;
                         }
                     }
+                }
+            } else {
+                // No GitHub token — try GitLab
+                match gitlab::create_mr(
+                    remote_url,
+                    &result.branch,
+                    &result.base_branch,
+                    &pr_title,
+                    &pr_body,
+                    draft || config.ship.draft,
+                )
+                .await
+                {
+                    Ok(Some(mr)) => {
+                        result.pr_url = Some(mr.url);
+                    }
+                    Ok(None) => {
+                        eprintln!(
+                            "note: PR/MR creation skipped — no token found.\n      \
+                             Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
+                        );
+                        pr_failed = true;
+                    }
                     Err(e) => {
-                        eprintln!("error: PR creation failed: {e}");
+                        eprintln!("error: GitLab MR creation failed: {e}");
                         pr_failed = true;
                     }
                 }
@@ -876,11 +875,11 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
             None => manager.list()?,
         };
 
-        for ws in &workspaces {
-            if let Ok(Some(pr_number)) =
-                github::find_pr_by_branch(&remote_url, &ws.branch, &config).await
-            {
-                all_entries.push((ws.ticket.clone(), pr_number, String::new()));
+        if let Some(gh) = github::GitHubClient::new(&remote_url, &config)? {
+            for ws in &workspaces {
+                if let Ok(Some(pr_number)) = gh.find_pr_by_branch(&ws.branch).await {
+                    all_entries.push((ws.ticket.clone(), pr_number, String::new()));
+                }
             }
         }
 
@@ -893,14 +892,12 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
         }
     }
 
+    let gh = github::GitHubClient::new(&remote_url, &config)?
+        .ok_or_else(|| anyhow::anyhow!("no GitHub token found. Set PARSEC_GITHUB_TOKEN."))?;
     let mut statuses = Vec::new();
     for (ticket_id, pr_number, _url) in &all_entries {
-        match crate::github::get_pr_status(&remote_url, *pr_number, &config).await? {
-            Some(status) => statuses.push((ticket_id.clone(), status)),
-            None => {
-                anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
-            }
-        }
+        let status = gh.get_pr_status(*pr_number).await?;
+        statuses.push((ticket_id.clone(), status));
     }
 
     output::print_pr_status(&statuses, mode);
@@ -918,6 +915,8 @@ pub async fn merge(
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
+    let gh = github::GitHubClient::new(&remote_url, &config)?
+        .ok_or_else(|| anyhow::anyhow!("no GitHub token found. Set PARSEC_GITHUB_TOKEN."))?;
     let oplog = crate::oplog::OpLog::load(&repo_root)?;
     let manager = WorktreeManager::new(repo, &config)?;
 
@@ -952,7 +951,7 @@ pub async fn merge(
             let ws = manager.get(&ticket_id).with_context(|| {
                 format!("ticket {ticket_id} not found in active workspaces or oplog")
             })?;
-            github::find_pr_by_branch(&remote_url, &ws.branch, &config)
+            gh.find_pr_by_branch(&ws.branch)
                 .await?
                 .ok_or_else(|| {
                     anyhow::anyhow!(
@@ -964,7 +963,7 @@ pub async fn merge(
     };
 
     // Idempotency: check if PR is already merged/closed
-    if let Ok(Some(status)) = github::get_pr_status(&remote_url, pr_number, &config).await {
+    if let Ok(status) = gh.get_pr_status(pr_number).await {
         if status.state == "closed" {
             if mode == Mode::Human {
                 eprintln!(
@@ -995,29 +994,23 @@ pub async fn merge(
             eprint!("Waiting for CI to pass...");
         }
         loop {
-            match github::get_check_runs(&remote_url, pr_number, &config).await? {
-                Some(ci) => {
-                    if ci.overall == "passing" {
-                        if mode == Mode::Human {
-                            eprintln!(" {}", "✓".green());
-                        }
-                        break;
-                    } else if ci.overall == "failing" {
-                        if mode == Mode::Human {
-                            eprintln!(" {}", "✗".red());
-                        }
-                        anyhow::bail!(
-                            "CI is failing for PR #{}. Fix CI or use --no-wait to merge anyway.",
-                            pr_number
-                        );
-                    }
-                    // Still pending — wait and retry
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let ci = gh.get_check_runs(pr_number).await?;
+            if ci.overall == "passing" {
+                if mode == Mode::Human {
+                    eprintln!(" {}", "✓".green());
                 }
-                None => {
-                    anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
+                break;
+            } else if ci.overall == "failing" {
+                if mode == Mode::Human {
+                    eprintln!(" {}", "✗".red());
                 }
+                anyhow::bail!(
+                    "CI is failing for PR #{}. Fix CI or use --no-wait to merge anyway.",
+                    pr_number
+                );
             }
+            // Still pending — wait and retry
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }
 
@@ -1026,47 +1019,33 @@ pub async fn merge(
     let delete_branch = !no_delete_branch;
 
     // Try merging, auto-update branch if not mergeable
-    let result = match github::merge_pr(&remote_url, pr_number, method, delete_branch, &config)
-        .await
-    {
-        Ok(Some(result)) => result,
-        Ok(None) => {
-            anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
-        }
+    let result = match gh.merge_pr(pr_number, method, delete_branch).await {
+        Ok(result) => result,
         Err(e) if e.to_string().starts_with("not mergeable") => {
             // PR is behind base branch — try updating
             if mode == Mode::Human {
                 eprintln!("PR #{} is not mergeable. Updating branch...", pr_number);
             }
-            match github::update_pr_branch(&remote_url, pr_number, &config).await? {
+            match gh.update_pr_branch(pr_number).await? {
                 true => {
                     if mode == Mode::Human {
                         eprintln!("Branch updated. Waiting for CI...");
                     }
                     // Wait for CI to pass again after update
                     loop {
-                        match github::get_check_runs(&remote_url, pr_number, &config).await? {
-                            Some(ci) => {
-                                if ci.overall == "passing" {
-                                    break;
-                                } else if ci.overall == "failing" {
-                                    anyhow::bail!(
-                                        "CI is failing after branch update for PR #{}.",
-                                        pr_number
-                                    );
-                                }
-                                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                            }
-                            None => anyhow::bail!("no GitHub token found."),
+                        let ci = gh.get_check_runs(pr_number).await?;
+                        if ci.overall == "passing" {
+                            break;
+                        } else if ci.overall == "failing" {
+                            anyhow::bail!(
+                                "CI is failing after branch update for PR #{}.",
+                                pr_number
+                            );
                         }
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     }
                     // Retry merge
-                    match github::merge_pr(&remote_url, pr_number, method, delete_branch, &config)
-                        .await?
-                    {
-                        Some(result) => result,
-                        None => anyhow::bail!("no GitHub token found."),
-                    }
+                    gh.merge_pr(pr_number, method, delete_branch).await?
                 }
                 false => {
                     anyhow::bail!(
@@ -1103,7 +1082,7 @@ pub async fn merge(
         .ok();
 
     if let Some(issue_num) = issue_number {
-        match github::close_issue(&remote_url, issue_num, &config).await {
+        match gh.close_issue(issue_num).await {
             Ok(true) => {
                 if mode == Mode::Human {
                     println!("  Closed issue #{}", issue_num);
@@ -1227,6 +1206,8 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
+    let gh = github::GitHubClient::new(&remote_url, &config)?
+        .ok_or_else(|| anyhow::anyhow!("no GitHub token found. Set PARSEC_GITHUB_TOKEN."))?;
     let oplog = crate::oplog::OpLog::load(&repo_root)?;
     let manager = WorktreeManager::new(repo, &config)?;
 
@@ -1271,7 +1252,7 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
                 let ws = manager.get(&ticket_id).with_context(|| {
                     format!("ticket {ticket_id} not found in active workspaces or oplog")
                 })?;
-                match github::find_pr_by_branch(&remote_url, &ws.branch, &config).await? {
+                match gh.find_pr_by_branch(&ws.branch).await? {
                     Some(pr_number) => targets.push((ticket_id, pr_number)),
                     None => {
                         anyhow::bail!(
@@ -1311,7 +1292,7 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
             let ws = manager.get(&ticket_id).with_context(|| {
                 format!("ticket {ticket_id} not found in active workspaces or oplog")
             })?;
-            match github::find_pr_by_branch(&remote_url, &ws.branch, &config).await? {
+            match gh.find_pr_by_branch(&ws.branch).await? {
                 Some(pr_number) => targets.push((ticket_id, pr_number)),
                 None => {
                     anyhow::bail!(
@@ -1326,12 +1307,8 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
         let mut statuses: Vec<(String, crate::github::CiStatus)> = Vec::new();
 
         for (ticket_id, pr_number) in &targets {
-            match github::get_check_runs(&remote_url, *pr_number, &config).await? {
-                Some(ci) => statuses.push((ticket_id.clone(), ci)),
-                None => {
-                    anyhow::bail!("no GitHub token found. Set PARSEC_GITHUB_TOKEN.");
-                }
-            }
+            let ci = gh.get_check_runs(*pr_number).await?;
+            statuses.push((ticket_id.clone(), ci));
         }
 
         // In watch + human mode, clear screen before redraw
@@ -1557,7 +1534,10 @@ pub async fn switch(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()>
         let remote_url = git::get_remote_url(&repo_root)?;
 
         // Fetch PR info from GitHub to get head branch
-        let pr_info = github::get_pr_info(&remote_url, pr_number, &config)
+        let gh = github::GitHubClient::new(&remote_url, &config)?
+            .ok_or_else(|| anyhow::anyhow!("no GitHub token found. Set PARSEC_GITHUB_TOKEN."))?;
+        let pr_info = gh
+            .get_pr_info(pr_number)
             .await?
             .ok_or_else(|| anyhow::anyhow!("PR #{} not found", pr_number))?;
 
@@ -2964,16 +2944,19 @@ pub async fn release(
                 step(&format!("Creating GitHub Release '{}'...", release_name));
 
                 if !dry_run {
-                    match github::create_release(remote, &tag, &release_name, &changelog, &config)
-                        .await?
-                    {
-                        Some(url) => Some(url),
-                        None => {
-                            eprintln!(
-                                "warning: no GitHub token found, skipping GitHub Release creation."
-                            );
-                            None
+                    if let Some(gh) = github::GitHubClient::new(remote, &config)? {
+                        match gh.create_release(&tag, &release_name, &changelog).await {
+                            Ok(url) => Some(url),
+                            Err(e) => {
+                                eprintln!("warning: GitHub Release creation failed: {e}");
+                                None
+                            }
                         }
+                    } else {
+                        eprintln!(
+                            "warning: no GitHub token found, skipping GitHub Release creation."
+                        );
+                        None
                     }
                 } else {
                     None
