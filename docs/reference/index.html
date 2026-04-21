@@ -894,6 +894,9 @@
           <li><a href="#ship">ship</a></li>
           <li><a href="#merge">merge</a></li>
           <li><a href="#clean">clean</a></li>
+          <li><a href="#create">create</a></li>
+          <li><a href="#new-issue">new-issue</a></li>
+          <li><a href="#release">release</a></li>
         </ul>
       </div>
 
@@ -939,6 +942,7 @@
           <li><a href="#root">root</a></li>
           <li><a href="#init">init</a></li>
           <li><a href="#config">config</a></li>
+          <li><a href="#doctor">doctor</a></li>
         </ul>
       </div>
     </aside>
@@ -1048,11 +1052,11 @@
               <a href="#list" class="cmd-anchor">#</a>
             </div>
             <p style="color: var(--text-secondary); font-size: 15px; margin-bottom: 12px; line-height: 1.7;">
-              Displays all active parsec-managed worktrees with their ticket IDs, branch names, PR status, and paths. Useful for a quick overview of parallel work in progress.
+              Displays all active parsec-managed worktrees with their ticket IDs, branch names, PR status, and paths. Use <code>--full</code> to include unpushed commit counts, ahead/behind divergence, and last commit metadata per worktree.
             </p>
             <div class="usage-block">
               <span class="usage-label">Usage</span>
-              <code><span class="cmd-kw">parsec list</span> <span class="opt">[OPTIONS]</span></code>
+              <code><span class="cmd-kw">parsec list</span> <span class="opt">[--full] [--no-pr]</span></code>
             </div>
 
             <div class="ref-table-wrap">
@@ -1061,7 +1065,8 @@
                   <tr><th>Option</th><th>Description</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td><code>--no-pr</code></td><td>Skip fetching PR status from GitHub/GitLab (faster output).</td></tr>
+                  <tr><td><code>--full</code></td><td>Show extended metadata: unpushed commits, ahead/behind divergence, last commit message and age.</td></tr>
+                  <tr><td><code>--no-pr</code></td><td>Skip fetching PR status from GitHub/GitLab (faster output, works offline).</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1078,6 +1083,13 @@
 <span class="terminal-line"><span class="arg">  PROJ-123</span>   <span class="link">feature/PROJ-123</span>     <span class="success">open PR</span>  <span class="info">../myrepo.PROJ-123</span></span>
 <span class="terminal-line"><span class="arg">  PROJ-125</span>   <span class="link">feature/PROJ-125</span>     <span class="info">no PR</span>    <span class="info">../myrepo.PROJ-125</span></span>
 <span class="terminal-line"><span class="arg">  PROJ-130</span>   <span class="link">feature/PROJ-130</span>     <span class="success">merged</span>   <span class="info">../myrepo.PROJ-130</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Extended metadata per worktree</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec list</span> <span class="flag">--full</span></span>
+<span class="terminal-line"><span class="output">  TICKET   BRANCH            STATUS  AHEAD/BEHIND  UNPUSHED  LAST COMMIT          AGE</span></span>
+<span class="terminal-line"><span class="output">  ──────────────────────────────────────────────────────────────────────────────────────</span></span>
+<span class="terminal-line"><span class="arg">  PROJ-123</span> <span class="link">feature/PROJ-123</span> <span class="success">open PR</span> <span class="info">+3 / -0</span>      <span class="info">1</span>         <span class="info">Add rate limiting</span>    <span class="info">2h ago</span></span>
+<span class="terminal-line"><span class="arg">  PROJ-125</span> <span class="link">feature/PROJ-125</span> <span class="info">no PR</span>   <span class="info">+1 / -2</span>      <span class="info">0</span>         <span class="info">Fix auth redirect</span>    <span class="info">30m ago</span></span>
               </div>
             </div>
           </div>
@@ -1163,6 +1175,7 @@
                   <tr><td><code>--draft</code></td><td>Open the PR as a draft (GitHub only).</td></tr>
                   <tr><td><code>--no-pr</code></td><td>Push the branch but skip creating a PR/MR.</td></tr>
                   <tr><td><code>--base &lt;BRANCH&gt;</code></td><td>Override the target base branch for the PR.</td></tr>
+                  <tr><td><code>--skip-hooks</code></td><td>Skip pre-ship hooks defined in <code>[hooks]</code> config.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1895,24 +1908,26 @@
           <div class="cmd-block reveal" id="init">
             <div class="cmd-heading">
               <span class="cmd-name">init</span>
-              <span class="cmd-short-desc">Output shell integration script</span>
+              <span class="cmd-short-desc">Output or install shell integration</span>
               <a href="#init" class="cmd-anchor">#</a>
             </div>
             <p style="color: var(--text-secondary); font-size: 15px; margin-bottom: 12px; line-height: 1.7;">
-              Prints a shell integration script that enables automatic <code>cd</code> when using <code>parsec switch</code>, and automatic working-directory recovery after <code>parsec merge</code> removes a worktree you were inside. Add the <code>eval</code> line to your shell's rc file.
+              Prints a shell integration script that enables automatic <code>cd</code> when using <code>parsec switch</code>, and automatic working-directory recovery after <code>parsec merge</code> removes a worktree you were inside. Use <code>--install</code> to auto-append the integration to your shell config file instead of managing it manually.
             </p>
             <div class="usage-block">
               <span class="usage-label">Usage</span>
-              <code><span class="cmd-kw">parsec init</span> <span class="arg">[SHELL]</span> <span class="opt">[OPTIONS]</span></code>
+              <code><span class="cmd-kw">parsec init</span> <span class="arg">[SHELL]</span> <span class="opt">[--install] [--yes]</span></code>
             </div>
 
             <div class="ref-table-wrap">
               <table class="ref-table">
                 <thead>
-                  <tr><th>Argument</th><th>Description</th></tr>
+                  <tr><th>Argument / Option</th><th>Description</th></tr>
                 </thead>
                 <tbody>
                   <tr><td><code>[SHELL]</code></td><td>Shell to generate integration for. Supported: <code>zsh</code>, <code>bash</code>, <code>fish</code>. Defaults to <code>zsh</code>.</td></tr>
+                  <tr><td><code>--install</code></td><td>Auto-append <code>eval "$(parsec init &lt;shell&gt;)"</code> to your shell config file with a confirmation prompt.</td></tr>
+                  <tr><td><code>-y, --yes</code></td><td>Skip the confirmation prompt. Useful for scripted or non-interactive environments.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1923,7 +1938,15 @@
                 <span class="terminal-title-label">parsec init</span>
               </div>
               <div class="terminal-body">
-<span class="terminal-line"><span class="comment"># Add to ~/.zshrc</span></span>
+<span class="terminal-line"><span class="comment"># Preferred: auto-install into ~/.zshrc</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec init</span> <span class="flag">--install</span></span>
+<span class="terminal-line"><span class="info">  Add shell integration to /home/user/.zshrc? [Y/n] </span><span class="arg">y</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Shell integration added. Run </span><span class="link">source ~/.zshrc</span><span class="info"> or restart your shell.</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Non-interactive install (scripted setup)</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec init</span> <span class="flag">--install</span> <span class="flag">--yes</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Manual: print and eval yourself</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">eval</span> "$(<span class="command">parsec init</span> <span class="arg">zsh</span>)"</span>
 <span class="terminal-line">&nbsp;</span>
 <span class="terminal-line"><span class="comment"># bash users</span></span>
@@ -1983,6 +2006,212 @@
 <span class="terminal-line">&nbsp;</span>
 <span class="terminal-line"><span class="comment"># Show current config</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec config show</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- doctor -->
+          <div class="cmd-block reveal" id="doctor">
+            <div class="cmd-heading">
+              <span class="cmd-name">doctor</span>
+              <span class="cmd-short-desc">Validate environment and configuration</span>
+              <a href="#doctor" class="cmd-anchor">#</a>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 15px; margin-bottom: 12px; line-height: 1.7;">
+              Checks your environment and prints ✓/✗ for each item with actionable fix instructions. Verifies git version, config file, API tokens, tracker connectivity, shell integration, tab completions, and remote access.
+            </p>
+            <div class="usage-block">
+              <span class="usage-label">Usage</span>
+              <code><span class="cmd-kw">parsec doctor</span> <span class="opt">[OPTIONS]</span></code>
+            </div>
+
+            <div class="ref-table-wrap">
+              <table class="ref-table">
+                <thead>
+                  <tr><th>Option</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--json</code></td><td>Output results as JSON (<code>{"checks":[...],"all_ok":bool}</code>).</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="terminal-wrap">
+              <div class="terminal-bar">
+                <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+                <span class="terminal-title-label">parsec doctor</span>
+              </div>
+              <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec doctor</span></span>
+<span class="terminal-line"><span class="success">  ✓</span> <span class="info">git version 2.43.0 (worktree support ok)</span></span>
+<span class="terminal-line"><span class="success">  ✓</span> <span class="info">config file found at ~/.config/parsec/config.toml</span></span>
+<span class="terminal-line"><span class="success">  ✓</span> <span class="info">GitHub token configured (github.com) via gh auth token</span></span>
+<span class="terminal-line"><span class="error">  ✗</span> <span class="info">shell integration not found in shell config</span></span>
+<span class="terminal-line"><span class="info">      Add to ~/.zshrc:  </span><span class="command">eval "$(parsec init zsh)"</span></span>
+<span class="terminal-line"><span class="error">  ✗</span> <span class="info">tab completions not configured</span></span>
+<span class="terminal-line"><span class="info">      Add to ~/.zshrc:  </span><span class="command">eval "$(parsec config completions zsh)"</span></span>
+<span class="terminal-line"><span class="success">  ✓</span> <span class="info">remote origin accessible</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="error">2 check(s) failed.</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Machine-readable output</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec doctor</span> <span class="flag">--json</span></span>
+<span class="terminal-line"><span class="output">{"checks":[...],"all_ok":false}</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- create -->
+          <div class="cmd-block reveal" id="create">
+            <div class="cmd-heading">
+              <span class="cmd-name">create</span>
+              <span class="cmd-short-desc">Create a new issue on the tracker</span>
+              <a href="#create" class="cmd-anchor">#</a>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 15px; margin-bottom: 12px; line-height: 1.7;">
+              Creates a new ticket on GitHub Issues or Jira and optionally starts a worktree for it immediately. Auto-detects the tracker from your config.
+            </p>
+            <div class="usage-block">
+              <span class="usage-label">Usage</span>
+              <code><span class="cmd-kw">parsec create</span> <span class="opt">[OPTIONS]</span></code>
+            </div>
+
+            <div class="ref-table-wrap">
+              <table class="ref-table">
+                <thead>
+                  <tr><th>Option</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--title &lt;TEXT&gt;</code> <span class="req-badge">required</span></td><td>Issue title.</td></tr>
+                  <tr><td><code>--body &lt;TEXT&gt;</code></td><td>Issue body / description.</td></tr>
+                  <tr><td><code>--label &lt;A,B&gt;</code></td><td>Comma-separated labels to apply.</td></tr>
+                  <tr><td><code>-p, --project &lt;KEY&gt;</code></td><td>Jira project key (auto-detected from config if omitted).</td></tr>
+                  <tr><td><code>--start</code></td><td>Start a worktree for the new issue immediately after creation.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="terminal-wrap">
+              <div class="terminal-bar">
+                <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+                <span class="terminal-title-label">parsec create</span>
+              </div>
+              <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec create</span> <span class="flag">--title</span> <span class="arg">"Fix login redirect"</span> <span class="flag">--label</span> <span class="arg">"bug"</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created #145: Fix login redirect</span></span>
+<span class="terminal-line"><span class="link">  https://github.com/org/repo/issues/145</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Create and immediately start working</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec create</span> <span class="flag">--title</span> <span class="arg">"Add caching"</span> <span class="flag">--start</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created #146: Add caching</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created workspace at </span><span class="link">~/myrepo.146</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- new-issue -->
+          <div class="cmd-block reveal" id="new-issue">
+            <div class="cmd-heading">
+              <span class="cmd-name">new-issue</span>
+              <span class="cmd-short-desc">Create a new issue (extended)</span>
+              <a href="#new-issue" class="cmd-anchor">#</a>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 15px; margin-bottom: 12px; line-height: 1.7;">
+              Extended issue creation with multi-label support and Jira issue type control. Auto-detects GitHub or Jira from config.
+            </p>
+            <div class="usage-block">
+              <span class="usage-label">Usage</span>
+              <code><span class="cmd-kw">parsec new-issue</span> <span class="opt">[OPTIONS]</span></code>
+            </div>
+
+            <div class="ref-table-wrap">
+              <table class="ref-table">
+                <thead>
+                  <tr><th>Option</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--title &lt;TEXT&gt;</code> <span class="req-badge">required</span></td><td>Issue title.</td></tr>
+                  <tr><td><code>--body &lt;TEXT&gt;</code></td><td>Issue body / description.</td></tr>
+                  <tr><td><code>--label &lt;LABEL&gt;</code></td><td>Label (can be specified multiple times).</td></tr>
+                  <tr><td><code>-p, --project &lt;KEY&gt;</code></td><td>Jira project key (auto-detected from config if omitted).</td></tr>
+                  <tr><td><code>--issue-type &lt;TYPE&gt;</code></td><td>Jira issue type (default: <code>Task</code>).</td></tr>
+                  <tr><td><code>--start</code></td><td>Auto-start a worktree for the new issue.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="terminal-wrap">
+              <div class="terminal-bar">
+                <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+                <span class="terminal-title-label">parsec new-issue</span>
+              </div>
+              <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec new-issue</span> <span class="flag">--title</span> <span class="arg">"Implement caching"</span> <span class="flag">--issue-type</span> <span class="arg">Story</span> <span class="flag">--project</span> <span class="arg">CL</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created CL-42: Implement caching</span></span>
+<span class="terminal-line"><span class="link">  https://jira.example.com/browse/CL-42</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Multiple labels on GitHub</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec new-issue</span> <span class="flag">--title</span> <span class="arg">"Fix auth"</span> <span class="flag">--label</span> <span class="arg">bug</span> <span class="flag">--label</span> <span class="arg">priority</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created #147: Fix auth</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- release -->
+          <div class="cmd-block reveal" id="release">
+            <div class="cmd-heading">
+              <span class="cmd-name">release</span>
+              <span class="cmd-short-desc">Create a versioned release</span>
+              <a href="#release" class="cmd-anchor">#</a>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 15px; margin-bottom: 12px; line-height: 1.7;">
+              Merges the develop branch into the release branch (default: main), creates a version tag, and creates a GitHub Release with auto-generated changelog from commit messages since the last tag.
+            </p>
+            <div class="usage-block">
+              <span class="usage-label">Usage</span>
+              <code><span class="cmd-kw">parsec release</span> <span class="arg">&lt;VERSION&gt;</span> <span class="opt">[OPTIONS]</span></code>
+            </div>
+
+            <div class="ref-table-wrap">
+              <table class="ref-table">
+                <thead>
+                  <tr><th>Argument</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>&lt;VERSION&gt;</code> <span class="req-badge">required</span></td><td>Version string (e.g., <code>0.3.0</code>).</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="ref-table-wrap">
+              <table class="ref-table">
+                <thead>
+                  <tr><th>Option</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>--from &lt;BRANCH&gt;</code></td><td>Source branch to release from (default: develop).</td></tr>
+                  <tr><td><code>--no-github-release</code></td><td>Skip creating a GitHub Release.</td></tr>
+                  <tr><td><code>--dry-run</code></td><td>Show what would happen without making changes.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="terminal-wrap">
+              <div class="terminal-bar">
+                <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+                <span class="terminal-title-label">parsec release</span>
+              </div>
+              <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.3.0</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Merged develop → main</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Tagged </span><span class="link">v0.3.0</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">GitHub Release: </span><span class="link">github.com/org/repo/releases/tag/v0.3.0</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Preview first</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.4.0</span> <span class="flag">--dry-run</span></span>
+<span class="terminal-line"><span class="info">Would merge develop → main</span></span>
+<span class="terminal-line"><span class="info">Would tag v0.4.0</span></span>
+<span class="terminal-line"><span class="info">Would create GitHub Release</span></span>
               </div>
             </div>
           </div>

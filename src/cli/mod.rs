@@ -57,6 +57,10 @@ pub enum Command {
         /// Use an existing branch instead of creating a new one
         #[arg(long = "branch")]
         existing_branch: Option<String>,
+
+        /// Run a command after worktree creation (one-off hook)
+        #[arg(long)]
+        hook: Option<String>,
     },
 
     /// List all active worktrees
@@ -68,6 +72,9 @@ pub enum Command {
         /// Skip PR status lookup (faster, works offline)
         #[arg(long)]
         no_pr: bool,
+        /// Show extended metadata (commits, divergence, last commit)
+        #[arg(long)]
+        full: bool,
     },
 
     /// Show detailed status of a workspace
@@ -113,13 +120,22 @@ pub enum Command {
         /// Target base branch for PR (default from config or worktree base)
         #[arg(long)]
         base: Option<String>,
+
+        /// Skip pre-ship hooks
+        #[arg(long)]
+        skip_hooks: bool,
     },
 
     /// Remove merged or stale worktrees
     ///
     /// By default, only removes worktrees whose branches have been merged
     /// into the base branch. Use --all to remove everything.
+    /// Provide a ticket identifier to remove a specific workspace regardless
+    /// of merge status.
     Clean {
+        /// Specific ticket to clean (removes regardless of merge status)
+        ticket: Option<String>,
+
         /// Remove all worktrees (including unmerged)
         #[arg(long)]
         all: bool,
@@ -153,9 +169,10 @@ pub enum Command {
     /// Merges the PR via the GitHub API. By default uses squash merge
     /// and waits for CI to pass before merging. Cleans up the local
     /// worktree after a successful merge.
+    /// Pass multiple tickets to merge them sequentially (batch mode).
     Merge {
-        /// Ticket identifier (auto-detects current worktree if omitted)
-        ticket: Option<String>,
+        /// Ticket identifiers (auto-detects current worktree if omitted)
+        tickets: Vec<String>,
         /// Use rebase merge instead of squash
         #[arg(long)]
         rebase: bool,
@@ -173,8 +190,8 @@ pub enum Command {
     /// summary. Auto-detects the current worktree if no ticket is given.
     /// Use --watch to poll until all checks complete.
     Ci {
-        /// Ticket identifier (auto-detects current worktree if omitted)
-        ticket: Option<String>,
+        /// Ticket identifiers (auto-detects current worktree if omitted)
+        tickets: Vec<String>,
         /// Watch CI in real-time until completion (refresh every 5s)
         #[arg(long)]
         watch: bool,
@@ -345,10 +362,17 @@ pub enum Command {
     /// Prints a shell function that wraps parsec for auto-cd on switch
     /// and auto-recovery after merge cleanup. Supports zsh and bash.
     /// Add eval "$(parsec init zsh)" to your ~/.zshrc.
+    /// Use --install to automatically append the integration to your shell config.
     Init {
         /// Shell type (zsh or bash)
         #[arg(default_value = "zsh")]
         shell: String,
+        /// Automatically install shell integration into shell config file
+        #[arg(long)]
+        install: bool,
+        /// Skip confirmation prompt (for scripting)
+        #[arg(long, short)]
+        yes: bool,
     },
 
     /// Configure parsec
@@ -358,6 +382,73 @@ pub enum Command {
     Config {
         #[command(subcommand)]
         action: ConfigAction,
+    },
+
+    /// Validate environment and configuration
+    ///
+    /// Checks git version, token configuration, tracker connectivity,
+    /// shell integration, and remote access. Prints ✓/✗ for each check
+    /// with actionable fix instructions.
+    Doctor,
+
+    /// Create a release: merge to release branch, tag, and create GitHub Release
+    ///
+    /// Merges the current develop branch into the release branch (default: main),
+    /// creates a git tag, and creates a GitHub Release with auto-generated changelog.
+    Release {
+        /// Version string (e.g., "0.3.0")
+        version: String,
+        /// Source branch to release from (default: develop or default branch)
+        #[arg(long)]
+        from: Option<String>,
+        /// Skip creating GitHub Release
+        #[arg(long)]
+        no_github_release: bool,
+        /// Dry run — show what would happen without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Create a new issue on the tracker
+    ///
+    /// Creates a new ticket on GitHub Issues, Jira, or GitLab from the
+    /// command line. Auto-detects the tracker from config. Use --start
+    /// to immediately create a worktree for the new issue.
+    #[command(visible_alias = "new-issue")]
+    Create {
+        /// Issue title
+        #[arg(long)]
+        title: String,
+
+        /// Issue body/description
+        #[arg(long)]
+        body: Option<String>,
+
+        /// Labels to add (can be specified multiple times)
+        #[arg(long)]
+        label: Vec<String>,
+
+        /// Jira project key (e.g. PROJ). Auto-detected from config if omitted
+        #[arg(long, short)]
+        project: Option<String>,
+
+        /// Jira issue type (default: Task)
+        #[arg(long, default_value = "Task")]
+        issue_type: String,
+
+        /// Start a worktree after creation
+        #[arg(long)]
+        start: bool,
+    },
+
+    /// Rename a workspace to a different ticket ID
+    ///
+    /// Changes the ticket ID, renames the branch, and moves the worktree directory.
+    Rename {
+        /// Current ticket identifier
+        old_ticket: String,
+        /// New ticket identifier
+        new_ticket: String,
     },
 }
 
@@ -417,6 +508,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             title,
             on,
             existing_branch,
+            hook,
         } => {
             commands::start(
                 &repo_path,
@@ -425,11 +517,12 @@ pub async fn run(cli: Cli) -> Result<()> {
                 title,
                 on.as_deref(),
                 existing_branch.as_deref(),
+                hook,
                 output_mode,
             )
             .await
         }
-        Command::List { no_pr } => commands::list(&repo_path, no_pr, output_mode).await,
+        Command::List { no_pr, full } => commands::list(&repo_path, no_pr, full, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
         }
@@ -441,12 +534,35 @@ pub async fn run(cli: Cli) -> Result<()> {
             draft,
             no_pr,
             base,
-        } => commands::ship(&repo_path, &ticket, draft, no_pr, base, output_mode).await,
+            skip_hooks,
+        } => {
+            commands::ship(
+                &repo_path,
+                &ticket,
+                draft,
+                no_pr,
+                base,
+                skip_hooks,
+                output_mode,
+            )
+            .await
+        }
         Command::Clean {
+            ticket,
             all,
             dry_run,
             orphans,
-        } => commands::clean(&repo_path, all, dry_run, orphans, output_mode).await,
+        } => {
+            commands::clean(
+                &repo_path,
+                ticket.as_deref(),
+                all,
+                dry_run,
+                orphans,
+                output_mode,
+            )
+            .await
+        }
         Command::Sync {
             ticket,
             all,
@@ -466,23 +582,40 @@ pub async fn run(cli: Cli) -> Result<()> {
             commands::pr_status(&repo_path, ticket.as_deref(), output_mode).await
         }
         Command::Merge {
-            ticket,
+            tickets,
             rebase,
             no_wait,
             no_delete_branch,
         } => {
-            commands::merge(
-                &repo_path,
-                ticket.as_deref(),
-                rebase,
-                no_wait,
-                no_delete_branch,
-                output_mode,
-            )
-            .await
+            if tickets.len() > 1 {
+                commands::merge_batch(
+                    &repo_path,
+                    &tickets.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                    rebase,
+                    no_wait,
+                    no_delete_branch,
+                    output_mode,
+                )
+                .await
+            } else {
+                commands::merge(
+                    &repo_path,
+                    tickets.first().map(|s| s.as_str()),
+                    rebase,
+                    no_wait,
+                    no_delete_branch,
+                    output_mode,
+                )
+                .await
+            }
         }
-        Command::Ci { ticket, watch, all } => {
-            commands::ci(&repo_path, ticket.as_deref(), watch, all, output_mode).await
+        Command::Ci {
+            tickets,
+            watch,
+            all,
+        } => {
+            let refs: Vec<&str> = tickets.iter().map(|s| s.as_str()).collect();
+            commands::ci(&repo_path, &refs, watch, all, output_mode).await
         }
         Command::Diff {
             ticket,
@@ -512,7 +645,17 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
         }
         Command::Root => commands::root(&repo_path).await,
-        Command::Init { shell } => commands::init_shell(&shell).await,
+        Command::Init {
+            shell,
+            install,
+            yes,
+        } => {
+            if install {
+                commands::init_install(&shell, yes).await
+            } else {
+                commands::init_shell(&shell).await
+            }
+        }
         Command::Config { action } => match action {
             ConfigAction::Init => commands::config_init(output_mode).await,
             ConfigAction::Show => commands::config_show(output_mode).await,
@@ -520,5 +663,46 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Man { dir } => commands::config_man(&dir).await,
             ConfigAction::Completions { shell } => commands::config_completions(shell).await,
         },
+        Command::Doctor => commands::doctor(&repo_path, output_mode).await,
+        Command::Release {
+            version,
+            from,
+            no_github_release,
+            dry_run,
+        } => {
+            commands::release(
+                &repo_path,
+                &version,
+                from.as_deref(),
+                no_github_release,
+                dry_run,
+                output_mode,
+            )
+            .await
+        }
+        Command::Create {
+            title,
+            body,
+            label,
+            project,
+            issue_type,
+            start,
+        } => {
+            commands::create(
+                &repo_path,
+                &title,
+                body.as_deref(),
+                &label,
+                project.as_deref(),
+                &issue_type,
+                start,
+                output_mode,
+            )
+            .await
+        }
+        Command::Rename {
+            old_ticket,
+            new_ticket,
+        } => commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await,
     }
 }

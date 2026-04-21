@@ -16,11 +16,35 @@
 
 Unlike plain `git worktree`, parsec tracks workspace state, detects file conflicts across worktrees, provides operation history with undo, supports stacked PRs, and offers CI status monitoring — all from a single CLI.
 
-**Key use cases:**
-- Run multiple AI coding agents on the same repo simultaneously (no `index.lock` conflicts)
-- Work on several tickets in parallel as a developer without stashing or switching branches
-- Ship complete features (push + PR + cleanup) with one command
-- Monitor CI, merge PRs, and manage stacked dependencies from the terminal
+---
+
+## Why parsec?
+
+### What changes day-to-day
+
+| What you do today | With parsec |
+|---|---|
+| `git checkout -b feat/xyz`, `git worktree add`, configure manually | `parsec start TICKET` |
+| `git push`, `gh pr create`, `git worktree remove`, delete branch | `parsec ship TICKET` |
+| Open GitHub web UI to check CI results | `parsec ci --watch` |
+| Merge PR on GitHub, delete branch, clean local worktree | `parsec merge TICKET` |
+
+### Key metrics
+
+- **PR lead time**: Less time between starting a ticket and opening a PR — no setup friction, no stash management
+- **Context switches eliminated**: Jump between tickets without losing state; each ticket lives in its own directory
+- **Conflict prevention**: `parsec conflicts` catches cross-ticket file collisions before they become merge problems
+- **0 `index.lock` conflicts**: Every worktree has its own `.git` index — no serialized writes
+
+### Use cases
+
+**Solo developer** — Work on several tickets in parallel without stashing. Ship complete features (push + PR + cleanup) with one command. See all in-flight work at a glance with `parsec list`.
+
+**Team** — View the active sprint as a Kanban board with `parsec board`. Detect which tickets touch the same files before review. Monitor all open PRs and their CI status from the terminal.
+
+**AI agent orchestration** — Run multiple coding agents on the same repo simultaneously. Every agent gets its own isolated worktree with no `index.lock` contention. Use `--json` on every command for structured output agents can parse directly.
+
+---
 
 ## The Problem
 
@@ -84,12 +108,45 @@ Removed 1 worktree(s):
 - **GitHub and GitLab** -- PR and MR creation for both platforms
 - **Stacked PRs** -- Create dependent PR chains with `--on` and sync the entire stack
 - **Sprint board view** -- See the active sprint as a Kanban board with `parsec board`
+- **Environment diagnostics** -- `parsec doctor` validates your setup and shows what needs fixing
+- **Pre-ship hooks** -- Run custom commands before shipping with configurable `[hooks]` pre_ship
+- **Issue creation** -- Create GitHub/Jira issues and start worktrees in one step with `parsec create`
+- **Release workflow** -- Merge, tag, and create GitHub Releases with `parsec release`
 
-## Why AI-Native?
+---
+
+## Impact
+
+### Concrete time savings
+
+The typical "start ticket, work, ship" flow goes from 5+ commands to 2:
+
+```bash
+# Before parsec
+git fetch origin
+git checkout -b feature/PROJ-1234 origin/main
+# ... open browser, look up Jira ticket title ...
+git push -u origin feature/PROJ-1234
+gh pr create --title "Add user authentication" --base main
+git checkout main
+git worktree remove ../myapp.PROJ-1234
+
+# With parsec: 2 commands, no browser
+parsec start PROJ-1234   # fetches title from Jira automatically
+parsec ship PROJ-1234    # push + PR + cleanup in one step
+```
+
+### Concrete risk reduction
+
+- **0 `index.lock` conflicts** — worktree isolation is physical; each workspace has its own `.git/index`
+- **Conflict detection before it hurts** — `parsec conflicts` shows cross-worktree file overlap before any push
+- **Undo for mistakes** — `parsec undo` reverses the last operation (start, ship, clean)
+
+### Token efficiency for AI agents
 
 Traditional AI agents waste tokens calling raw APIs. Each Jira or GitHub API call costs dozens of tokens for auth setup, pagination, and response parsing. **parsec packages git + tracker operations into single commands with structured output.**
 
-### Before: Raw API Calls
+#### Before: Raw API Calls
 
 ```bash
 # Agent needs: sprint tickets + status + worktree info + PR status
@@ -101,14 +158,14 @@ Traditional AI agents waste tokens calling raw APIs. Each Jira or GitHub API cal
 # → 5+ API calls, 100+ tokens, custom parsing logic
 ```
 
-### After: One parsec Command
+#### After: One parsec Command
 
 ```bash
 parsec board --json
 # → Sprint + status-grouped tickets + worktree/PR flags in one structured JSON
 ```
 
-### Key Benefits for AI Agents
+#### Key benefits for AI agents
 
 | Capability | What it means |
 |------------|---------------|
@@ -119,13 +176,79 @@ parsec board --json
 | Env var defaults | Zero-arg commands after one-time setup |
 | Conflict detection | AI agents can check before parallel edits |
 
+---
+
+## Use Cases
+
+### Solo developer
+
+Work on multiple tickets in parallel without stashing or losing context. Each ticket lives in its own sibling directory, so switching is just `cd`.
+
+```bash
+parsec start PROJ-1234     # new worktree from Jira ticket
+parsec start PROJ-5678     # second worktree, works in parallel
+cd $(parsec switch PROJ-1234)
+# ... make changes, commit normally ...
+parsec ship PROJ-1234      # push + PR + cleanup
+```
+
+### Team
+
+Keep the whole team's sprint visible from the terminal. Catch file conflicts before they become merge problems. Track all open PRs without leaving the shell.
+
+```bash
+parsec board               # sprint board: In Progress / In Review / Done
+parsec conflicts           # which tickets touch the same files?
+parsec pr-status           # CI and review state for all open PRs
+parsec ci PROJ-1234 --watch  # wait for CI to go green
+```
+
+### AI agent orchestration
+
+Run multiple coding agents on the same repo simultaneously. Each agent calls `parsec start` to get an isolated worktree, uses `--json` for structured output, and calls `parsec ship` when done. No `index.lock` contention, no custom shell parsing.
+
+```bash
+# Agent 1
+parsec start PROJ-100 --json   # isolated workspace, structured response
+
+# Agent 2 (same repo, same time)
+parsec start PROJ-101 --json   # separate worktree, no collision
+
+# Coordinator
+parsec conflicts --json        # detect overlap before agents commit
+parsec board --json            # full sprint + PR status in one call
+```
+
+---
+
 ## Installation
+
+### Pre-built binaries (recommended)
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/erishforG/git-parsec/releases):
+
+```bash
+# macOS (Apple Silicon)
+curl -LO https://github.com/erishforG/git-parsec/releases/latest/download/parsec-{version}-aarch64-apple-darwin.tar.gz
+tar xzf parsec-*-aarch64-apple-darwin.tar.gz
+sudo mv parsec /usr/local/bin/
+
+# macOS (Intel)
+curl -LO https://github.com/erishforG/git-parsec/releases/latest/download/parsec-{version}-x86_64-apple-darwin.tar.gz
+
+# Linux (x86_64)
+curl -LO https://github.com/erishforG/git-parsec/releases/latest/download/parsec-{version}-x86_64-unknown-linux-gnu.tar.gz
+
+# Windows — download .zip from the Releases page
+```
+
+### Via Cargo
 
 ```bash
 cargo install git-parsec
 ```
 
-Or build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/erishforG/git-parsec.git
@@ -171,14 +294,44 @@ $ parsec log
 
 ---
 
-## Commands
+## Command Reference
+
+| Command | What it does |
+|---------|-------------|
+| [`parsec start`](#parsec-start-ticket) | Create an isolated worktree for a ticket |
+| [`parsec adopt`](#parsec-adopt-ticket) | Import an existing branch into parsec management |
+| [`parsec list`](#parsec-list) | List all active parsec-managed worktrees |
+| [`parsec status`](#parsec-status-ticket) | Show detailed status of a workspace |
+| [`parsec ticket`](#parsec-ticket-ticket) | View ticket details from the configured tracker |
+| [`parsec ship`](#parsec-ship-ticket) | Push, create PR/MR, and clean up in one step |
+| [`parsec clean`](#parsec-clean) | Remove worktrees for merged branches |
+| [`parsec conflicts`](#parsec-conflicts) | Detect files modified in more than one worktree |
+| [`parsec switch`](#parsec-switch-ticket) | Print (or cd to) a ticket's worktree path |
+| [`parsec log`](#parsec-log-ticket) | Show operation history |
+| [`parsec undo`](#parsec-undo) | Undo the last parsec operation |
+| [`parsec sync`](#parsec-sync-ticket) | Rebase/merge latest base branch into a worktree |
+| [`parsec open`](#parsec-open-ticket) | Open PR or ticket page in browser |
+| [`parsec pr-status`](#parsec-pr-status-ticket) | Check CI and review status of shipped PRs |
+| [`parsec ci`](#parsec-ci-ticket---watch---all) | Check CI pipeline status for a PR |
+| [`parsec merge`](#parsec-merge-ticket---rebase---no-wait---no-delete-branch) | Merge a PR from the terminal |
+| [`parsec diff`](#parsec-diff-ticket---stat---name-only) | View changes vs base branch |
+| [`parsec stack`](#parsec-stack---sync) | View and manage stacked PR dependencies |
+| [`parsec board`](#parsec-board) | Show sprint as a Kanban board |
+| [`parsec init`](#parsec-init) | Install shell integration |
+| [`parsec config`](#parsec-config) | Configure parsec |
+| [`parsec doctor`](#parsec-doctor) | Validate environment and configuration |
+| [`parsec create`](#parsec-create) | Create a new issue and optionally start a worktree |
+| [`parsec new-issue`](#parsec-new-issue) | Create a new issue (alias with extra options) |
+| [`parsec release`](#parsec-release-version) | Merge, tag, and create a GitHub Release |
+
+---
 
 ### `parsec start <ticket>`
 
 Create an isolated worktree for a ticket. Fetches the ticket title from your configured tracker (Jira, GitHub Issues) or accepts a manual title.
 
 ```
-parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>] [--branch <name>]
+parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>] [--branch <name>] [--hook "cmd"]
 ```
 
 | Option | Description |
@@ -187,6 +340,7 @@ parsec start <ticket> [--base <branch>] [--title "text"] [--on <parent-ticket>] 
 | `--title "text"` | Set ticket title manually, skip tracker lookup |
 | `--on <ticket>` | Stack on another ticket's branch (for dependent PRs) |
 | `--branch <name>` | Use an existing branch instead of creating a new one |
+| `--hook "cmd"` | Run a command after worktree creation (one-off hook) |
 
 ```bash
 # With Jira integration (title auto-fetched)
@@ -211,6 +365,9 @@ $ parsec start CL-2208 --branch feature/CL-2208
 
 # Attach to a remote-only branch (auto-fetches and tracks)
 $ parsec start CL-2208 --branch origin/feature/CL-2208
+
+# Run a setup command after creation
+$ parsec start PROJ-42 --hook "npm install"
 ```
 
 ---
@@ -245,7 +402,7 @@ Adopted branch 'fix/payment-timeout' as PROJ-99 at /home/user/myapp.PROJ-99
 List all active parsec-managed worktrees.
 
 ```
-parsec list
+parsec list [--full] [--no-pr]
 ```
 
 ```bash
@@ -257,9 +414,23 @@ $ parsec list
 │ TEST-2 │ feature/TEST-2 │ active │ 2026-04-15 09:05 │ /home/user/myapp.TEST-2    │
 ╰────────┴────────────────┴────────┴──────────────────┴────────────────────────────╯
 
+# Show extended metadata per worktree
+$ parsec list --full
+╭────────┬────────────────┬────────┬──────────────┬──────────┬─────────────────────┬───────────┬────────────────────────────╮
+│ Ticket │ Branch         │ Status │ Ahead/Behind │ Unpushed │ Last Commit         │ Age       │ Path                       │
+├────────┼────────────────┼────────┼──────────────┼──────────┼─────────────────────┼───────────┼────────────────────────────┤
+│ TEST-1 │ feature/TEST-1 │ active │ +3 / -0      │ 1        │ Add rate limiting   │ 2h ago    │ /home/user/myapp.TEST-1    │
+│ TEST-2 │ feature/TEST-2 │ active │ +1 / -2      │ 0        │ Fix auth redirect   │ 30m ago   │ /home/user/myapp.TEST-2    │
+╰────────┴────────────────┴────────┴──────────────┴──────────┴─────────────────────┴───────────┴────────────────────────────╯
+
 $ parsec list --json
 [{"ticket":"TEST-1","path":"/home/user/myapp.TEST-1","branch":"feature/TEST-1","base_branch":"main","created_at":"2026-04-15T09:00:00Z","ticket_title":"Add auth","status":"active"}]
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--full` | Show extended metadata (commits, divergence, last commit) |
+| `--no-pr` | Skip PR status lookup (faster, works offline) |
 
 ---
 
@@ -317,7 +488,7 @@ $ parsec ticket CL-2283 --json
 Push the branch, create a PR (GitHub) or MR (GitLab), and clean up the worktree. The forge is auto-detected from the remote URL.
 
 ```
-parsec ship <ticket> [--draft] [--no-pr] [--base <branch>]
+parsec ship <ticket> [--draft] [--no-pr] [--base <branch>] [--skip-hooks]
 ```
 
 | Option | Description |
@@ -325,6 +496,7 @@ parsec ship <ticket> [--draft] [--no-pr] [--base <branch>]
 | `--draft` | Create the PR/MR as a draft |
 | `--no-pr` | Push only, skip PR/MR creation |
 | `--base <branch>` | Target base branch for PR (overrides config `default_base` and worktree base) |
+| `--skip-hooks` | Skip pre-ship hooks defined in config |
 
 ```bash
 # Push + PR + cleanup
@@ -579,6 +751,7 @@ $ parsec pr-status PROJ-1234 --json
 ```
 
 Requires: `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`)
+
 ---
 
 ### `parsec ci [ticket] [--watch] [--all]`
@@ -770,6 +943,35 @@ Defaults can be set via environment variables or config file (see below).
 
 ---
 
+### `parsec init`
+
+Output or install shell integration for auto-cd on `parsec switch` and CWD recovery after `parsec merge`.
+
+```
+parsec init [shell] [--install] [--yes]
+```
+
+| Option | Description |
+|--------|-------------|
+| `shell` | Shell type: `zsh` (default) or `bash` |
+| `--install` | Auto-append integration to shell config file |
+| `-y, --yes` | Skip confirmation prompt (for scripting) |
+
+```bash
+# Print the shell function (pipe to eval)
+$ parsec init zsh
+
+# Auto-install into ~/.zshrc
+$ parsec init --install
+Add shell integration to /home/user/.zshrc? [Y/n] y
+Shell integration added. Run `source ~/.zshrc` or restart your shell.
+
+# Non-interactive install
+$ parsec init --install --yes
+```
+
+---
+
 ### `parsec config`
 
 ```bash
@@ -805,6 +1007,118 @@ $ sudo parsec config man
 
 ---
 
+### `parsec doctor`
+
+Validate your environment and configuration. Prints ✓/✗ for each check with actionable fix instructions.
+
+```bash
+$ parsec doctor
+parsec doctor
+  ✓ git version 2.43.0 (worktree support ok)
+  ✓ config file found at ~/.config/parsec/config.toml
+  ✓ GitHub token configured (github.com) via gh auth token
+  ✗ shell integration not found in shell config
+    Add to ~/.zshrc:  eval "$(parsec init zsh)"
+  ✗ tab completions not configured
+    Add to ~/.zshrc:  eval "$(parsec config completions zsh)"
+  ✓ remote origin accessible
+
+2 check(s) failed.
+
+$ parsec doctor --json
+{"checks":[...],"all_ok":false}
+```
+
+---
+
+### `parsec create`
+
+Create a new issue on the configured tracker (GitHub Issues or Jira) and optionally start a worktree for it immediately.
+
+```
+parsec create --title "text" [--body "text"] [--label "a,b"] [--project KEY] [--start]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--title "text"` | Issue title (required) |
+| `--body "text"` | Issue body/description |
+| `--label "a,b"` | Comma-separated labels |
+| `-p, --project KEY` | Jira project key (auto-detected from config) |
+| `--start` | Start a worktree after creation |
+
+```bash
+# Create a GitHub issue
+$ parsec create --title "Fix login redirect" --label "bug"
+Created #145: Fix login redirect
+  https://github.com/org/repo/issues/145
+
+# Create and immediately start working
+$ parsec create --title "Add caching layer" --start
+Created #146: Add caching layer
+Created workspace for #146 at /home/user/myapp.146
+```
+
+---
+
+### `parsec new-issue`
+
+Create a new issue on the tracker (alias for `create` with additional options). Supports GitHub Issues and Jira with configurable issue type.
+
+```
+parsec new-issue --title "text" [--body "text"] [--label "a"] [--project KEY] [--issue-type TYPE] [--start]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--title "text"` | Issue title (required) |
+| `--body "text"` | Issue body/description |
+| `--label "a"` | Labels (can be specified multiple times) |
+| `-p, --project KEY` | Jira project key (auto-detected from config) |
+| `--issue-type TYPE` | Jira issue type (default: Task) |
+| `--start` | Auto-start a worktree for the new issue |
+
+```bash
+# Create with issue type for Jira
+$ parsec new-issue --title "Implement API caching" --issue-type Story --project CL
+
+# Multiple labels
+$ parsec new-issue --title "Fix auth bug" --label bug --label priority
+```
+
+---
+
+### `parsec release <version>`
+
+Create a release: merge develop to main, create a git tag, and optionally create a GitHub Release with auto-generated changelog.
+
+```
+parsec release <version> [--from <branch>] [--no-github-release] [--dry-run]
+```
+
+| Option | Description |
+|--------|-------------|
+| `<version>` | Version string (e.g., "0.3.0") |
+| `--from <branch>` | Source branch to release from (default: develop) |
+| `--no-github-release` | Skip creating GitHub Release |
+| `--dry-run` | Show what would happen without making changes |
+
+```bash
+# Full release
+$ parsec release 0.3.0
+✓ Merged develop → main
+✓ Tagged v0.3.0
+✓ GitHub Release created: https://github.com/org/repo/releases/tag/v0.3.0
+
+# Dry run first
+$ parsec release 0.4.0 --dry-run
+
+# Skip GitHub Release
+$ parsec release 0.3.1 --no-github-release
+```
+
+---
+
 ## Global Flags
 
 These flags work on every command:
@@ -828,11 +1142,19 @@ $ parsec status --repo /path/to/other-repo
 `parsec switch` prints a path but cannot `cd` for you. The shell integration wraps `parsec switch` so it changes your directory automatically:
 
 ```bash
-# Add to ~/.zshrc
-eval "$(parsec config shell zsh)"
+# Preferred: auto-install (appends to your shell config with confirmation)
+$ parsec init --install
+Add shell integration to /home/user/.zshrc? [Y/n] y
+Shell integration added to /home/user/.zshrc. Run `source ~/.zshrc` or restart your shell.
 
-# Or for bash, add to ~/.bashrc
-eval "$(parsec config shell bash)"
+# Or with --yes for scripted setup
+$ parsec init --install --yes
+
+# Manual: add to ~/.zshrc yourself
+eval "$(parsec init zsh)"
+
+# Or for bash
+eval "$(parsec init bash)"
 ```
 
 After sourcing, `parsec switch <ticket>` will `cd` into the worktree directly:
@@ -914,6 +1236,13 @@ draft = false         # Create PRs as drafts
 [hooks]
 # Commands to run in new worktrees after creation
 post_create = ["npm install"]
+# Commands to run before shipping (pre-push hooks)
+pre_ship = ["cargo test", "cargo clippy"]
+
+[release]
+# branch = "main"       # Target release branch (default: main)
+# tag_prefix = "v"       # Tag prefix (default: "v")
+# changelog = true       # Generate changelog in release notes
 
 [tracker.auto_transition]
 # on_start = "In Progress"   # Transition when `parsec start` runs
@@ -958,6 +1287,7 @@ Token priority: `PARSEC_*_TOKEN` > platform-specific variables.
 | Stacked PRs | Yes | Yes | No | No | Yes |
 | Auto-cleanup merged | Yes | No | No | Manual | No |
 | Post-create hooks | Yes | No | Yes | No | No |
+| Issue creation from CLI | Yes | No | No | No | No |
 | AI token efficiency | Single-command ops | N/A | N/A | N/A | N/A |
 | GUI | CLI only | Desktop + TUI | CLI | CLI | CLI |
 | Zero config start | Yes | No | Yes | No | No |

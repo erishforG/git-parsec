@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::json;
 
-use super::BoardTicketDisplay;
+use super::{BoardTicketDisplay, WorkspaceFullInfo};
 use crate::config::ParsecConfig;
 use crate::conflict::FileConflict;
 use crate::oplog::OpEntry;
@@ -43,8 +43,51 @@ pub fn print_list(
     emit(&value);
 }
 
-pub fn print_status(workspaces: &[Workspace]) {
-    emit(&workspaces);
+pub fn print_list_full(
+    infos: &[WorkspaceFullInfo],
+    pr_map: &std::collections::HashMap<String, (u64, String)>,
+) {
+    let value: Vec<serde_json::Value> = infos
+        .iter()
+        .map(|info| {
+            let ws = &info.workspace;
+            let mut obj = serde_json::to_value(ws).unwrap_or(serde_json::json!({}));
+            if let Some((num, state)) = pr_map.get(&ws.ticket) {
+                obj["pr_number"] = serde_json::json!(num);
+                obj["pr_state"] = serde_json::json!(state);
+            }
+            obj["unpushed"] = serde_json::json!(info.unpushed);
+            obj["ahead"] = serde_json::json!(info.ahead);
+            obj["behind"] = serde_json::json!(info.behind);
+            obj["last_commit_msg"] = serde_json::json!(info.last_commit_msg);
+            obj["last_commit_age"] = serde_json::json!(info.last_commit_age);
+            obj
+        })
+        .collect();
+    emit(&value);
+}
+
+pub fn print_status(workspaces: &[Workspace], ticket_infos: &[Option<crate::tracker::Ticket>]) {
+    let enriched: Vec<serde_json::Value> = workspaces
+        .iter()
+        .enumerate()
+        .map(|(i, ws)| {
+            let mut obj = serde_json::to_value(ws).unwrap_or_default();
+            if let Some(Some(info)) = ticket_infos.get(i) {
+                if let Some(obj_map) = obj.as_object_mut() {
+                    obj_map.insert("tracker_summary".to_string(), serde_json::json!(info.title));
+                    obj_map.insert("tracker_status".to_string(), serde_json::json!(info.status));
+                    obj_map.insert(
+                        "tracker_assignee".to_string(),
+                        serde_json::json!(info.assignee),
+                    );
+                    obj_map.insert("tracker_url".to_string(), serde_json::json!(info.url));
+                }
+            }
+            obj
+        })
+        .collect();
+    emit(&enriched);
 }
 
 pub fn print_ship(result: &ShipResult) {
@@ -215,6 +258,29 @@ pub fn print_inbox(tickets: &[InboxTicket]) {
     emit(&tickets);
 }
 
+pub fn print_doctor(checks: &[super::DoctorCheck]) {
+    let all_ok = checks.iter().all(|c| c.ok);
+    let checks_json: Vec<serde_json::Value> = checks
+        .iter()
+        .map(|c| {
+            let mut obj = json!({
+                "name": c.name,
+                "ok": c.ok,
+                "detail": c.detail,
+            });
+            if let Some(fix) = &c.fix {
+                obj["fix"] = json!(fix);
+            }
+            obj
+        })
+        .collect();
+    let value = json!({
+        "checks": checks_json,
+        "all_ok": all_ok,
+    });
+    println!("{}", value);
+}
+
 pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTicketDisplay>)]) {
     let sprint_json = sprint.map(|s| {
         json!({
@@ -261,6 +327,27 @@ pub fn print_board(sprint: Option<&SprintInfo>, columns: &[(String, Vec<BoardTic
         "sprint": sprint_json,
         "total_count": total_count,
         "columns": columns_json,
+    });
+    println!("{}", value);
+}
+
+pub fn print_create(ticket_id: &str, title: &str, url: &str) {
+    let value = json!({
+        "action": "create",
+        "id": ticket_id,
+        "title": title,
+        "url": url,
+    });
+    println!("{}", value);
+}
+
+pub fn print_rename(old_ticket: &str, new_ticket: &str, workspace: &crate::worktree::Workspace) {
+    let value = json!({
+        "action": "rename",
+        "old_ticket": old_ticket,
+        "new_ticket": new_ticket,
+        "branch": workspace.branch,
+        "path": workspace.path,
     });
     println!("{}", value);
 }

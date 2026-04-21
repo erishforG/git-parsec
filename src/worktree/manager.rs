@@ -33,6 +33,27 @@ impl WorktreeManager {
         &self.repo_root
     }
 
+    /// Compute the worktree directory path for a given ticket based on layout config.
+    fn worktree_path_for(&self, ticket: &str) -> PathBuf {
+        match self.config.workspace.layout {
+            crate::config::WorktreeLayout::Sibling => {
+                let repo_name = self
+                    .repo_root
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "repo".to_string());
+                self.repo_root
+                    .parent()
+                    .unwrap_or(&self.repo_root)
+                    .join(format!("{}.{}", repo_name, ticket))
+            }
+            crate::config::WorktreeLayout::Internal => self
+                .repo_root
+                .join(&self.config.workspace.base_dir)
+                .join(ticket),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // create
     // -----------------------------------------------------------------------
@@ -61,24 +82,7 @@ impl WorktreeManager {
             }
         };
 
-        let worktree_path = match self.config.workspace.layout {
-            crate::config::WorktreeLayout::Sibling => {
-                // ../reponame.ticket/
-                let repo_name = self
-                    .repo_root
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "repo".to_string());
-                self.repo_root
-                    .parent()
-                    .unwrap_or(&self.repo_root)
-                    .join(format!("{}.{}", repo_name, ticket))
-            }
-            crate::config::WorktreeLayout::Internal => self
-                .repo_root
-                .join(&self.config.workspace.base_dir)
-                .join(ticket),
-        };
+        let worktree_path = self.worktree_path_for(ticket);
 
         // Graceful fetch — won't fail if no remote exists
         git::fetch_if_remote(&self.repo_root)?;
@@ -250,23 +254,7 @@ impl WorktreeManager {
             Some(p) => p,
             None => {
                 // No worktree exists — create one
-                let wt_path = match self.config.workspace.layout {
-                    crate::config::WorktreeLayout::Sibling => {
-                        let repo_name = self
-                            .repo_root
-                            .file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_else(|| "repo".to_string());
-                        self.repo_root
-                            .parent()
-                            .unwrap_or(&self.repo_root)
-                            .join(format!("{}.{}", repo_name, ticket))
-                    }
-                    crate::config::WorktreeLayout::Internal => self
-                        .repo_root
-                        .join(&self.config.workspace.base_dir)
-                        .join(ticket),
-                };
+                let wt_path = self.worktree_path_for(ticket);
                 git::run(
                     &self.repo_root,
                     &[

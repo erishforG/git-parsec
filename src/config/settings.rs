@@ -24,6 +24,14 @@ fn default_true() -> bool {
     true
 }
 
+fn default_release_branch() -> String {
+    "main".to_string()
+}
+
+fn default_tag_prefix() -> String {
+    "v".to_string()
+}
+
 // ---------------------------------------------------------------------------
 // TrackerProvider
 // ---------------------------------------------------------------------------
@@ -115,6 +123,8 @@ pub struct JiraConfig {
     pub project: Option<String>,
     pub board_id: Option<u64>,
     pub assignee: Option<String>,
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +203,9 @@ pub struct HooksConfig {
     /// Commands to run after creating a worktree (in the worktree directory)
     #[serde(default)]
     pub post_create: Vec<String>,
+    /// Commands to run before shipping a worktree (in the worktree directory)
+    #[serde(default)]
+    pub pre_ship: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +223,33 @@ pub struct AutoTransitionConfig {
     /// Target status name when `parsec merge` is run (e.g. "Done")
     #[serde(default)]
     pub on_merge: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// ReleaseConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseConfig {
+    /// Target branch for release (default: "main")
+    #[serde(default = "default_release_branch")]
+    pub branch: String,
+    /// Tag prefix (default: "v")
+    #[serde(default = "default_tag_prefix")]
+    pub tag_prefix: String,
+    /// Auto-generate changelog
+    #[serde(default = "default_true")]
+    pub changelog: bool,
+}
+
+impl Default for ReleaseConfig {
+    fn default() -> Self {
+        Self {
+            branch: default_release_branch(),
+            tag_prefix: default_tag_prefix(),
+            changelog: true,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +298,8 @@ pub struct ParsecConfig {
     pub ship: ShipConfig,
     #[serde(default)]
     pub hooks: HooksConfig,
+    #[serde(default)]
+    pub release: ReleaseConfig,
     /// Per-host GitHub tokens. Keys are hostnames like "github.com" or
     /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
     #[serde(default)]
@@ -398,6 +440,12 @@ impl ParsecConfig {
                 .interact_text()
                 .context("Failed to read Jira email")?;
 
+            let token_input: String = Input::new()
+                .with_prompt("Jira API token (leave blank to use env var)")
+                .allow_empty(true)
+                .interact_text()
+                .context("Failed to read Jira token")?;
+
             config.tracker.jira = Some(JiraConfig {
                 base_url,
                 email: if email_input.is_empty() {
@@ -408,6 +456,11 @@ impl ParsecConfig {
                 project: None,
                 board_id: None,
                 assignee: None,
+                token: if token_input.is_empty() {
+                    None
+                } else {
+                    Some(token_input)
+                },
             });
         }
 
