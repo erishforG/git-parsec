@@ -67,8 +67,27 @@ pub fn print_list_full(
     emit(&value);
 }
 
-pub fn print_status(workspaces: &[Workspace]) {
-    emit(&workspaces);
+pub fn print_status(workspaces: &[Workspace], ticket_infos: &[Option<crate::tracker::Ticket>]) {
+    let enriched: Vec<serde_json::Value> = workspaces
+        .iter()
+        .enumerate()
+        .map(|(i, ws)| {
+            let mut obj = serde_json::to_value(ws).unwrap_or_default();
+            if let Some(Some(info)) = ticket_infos.get(i) {
+                if let Some(obj_map) = obj.as_object_mut() {
+                    obj_map.insert("tracker_summary".to_string(), serde_json::json!(info.title));
+                    obj_map.insert("tracker_status".to_string(), serde_json::json!(info.status));
+                    obj_map.insert(
+                        "tracker_assignee".to_string(),
+                        serde_json::json!(info.assignee),
+                    );
+                    obj_map.insert("tracker_url".to_string(), serde_json::json!(info.url));
+                }
+            }
+            obj
+        })
+        .collect();
+    emit(&enriched);
 }
 
 pub fn print_ship(result: &ShipResult) {

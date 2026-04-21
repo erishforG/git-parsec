@@ -123,6 +123,8 @@ pub struct JiraConfig {
     pub project: Option<String>,
     pub board_id: Option<u64>,
     pub assignee: Option<String>,
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -438,6 +440,12 @@ impl ParsecConfig {
                 .interact_text()
                 .context("Failed to read Jira email")?;
 
+            let token_input: String = Input::new()
+                .with_prompt("Jira API token (leave blank to use env var)")
+                .allow_empty(true)
+                .interact_text()
+                .context("Failed to read Jira token")?;
+
             config.tracker.jira = Some(JiraConfig {
                 base_url,
                 email: if email_input.is_empty() {
@@ -448,6 +456,11 @@ impl ParsecConfig {
                 project: None,
                 board_id: None,
                 assignee: None,
+                token: if token_input.is_empty() {
+                    None
+                } else {
+                    Some(token_input)
+                },
             });
         }
 

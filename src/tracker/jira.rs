@@ -31,34 +31,55 @@ pub struct InboxTicket {
 pub struct JiraTracker {
     base_url: String,
     email: Option<String>,
+    config_token: Option<String>,
     client: Client,
 }
 
 impl JiraTracker {
-    pub fn new(base_url: &str, email: Option<&str>) -> Self {
+    pub fn new(base_url: &str, email: Option<&str>, config_token: Option<&str>) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             email: email.map(String::from),
+            config_token: config_token.filter(|t| !t.is_empty()).map(String::from),
             client: Client::new(),
         }
     }
 
-    /// Resolve the Jira API token from environment.
-    /// Priority: PARSEC_JIRA_TOKEN > JIRA_PAT
-    fn resolve_token() -> Result<String> {
-        crate::env::jira_token().ok_or_else(|| {
+    /// Resolve the Jira API token.
+    /// Priority: PARSEC_JIRA_TOKEN env > JIRA_PAT env > config file token
+    fn resolve_token(&self) -> Result<String> {
+        crate::env::jira_token(self.config_token.as_deref()).ok_or_else(|| {
             anyhow::anyhow!(
-                "No Jira token found. Set {} or {} environment variable.",
+                "No Jira token found. Set {} or {} environment variable, or add token to [tracker.jira] in config.",
                 crate::env::PARSEC_JIRA_TOKEN,
                 crate::env::JIRA_PAT,
             )
         })
     }
 
+    /// Sanitize an HTTP error body for display.
+    /// HTML responses (common with Jira auth failures) are replaced with a short message.
+    fn sanitize_error_body(body: &str, status: reqwest::StatusCode) -> String {
+        let trimmed = body.trim();
+        // Detect HTML responses
+        if trimmed.starts_with("<!") || trimmed.starts_with("<html") || trimmed.contains("<head>") {
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                return "Check your Jira token (config file, PARSEC_JIRA_TOKEN, or JIRA_PAT env var).".to_string();
+            }
+            return format!("(HTML error page omitted, status: {})", status);
+        }
+        // Truncate long JSON/text responses
+        if trimmed.len() > 500 {
+            format!("{}...", &trimmed[..500])
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     /// Apply authentication to a request builder.
     /// Uses Basic auth (email + token) for Jira Cloud, Bearer token for Server/DC.
     fn authenticate(&self, request: reqwest::RequestBuilder) -> Result<reqwest::RequestBuilder> {
-        let token = Self::resolve_token()?;
+        let token = self.resolve_token()?;
         Ok(if let Some(ref email) = self.email {
             request.basic_auth(email, Some(&token))
         } else {
@@ -85,7 +106,12 @@ impl JiraTracker {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            bail!("Jira API returned {} for {}: {}", status, id, body);
+            bail!(
+                "Jira API returned {} for {}: {}",
+                status,
+                id,
+                Self::sanitize_error_body(&body, status)
+            );
         }
 
         let body: serde_json::Value = response
@@ -135,7 +161,11 @@ impl JiraTracker {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            bail!("Jira Agile API returned {} for boards: {}", status, body);
+            bail!(
+                "Jira Agile API returned {} for boards: {}",
+                status,
+                Self::sanitize_error_body(&body, status)
+            );
         }
 
         let body: serde_json::Value = response
@@ -172,7 +202,11 @@ impl JiraTracker {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            bail!("Jira Agile API returned {} for sprints: {}", status, body);
+            bail!(
+                "Jira Agile API returned {} for sprints: {}",
+                status,
+                Self::sanitize_error_body(&body, status)
+            );
         }
 
         let body: serde_json::Value = response
@@ -215,7 +249,7 @@ impl JiraTracker {
                 "Jira transitions API returned {} for {}: {}",
                 status,
                 key,
-                body
+                Self::sanitize_error_body(&body, status)
             );
         }
 
@@ -286,7 +320,7 @@ impl JiraTracker {
                 "Jira transition API returned {} for {}: {}",
                 status,
                 key,
-                body
+                Self::sanitize_error_body(&body, status)
             );
         }
 
@@ -320,7 +354,7 @@ impl JiraTracker {
                 "Jira comment API returned {} for {}: {}",
                 status,
                 key,
-                resp_body
+                Self::sanitize_error_body(&resp_body, status)
             );
         }
 
@@ -352,7 +386,7 @@ impl JiraTracker {
             bail!(
                 "Jira Agile API returned {} for sprint issues: {}",
                 status,
-                body
+                Self::sanitize_error_body(&body, status)
             );
         }
 
@@ -423,7 +457,11 @@ impl JiraTracker {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            bail!("Jira API returned {} when creating issue: {}", status, body);
+            bail!(
+                "Jira API returned {} when creating issue: {}",
+                status,
+                Self::sanitize_error_body(&body, status)
+            );
         }
 
         let body: serde_json::Value = response
@@ -464,7 +502,11 @@ impl JiraTracker {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            bail!("Jira search API returned {} : {}", status, body);
+            bail!(
+                "Jira search API returned {} : {}",
+                status,
+                Self::sanitize_error_body(&body, status)
+            );
         }
 
         let body: serde_json::Value = response

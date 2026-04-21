@@ -93,7 +93,12 @@ pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
             )
         })?;
     let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-    let jira = JiraTracker::new(&base_url, email.as_deref());
+    let config_token = config
+        .tracker
+        .jira
+        .as_ref()
+        .and_then(|j| j.token.as_deref());
+    let jira = JiraTracker::new(&base_url, email.as_deref(), config_token);
 
     // JQL: assigned to current user, open statuses, ordered by priority
     let jql =
@@ -182,7 +187,12 @@ pub async fn board(
             )
         })?;
     let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-    let jira = JiraTracker::new(&base_url, email.as_deref());
+    let config_token = config
+        .tracker
+        .jira
+        .as_ref()
+        .and_then(|j| j.token.as_deref());
+    let jira = JiraTracker::new(&base_url, email.as_deref(), config_token);
 
     // Resolve project key: --project CLI > PARSEC_JIRA_PROJECT env > config > worktree inference
     let project = if let Some(p) = project_override {

@@ -80,7 +80,7 @@ dispatch_output!(
     workspaces: &[Workspace],
     pr_map: &std::collections::HashMap<String, (u64, String)>
 );
-dispatch_output!(print_status, workspaces: &[Workspace]);
+dispatch_output!(print_status, workspaces: &[Workspace], ticket_infos: &[Option<crate::tracker::Ticket>]);
 dispatch_output!(print_ship, result: &ShipResult);
 dispatch_output!(print_clean, removed: &[Workspace], dry_run: bool);
 dispatch_output!(print_conflicts, conflicts: &[FileConflict]);

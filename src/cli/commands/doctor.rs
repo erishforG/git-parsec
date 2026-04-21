@@ -154,19 +154,33 @@ pub async fn doctor(repo: &Path, mode: Mode) -> Result<()> {
             .map(|cfg| cfg.tracker.provider == crate::config::TrackerProvider::Jira)
             .unwrap_or(false);
         if jira_configured {
-            let jira_token = std::env::var("JIRA_TOKEN").is_ok();
+            let config_token = config_result
+                .as_ref()
+                .ok()
+                .and_then(|cfg| cfg.tracker.jira.as_ref())
+                .and_then(|j| j.token.as_deref());
+            let token_found = crate::env::jira_token(config_token).is_some();
+            let source = if std::env::var(crate::env::PARSEC_JIRA_TOKEN).is_ok() {
+                "PARSEC_JIRA_TOKEN env var"
+            } else if std::env::var(crate::env::JIRA_PAT).is_ok() {
+                "JIRA_PAT env var"
+            } else if config_token.is_some() {
+                "config file"
+            } else {
+                "not found"
+            };
             checks.push(DoctorCheck {
                 name: "jira_token".to_string(),
-                ok: jira_token,
-                detail: if jira_token {
-                    "Jira token configured (JIRA_TOKEN env var)".to_string()
+                ok: token_found,
+                detail: if token_found {
+                    format!("Jira token configured ({})", source)
                 } else {
-                    "Jira token not found — set JIRA_TOKEN or run `parsec config init`".to_string()
+                    "Jira token not found — set PARSEC_JIRA_TOKEN, JIRA_PAT, or add token to [tracker.jira] in config".to_string()
                 },
-                fix: if jira_token {
+                fix: if token_found {
                     None
                 } else {
-                    Some("Set JIRA_TOKEN environment variable".to_string())
+                    Some("Set PARSEC_JIRA_TOKEN env var or add token to config file".to_string())
                 },
             });
         }
