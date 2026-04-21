@@ -106,6 +106,7 @@ jobs:
           Compress-Archive -Path "target/${{ matrix.target }}/release/parsec.exe" -DestinationPath "parsec-${{ needs.release.outputs.version }}-${{ matrix.target }}.zip"
 
       - name: Upload to GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
