@@ -33,8 +33,8 @@ pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
 // Token resolvers
 // ---------------------------------------------------------------------------
 
-/// Resolve Jira API token. Priority: PARSEC_JIRA_TOKEN > JIRA_PAT
-pub fn jira_token() -> Option<String> {
+/// Resolve Jira API token. Priority: PARSEC_JIRA_TOKEN > JIRA_PAT > config token
+pub fn jira_token(config_token: Option<&str>) -> Option<String> {
     for var in [PARSEC_JIRA_TOKEN, JIRA_PAT] {
         if let Ok(token) = std::env::var(var) {
             if !token.is_empty() {
@@ -42,7 +42,9 @@ pub fn jira_token() -> Option<String> {
             }
         }
     }
-    None
+    config_token
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_string())
 }
 
 /// Resolve GitHub token. Priority: PARSEC_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN

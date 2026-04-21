@@ -239,15 +239,25 @@ pub fn print_list_full(
     println!("{}", table);
 }
 
-pub fn print_status(workspaces: &[Workspace]) {
+pub fn print_status(workspaces: &[Workspace], ticket_infos: &[Option<crate::tracker::Ticket>]) {
     if workspaces.is_empty() {
         println!("{}", "No workspaces found.".dimmed());
         return;
     }
-    for ws in workspaces {
+    for (i, ws) in workspaces.iter().enumerate() {
+        let ticket_info = ticket_infos.get(i).and_then(|t| t.as_ref());
         println!("{}", "─".repeat(50).dimmed());
         println!("  {} {}", "Ticket:".bold(), ws.ticket);
-        if let Some(title) = &ws.ticket_title {
+        // Prefer live title from tracker, fall back to locally cached title
+        if let Some(info) = ticket_info {
+            println!("  {} {}", "Summary:".bold(), info.title);
+            if let Some(ref tracker_status) = info.status {
+                println!("  {} {}", "Tracker:".bold(), tracker_status);
+            }
+            if let Some(ref assignee) = info.assignee {
+                println!("  {} {}", "Assignee:".bold(), assignee);
+            }
+        } else if let Some(title) = &ws.ticket_title {
             println!("  {} {}", "Title:".bold(), title);
         }
         println!("  {} {}", "Branch:".bold(), ws.branch);

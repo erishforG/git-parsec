@@ -150,7 +150,13 @@ pub async fn create(
                 })?;
 
             let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-            let jira = crate::tracker::jira::JiraTracker::new(&base_url, email.as_deref());
+            let config_token = config
+                .tracker
+                .jira
+                .as_ref()
+                .and_then(|j| j.token.as_deref());
+            let jira =
+                crate::tracker::jira::JiraTracker::new(&base_url, email.as_deref(), config_token);
             let (key, url) = jira
                 .create_issue(&project_key, title, body, issue_type)
                 .await?;
@@ -390,6 +396,7 @@ fn extract_pr_number(url: &str) -> Option<u64> {
 
 pub async fn status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
+    let repo_root = git::get_repo_root(repo).ok();
     let manager = WorktreeManager::new(repo, &config)?;
 
     let workspaces = match ticket {
@@ -397,7 +404,17 @@ pub async fn status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()>
         None => manager.list()?,
     };
 
-    output::print_status(&workspaces, mode);
+    // Fetch live tracker info for each workspace (best-effort)
+    let mut ticket_infos: Vec<Option<crate::tracker::Ticket>> = Vec::new();
+    for ws in &workspaces {
+        let info = crate::tracker::fetch_ticket(&config, &ws.ticket, repo_root.as_deref())
+            .await
+            .ok()
+            .flatten();
+        ticket_infos.push(info);
+    }
+
+    output::print_status(&workspaces, &ticket_infos, mode);
     Ok(())
 }
 

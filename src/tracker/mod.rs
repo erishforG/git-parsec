@@ -70,11 +70,16 @@ pub async fn fetch_ticket(
             Ok(Some(ticket))
         }
         TrackerProvider::Gitlab | TrackerProvider::None => {
-            // Auto-detect Jira: try if env vars available, but don't block on failure
-            if std::env::var(crate::env::JIRA_BASE_URL).is_ok()
-                && (std::env::var(crate::env::JIRA_PAT).is_ok()
-                    || std::env::var(crate::env::PARSEC_JIRA_TOKEN).is_ok())
-            {
+            // Auto-detect Jira: try if env vars or config token available
+            let has_jira_url =
+                std::env::var(crate::env::JIRA_BASE_URL).is_ok() || config.tracker.jira.is_some();
+            let config_token = config
+                .tracker
+                .jira
+                .as_ref()
+                .and_then(|j| j.token.as_deref());
+            let has_jira_token = crate::env::jira_token(config_token).is_some();
+            if has_jira_url && has_jira_token {
                 if let Ok(Some(ticket)) = fetch_jira_ticket(config, id).await {
                     return Ok(Some(ticket));
                 }
@@ -127,7 +132,12 @@ pub async fn try_transition(config: &ParsecConfig, ticket: &str, target_status: 
     };
 
     let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-    let jira = jira::JiraTracker::new(&base_url, email.as_deref());
+    let config_token = config
+        .tracker
+        .jira
+        .as_ref()
+        .and_then(|j| j.token.as_deref());
+    let jira = jira::JiraTracker::new(&base_url, email.as_deref(), config_token);
 
     match jira.transition_issue(ticket, target_status).await {
         Ok(()) => {
@@ -166,7 +176,12 @@ pub async fn post_comment(
                     )
                 })?;
             let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-            let tracker = jira::JiraTracker::new(&base_url, email.as_deref());
+            let config_token = config
+                .tracker
+                .jira
+                .as_ref()
+                .and_then(|j| j.token.as_deref());
+            let tracker = jira::JiraTracker::new(&base_url, email.as_deref(), config_token);
             tracker.add_comment(id, body).await
         }
         TrackerProvider::Github => {
@@ -175,13 +190,29 @@ pub async fn post_comment(
         }
         TrackerProvider::Gitlab | TrackerProvider::None => {
             // Auto-detect Jira
-            if std::env::var(crate::env::JIRA_BASE_URL).is_ok()
-                && (std::env::var(crate::env::JIRA_PAT).is_ok()
-                    || std::env::var(crate::env::PARSEC_JIRA_TOKEN).is_ok())
-            {
-                let base_url = std::env::var(crate::env::JIRA_BASE_URL)?;
+            let has_jira_url =
+                std::env::var(crate::env::JIRA_BASE_URL).is_ok() || config.tracker.jira.is_some();
+            let ct = config
+                .tracker
+                .jira
+                .as_ref()
+                .and_then(|j| j.token.as_deref());
+            let has_jira_token = crate::env::jira_token(ct).is_some();
+            if has_jira_url && has_jira_token {
+                let base_url = config
+                    .tracker
+                    .jira
+                    .as_ref()
+                    .map(|j| j.base_url.clone())
+                    .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
+                    .unwrap();
                 let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-                let tracker = jira::JiraTracker::new(&base_url, email.as_deref());
+                let config_token = config
+                    .tracker
+                    .jira
+                    .as_ref()
+                    .and_then(|j| j.token.as_deref());
+                let tracker = jira::JiraTracker::new(&base_url, email.as_deref(), config_token);
                 if tracker.add_comment(id, body).await.is_ok() {
                     return Ok(());
                 }
@@ -226,7 +257,12 @@ async fn fetch_jira_ticket(config: &ParsecConfig, id: &str) -> Result<Option<Tic
 
     let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
 
-    let tracker = jira::JiraTracker::new(&base_url, email.as_deref());
+    let config_token = config
+        .tracker
+        .jira
+        .as_ref()
+        .and_then(|j| j.token.as_deref());
+    let tracker = jira::JiraTracker::new(&base_url, email.as_deref(), config_token);
     let ticket = tracker.fetch_ticket(id).await?;
     Ok(Some(ticket))
 }
