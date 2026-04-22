@@ -243,6 +243,11 @@ pub async fn ship(
             base_branch: Some(result.base_branch.clone()),
             path: None,
             ticket_title: result.ticket_title.clone(),
+            pr_number: result
+                .pr_url
+                .as_ref()
+                .and_then(|u| u.rsplit('/').next().and_then(|n| n.parse::<u64>().ok())),
+            pr_url: result.pr_url.clone(),
         }),
     ) {
         eprintln!("warning: failed to write oplog: {e}");
