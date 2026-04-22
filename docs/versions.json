@@ -1,0 +1,55 @@
+{
+  "latest": "0.3.3",
+  "versions": [
+    {
+      "version": "0.3.3",
+      "date": "2026-04-23",
+      "path": "/git-parsec/v/0.3.3/"
+    },
+    {
+      "version": "0.3.2",
+      "date": "2026-04-21",
+      "path": "/git-parsec/v/0.3.2/"
+    },
+    {
+      "version": "0.3.1",
+      "date": "2026-04-21",
+      "path": "/git-parsec/v/0.3.1/"
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-04-16",
+      "path": "/git-parsec/v/0.3.0/"
+    },
+    {
+      "version": "0.2.4",
+      "date": "2026-04-15",
+      "path": "/git-parsec/v/0.2.4/"
+    },
+    {
+      "version": "0.2.3",
+      "date": "2026-04-15",
+      "path": "/git-parsec/v/0.2.3/"
+    },
+    {
+      "version": "0.2.2",
+      "date": "2026-04-15",
+      "path": "/git-parsec/v/0.2.2/"
+    },
+    {
+      "version": "0.2.1",
+      "date": "2026-04-15",
+      "path": "/git-parsec/v/0.2.1/"
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-04-14",
+      "path": "/git-parsec/v/0.2.0/"
+    },
+    {
+      "version": "0.1.1",
+      "date": "2026-04-14",
+      "path": "/git-parsec/v/0.1.1/"
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="en" data-doc-version="latest">
+<html lang="en" data-doc-version="0.2.3">
 <head>
   <meta charset="UTF-8">
+  <meta name="robots" content="noindex, follow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>git-parsec — Full-lifecycle worktree management</title>
   <meta name="description" content="From ticket to PR in one command. git-parsec manages the full lifecycle of git worktrees tied to issue tickets with Jira and GitHub Issues integration.">
@@ -20,123 +21,6 @@
   <!-- Canonical -->
   <link rel="canonical" href="https://erishforg.github.io/git-parsec/">
   <meta name="theme-color" content="#0a0e1a">
-  <!-- Schema.org Structured Data -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "git-parsec",
-    "alternateName": "parsec",
-    "applicationCategory": "DeveloperApplication",
-    "operatingSystem": "macOS, Linux, Windows",
-    "description": "Git worktree lifecycle manager for parallel AI agent workflows. Create isolated workspaces from ticket IDs (Jira, GitHub Issues, GitLab), work in parallel without lock conflicts, ship with one command (push + PR + cleanup). Supports CI monitoring, stacked PRs, conflict detection, and operation history with undo.",
-    "url": "https://erishforg.github.io/git-parsec/",
-    "downloadUrl": "https://github.com/erishforG/git-parsec/releases",
-    "softwareVersion": "0.3.3",
-    "author": {
-      "@type": "Person",
-      "name": "erishforG",
-      "url": "https://github.com/erishforG"
-    },
-    "codeRepository": "https://github.com/erishforG/git-parsec",
-    "programmingLanguage": "Rust",
-    "license": "https://opensource.org/licenses/MIT",
-    "keywords": ["git", "worktree", "CLI", "Jira", "GitHub Issues", "GitLab", "parallel development", "AI agents", "developer tools", "pull request", "CI/CD", "stacked PRs", "git worktree manager"],
-    "offers": {
-      "@type": "Offer",
-      "price": "0",
-      "priceCurrency": "USD"
-    }
-  }
-  </script>
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    "mainEntity": [
-      {
-        "@type": "Question",
-        "name": "What is git-parsec?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "git-parsec (parsec) is a command-line tool that manages the full lifecycle of git worktrees tied to issue tickets. It creates isolated workspaces from ticket IDs, enables parallel development without lock conflicts, and ships features with one command (push + PR/MR + cleanup). It integrates with Jira, GitHub Issues, and GitLab."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "How does parsec differ from git worktree?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Plain git worktree only creates and removes worktrees. parsec adds full lifecycle management: ticket tracker integration (Jira, GitHub Issues, GitLab), one-step shipping (push + PR + cleanup), cross-worktree conflict detection, operation history with undo, CI status monitoring, stacked PR support, and machine-readable JSON output for AI agents."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Can multiple AI agents use parsec on the same repository?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Yes. Each parsec workspace is a separate git worktree with its own index, so multiple AI agents (or developers) can run git add, commit, and push simultaneously without index.lock conflicts. Every command supports --json for structured output, and parsec doctor --ai outputs workflow rules optimized for AI consumption."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "How do I install parsec?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Install via cargo: cargo install git-parsec. Or download pre-built binaries for macOS (Apple Silicon, Intel), Linux, and Windows from the GitHub Releases page. Or build from source: git clone and cargo build --release."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Does parsec support GitLab?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Yes. parsec supports GitLab for both issue tracking and merge request creation. Set provider = gitlab in your config and configure the base_url. Authentication uses PARSEC_GITLAB_TOKEN or GITLAB_TOKEN environment variables."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "How do stacked PRs work in parsec?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Use parsec start CHILD --on PARENT to create dependent worktrees. When you ship, parsec automatically sets the correct base branch for each PR. Use parsec stack to view the dependency graph and parsec stack --sync to rebase the entire chain."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Does parsec work with GitHub Enterprise?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Yes. parsec auto-detects GitHub Enterprise from the git remote URL and routes API calls to the correct host. Token resolution is host-aware, supporting both github.com and GitHub Enterprise instances."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Can I undo a parsec operation?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Yes. parsec log shows all operations with timestamps, and parsec undo reverses the last one. Undoing a start removes the worktree; undoing a ship or clean re-creates it from the branch if still available."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "How do I protect branches from accidental shipping?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Add a [policy] section to ~/.config/parsec/config.toml with protected_branches and allowed_ship_targets. parsec will reject ship and merge operations that violate these rules, returning error code E009."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "What are parsec error codes?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "When using --json mode, parsec returns structured error codes (E001 through E013) with specific exit codes for programmatic handling. For example, E001 means no token configured (exit 2), E002 means CI failing (exit 4), E003 means conflicts detected (exit 3). This enables AI agents and scripts to handle errors precisely."
-        }
-      }
-    ]
-  }
-  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1461,80 +1345,20 @@
       width: 100%;
       display: block;
     }
-
-    /* ================================================
-       VERSION SWITCHER
-       ================================================ */
-    .version-switcher {
-      position: relative;
-      margin-left: 12px;
-    }
-    .version-btn {
-      background: var(--bg-raised);
-      color: var(--accent-cyan);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-sm);
-      padding: 4px 10px;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      cursor: pointer;
-      transition: background 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 2px;
-    }
-    .version-btn:hover { background: var(--bg-card); }
+  
+    /* VERSION SWITCHER */
+    .version-switcher { position: relative; margin-left: 12px; }
+    .version-btn { background: var(--bg-raised, #0f1424); color: var(--accent-cyan, #4FC3F7); border: 1px solid var(--border-accent, rgba(79,195,247,0.2)); border-radius: var(--radius-sm, 6px); padding: 4px 10px; font-family: var(--font-mono, monospace); font-size: 0.8rem; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 2px; }
+    .version-btn:hover { background: var(--bg-card, #111828); }
     .version-arrow { font-size: 0.7rem; }
-    .version-dropdown {
-      display: none;
-      position: absolute;
-      top: calc(100% + 6px);
-      left: 0;
-      background: var(--bg-raised);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-sm);
-      min-width: 160px;
-      z-index: 1000;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    }
+    .version-dropdown { display: none; position: absolute; top: calc(100% + 6px); left: 0; background: var(--bg-raised, #0f1424); border: 1px solid var(--border-accent, rgba(79,195,247,0.2)); border-radius: var(--radius-sm, 6px); min-width: 160px; z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
     .version-dropdown.open { display: block; }
-    .version-dropdown a {
-      display: block;
-      padding: 8px 14px;
-      color: var(--text-secondary);
-      text-decoration: none;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      transition: background 0.15s, color 0.15s;
-    }
-    .version-dropdown a:hover {
-      background: var(--bg-card);
-      color: var(--text-primary);
-    }
-    .version-dropdown a.active {
-      color: var(--accent-cyan);
-      background: var(--accent-glow);
-    }
-    .version-banner {
-      background: rgba(255, 193, 7, 0.12);
-      border-bottom: 1px solid rgba(255, 193, 7, 0.3);
-      color: #ffd54f;
-      text-align: center;
-      padding: 8px 16px;
-      font-family: var(--font-body);
-      font-size: 0.9rem;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 10000;
-    }
-    .version-banner a {
-      color: #fff;
-      text-decoration: underline;
-      margin-left: 4px;
-    }
-    .version-banner a:hover { color: var(--accent-cyan); }
+    .version-dropdown a { display: block; padding: 8px 14px; color: var(--text-secondary, #8892a4); text-decoration: none; font-family: var(--font-mono, monospace); font-size: 0.8rem; transition: background 0.15s, color 0.15s; }
+    .version-dropdown a:hover { background: var(--bg-card, #111828); color: var(--text-primary, #e8edf5); }
+    .version-dropdown a.active { color: var(--accent-cyan, #4FC3F7); background: var(--accent-glow, rgba(79,195,247,0.15)); }
+    .version-banner { background: rgba(255,193,7,0.12); border-bottom: 1px solid rgba(255,193,7,0.3); color: #ffd54f; text-align: center; padding: 8px 16px; font-size: 0.9rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000; }
+    .version-banner a { color: #fff; text-decoration: underline; margin-left: 4px; }
+    .version-banner a:hover { color: var(--accent-cyan, #4FC3F7); }
   </style>
 </head>
 <body>
@@ -1542,7 +1366,7 @@
   <!-- ============ NAV ============ -->
   <nav>
     <div class="nav-inner">
-      <a href="/git-parsec/" class="nav-brand">
+      <a href="#" class="nav-brand">
         <div class="nav-brand-icon">P</div>
         <span>git-parsec</span>
       </a>
@@ -1550,7 +1374,6 @@
         <li><a href="#features">Features</a></li>
         <li><a href="#comparison">Compare</a></li>
         <li><a href="#quickstart">Quick Start</a></li>
-        <li><a href="/git-parsec/reference/">Docs</a></li>
         <li><a href="#install">Install</a></li>
       </ul>
       <a href="https://github.com/erishforG/git-parsec" class="nav-cta" target="_blank" rel="noopener">
@@ -1565,16 +1388,13 @@
     <div class="container">
       <div class="hero-grid">
         <div>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <div class="hero-badge">Built with Rust</div>
-            <div class="hero-badge">AI-Native</div>
-          </div>
+          <div class="hero-badge">Built with Rust</div>
           <h1>
             From ticket to PR<br>
             <span class="gradient-text">in one command.</span>
           </h1>
           <p class="hero-subtitle">
-            Run 5 AI agents in parallel — zero <code>index.lock</code> conflicts. git-parsec gives every agent its own isolated worktree, tied to your issue tracker. No retries, no wasted tokens, no merge chaos.
+            git-parsec manages the full lifecycle of git worktrees tied to your issue tracker. Start a ticket, code in parallel, ship a PR, and clean up -- all without leaving your terminal.
           </p>
           <div class="hero-actions">
             <a href="#install" class="btn-primary">
@@ -1584,9 +1404,6 @@
             <a href="https://github.com/erishforG/git-parsec" class="btn-secondary" target="_blank" rel="noopener">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
               View on GitHub
-            </a>
-            <a href="https://github.com/erishforG/git-parsec" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;">
-              <img src="https://img.shields.io/github/stars/erishforG/git-parsec?style=social" alt="GitHub Stars" style="height:28px;">
             </a>
           </div>
         </div>
@@ -1598,14 +1415,14 @@
             <div class="terminal-title">parsec -- zsh</div>
           </div>
           <div class="terminal-body">
-<span class="terminal-line"><span class="comment"># Run 5 AI agents in parallel — no lock conflicts</span></span>
+<span class="terminal-line"><span class="comment"># Start working on a Jira ticket</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">CL-2283</span></span>
 <span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Created worktree for </span><span class="arg">CL-2283</span></span>
 <span class="terminal-line"><span class="info">  Title: Collect HeuristicCompletionException handling</span></span>
 <span class="terminal-line"><span class="info">  Branch: </span><span class="link">feature/CL-2283</span></span>
 <span class="terminal-line"><span class="info">  Path: ../myproject.CL-2283</span></span>
 <span class="terminal-line">&nbsp;</span>
-<span class="terminal-line"><span class="comment"># Each agent gets its own isolated worktree</span></span>
+<span class="terminal-line"><span class="comment"># Work in parallel on another ticket</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">CL-2290</span></span>
 <span class="terminal-line"><span class="success">&#10003;</span> <span class="info">Created worktree for </span><span class="arg">CL-2290</span></span>
 <span class="terminal-line">&nbsp;</span>
@@ -1626,9 +1443,10 @@
     <div class="container">
       <div class="reveal">
         <div class="section-label">The Problem</div>
-        <div class="section-title">Git wasn't built for<br>AI agent workflows.</div>
+        <div class="section-title">Git wasn't built for<br>parallel workflows.</div>
         <p class="section-desc">
-          When AI agents run in parallel on the same repo, they collide on <code>.git/index.lock</code> — crashing mid-task, burning tokens on retries, and leaving broken state. Worktrees solve isolation, but lack the lifecycle management agents need.
+          Multiple developers or AI agents on the same repo fight over index.lock.
+          Worktrees solve isolation, but lack lifecycle management.
         </p>
       </div>
 
@@ -1741,7 +1559,7 @@
         <div class="section-title">From ticket to PR in 60 seconds.</div>
       </div>
       <div class="demo-container reveal reveal-delay-1">
-        <img src="demo.gif" alt="git-parsec demo showing start, list, switch, log, undo, and clean commands" class="demo-gif" loading="lazy">
+        <img src="/git-parsec/demo.gif" alt="git-parsec demo showing start, list, switch, log, undo, and clean commands" class="demo-gif" loading="lazy">
       </div>
     </div>
   </section>
@@ -1853,18 +1671,6 @@
           <div class="feature-code">$ parsec adopt PROJ-99 --branch fix/payment-timeout</div>
         </div>
 
-        <!-- Feature: Attach to Existing Branch -->
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
-          </div>
-          <h3>Attach to Existing Branch</h3>
-          <p>
-            Need to work on a branch that already exists? <code>parsec start --branch</code> creates a managed worktree from any local or remote branch. Fetches remote-only branches automatically.
-          </p>
-          <div class="feature-code">$ parsec start CL-2208 --branch feature/CL-2208</div>
-        </div>
-
         <!-- Feature 9: Operation History -->
         <div class="feature-card reveal reveal-delay-3">
           <div class="feature-icon">
@@ -1912,54 +1718,6 @@
           </p>
           <div class="feature-code">$ parsec pr-status PROJ-1234</div>
         </div>
-
-        <!-- Feature: Stacked PRs -->
-        <div class="feature-card featured reveal reveal-delay-1">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/></svg>
-          </div>
-          <h3>Stacked PRs</h3>
-          <p>
-            Create dependent PR chains with <code>--on</code>. <code>parsec stack</code> shows the dependency graph and <code>--sync</code> rebases the entire chain.
-          </p>
-          <div class="feature-code">$ parsec start PROJ-2 --on PROJ-1</div>
-        </div>
-
-        <!-- Feature 13: CI Dashboard -->
-        <div class="feature-card reveal reveal-delay-1">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <h3>CI Pipeline Dashboard</h3>
-          <p>
-            <code>parsec ci</code> shows individual check runs, durations, and overall status. Use <code>--watch</code> to poll until completion.
-          </p>
-          <div class="feature-code">$ parsec ci --watch</div>
-        </div>
-
-        <!-- Feature 14: Merge from Terminal -->
-        <div class="feature-card reveal reveal-delay-2">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/><path d="M9 18l6-6-6-6" transform="translate(6,0)"/></svg>
-          </div>
-          <h3>Merge from Terminal</h3>
-          <p>
-            <code>parsec merge</code> merges PRs directly from your terminal. Waits for CI to pass, supports squash and rebase, and cleans up automatically.
-          </p>
-          <div class="feature-code">$ parsec merge PROJ-1234</div>
-        </div>
-
-        <!-- Feature 15: Worktree Diff -->
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
-          </div>
-          <h3>Worktree Diff</h3>
-          <p>
-            <code>parsec diff</code> shows changes in any worktree compared to its base branch. Supports <code>--stat</code> and <code>--name-only</code> views.
-          </p>
-          <div class="feature-code">$ parsec diff --stat</div>
-        </div>
       </div>
     </div>
   </section>
@@ -1990,19 +1748,11 @@
           <tbody>
             <tr>
               <td>Ticket tracker integration</td>
-              <td class="highlight"><span class="check">Jira + GitHub Issues</span></td>
+              <td class="highlight"><span class="check">Jira + GitHub</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
-            </tr>
-            <tr>
-              <td>Physical isolation (worktrees)</td>
-              <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="check">Yes</span></td>
-              <td><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="partial">Virtual branches</span></td>
             </tr>
             <tr>
               <td>Cross-worktree conflict detection</td>
@@ -2017,43 +1767,11 @@
               <td class="highlight"><span class="check">GitHub + GitLab</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
-              <td><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-            </tr>
-            <tr>
-              <td>Operation history &amp; undo</td>
-              <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="check">Yes (undo)</span></td>
-              <td><span class="check">Yes</span></td>
+              <td><span class="partial">Partial</span></td>
+              <td><span class="partial">PR only</span></td>
             </tr>
             <tr>
               <td>JSON output for AI agents</td>
-              <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="check">Yes</span></td>
-            </tr>
-            <tr>
-              <td>CI monitoring</td>
-              <td class="highlight"><span class="check">Yes (--watch)</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-            </tr>
-            <tr>
-              <td>Stacked PRs</td>
-              <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="check">Yes</span></td>
-              <td><span class="check">Yes</span></td>
-            </tr>
-            <tr>
-              <td>Post-create hooks</td>
               <td class="highlight"><span class="check">Yes</span></td>
               <td><span class="check">Yes</span></td>
               <td><span class="cross">--</span></td>
@@ -2063,23 +1781,47 @@
             <tr>
               <td>Auto-cleanup merged worktrees</td>
               <td class="highlight"><span class="check">Yes</span></td>
-              <td><span class="cross">--</span></td>
+              <td><span class="check">Yes</span></td>
               <td><span class="partial">Manual</span></td>
               <td><span class="cross">--</span></td>
-              <td><span class="cross">--</span></td>
+              <td><span class="check">Yes</span></td>
             </tr>
             <tr>
-              <td>Forge support</td>
-              <td class="highlight"><span class="check">GitHub + GitLab</span></td>
-              <td><span class="partial">GitHub</span></td>
-              <td><span class="cross">--</span></td>
-              <td><span class="check">GH, GL, Gitea, BB</span></td>
-              <td><span class="check">GitHub + GitLab</span></td>
-            </tr>
-            <tr>
-              <td>Zero config start</td>
+              <td>Status dashboard</td>
               <td class="highlight"><span class="check">Yes</span></td>
               <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="check">Yes</span></td>
+            </tr>
+            <tr>
+              <td>Post-create hooks</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Shell integration (cd into worktree)</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Operation history &amp; undo</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+              <td><span class="cross">--</span></td>
+            </tr>
+            <tr>
+              <td>Adopt existing branches</td>
+              <td class="highlight"><span class="check">Yes</span></td>
+              <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
               <td><span class="cross">--</span></td>
@@ -2111,8 +1853,8 @@
         <div class="step-card reveal reveal-delay-2">
           <div class="step-number">02</div>
           <h3>Configure</h3>
-          <p>Run interactive setup. Enable shell integration for auto-cd and merge recovery.</p>
-          <div class="step-code">parsec config init<br>eval "$(parsec init zsh)"</div>
+          <p>Run interactive setup, enable shell integration and tab-completions.</p>
+          <div class="step-code">parsec config init<br>eval "$(parsec config completions zsh)"</div>
         </div>
         <div class="step-card reveal reveal-delay-3">
           <div class="step-number">03</div>
@@ -2195,11 +1937,11 @@
     <div class="container">
       <div class="reveal">
         <div class="cta-title">
-          Let your AI agents run.<br>
-          <span class="gradient-text" style="background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-teal) 40%, var(--accent-electric) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Zero conflicts. Zero wasted tokens.</span>
+          Stop managing worktrees.<br>
+          <span class="gradient-text" style="background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-teal) 40%, var(--accent-electric) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Start shipping tickets.</span>
         </div>
         <p class="cta-desc">
-          Join developers and AI teams who use parsec to run parallel agents on the same repo — isolated worktrees, no <code style="font-size: 0.9em; opacity: 0.85;">index.lock</code> fights, fewer retries.
+          Join developers who use parsec to work on multiple tickets in parallel without the overhead.
         </p>
         <div class="cta-actions">
           <a href="https://github.com/erishforG/git-parsec" class="btn-primary" target="_blank" rel="noopener">

@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="en" data-doc-version="latest">
+<html lang="en" data-doc-version="0.3.1">
 <head>
   <meta charset="UTF-8">
+  <meta name="robots" content="noindex, follow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Command Reference — git-parsec</title>
   <meta name="description" content="Complete command reference for git-parsec. All commands, options, arguments, and examples.">
@@ -851,110 +852,37 @@
       opacity: 1;
       transform: translateY(0);
     }
-
-    /* ================================================
-       VERSION SWITCHER
-       ================================================ */
-    .version-switcher {
-      position: relative;
-      margin-left: 12px;
-    }
-    .version-btn {
-      background: var(--bg-raised);
-      color: var(--accent-cyan);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-sm);
-      padding: 4px 10px;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      cursor: pointer;
-      transition: background 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 2px;
-    }
-    .version-btn:hover { background: var(--bg-card); }
+  
+    /* VERSION SWITCHER */
+    .version-switcher { position: relative; margin-left: 12px; }
+    .version-btn { background: var(--bg-raised, #0f1424); color: var(--accent-cyan, #4FC3F7); border: 1px solid var(--border-accent, rgba(79,195,247,0.2)); border-radius: var(--radius-sm, 6px); padding: 4px 10px; font-family: var(--font-mono, monospace); font-size: 0.8rem; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 2px; }
+    .version-btn:hover { background: var(--bg-card, #111828); }
     .version-arrow { font-size: 0.7rem; }
-    .version-dropdown {
-      display: none;
-      position: absolute;
-      top: calc(100% + 6px);
-      left: 0;
-      background: var(--bg-raised);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-sm);
-      min-width: 160px;
-      z-index: 1000;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    }
+    .version-dropdown { display: none; position: absolute; top: calc(100% + 6px); left: 0; background: var(--bg-raised, #0f1424); border: 1px solid var(--border-accent, rgba(79,195,247,0.2)); border-radius: var(--radius-sm, 6px); min-width: 160px; z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
     .version-dropdown.open { display: block; }
-    .version-dropdown a {
-      display: block;
-      padding: 8px 14px;
-      color: var(--text-secondary);
-      text-decoration: none;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      transition: background 0.15s, color 0.15s;
-    }
-    .version-dropdown a:hover {
-      background: var(--bg-card);
-      color: var(--text-primary);
-    }
-    .version-dropdown a.active {
-      color: var(--accent-cyan);
-      background: var(--accent-glow);
-    }
-    .version-banner {
-      background: rgba(255, 193, 7, 0.12);
-      border-bottom: 1px solid rgba(255, 193, 7, 0.3);
-      color: #ffd54f;
-      text-align: center;
-      padding: 8px 16px;
-      font-family: var(--font-body);
-      font-size: 0.9rem;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 10000;
-    }
-    .version-banner a {
-      color: #fff;
-      text-decoration: underline;
-      margin-left: 4px;
-    }
-    .version-banner a:hover { color: var(--accent-cyan); }
+    .version-dropdown a { display: block; padding: 8px 14px; color: var(--text-secondary, #8892a4); text-decoration: none; font-family: var(--font-mono, monospace); font-size: 0.8rem; transition: background 0.15s, color 0.15s; }
+    .version-dropdown a:hover { background: var(--bg-card, #111828); color: var(--text-primary, #e8edf5); }
+    .version-dropdown a.active { color: var(--accent-cyan, #4FC3F7); background: var(--accent-glow, rgba(79,195,247,0.15)); }
+    .version-banner { background: rgba(255,193,7,0.12); border-bottom: 1px solid rgba(255,193,7,0.3); color: #ffd54f; text-align: center; padding: 8px 16px; font-size: 0.9rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000; }
+    .version-banner a { color: #fff; text-decoration: underline; margin-left: 4px; }
+    .version-banner a:hover { color: var(--accent-cyan, #4FC3F7); }
   </style>
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="git-parsec Reference — Complete Command Documentation">
-  <meta name="twitter:description" content="Full reference for all 27 parsec commands with options, examples, and JSON output.">
-  <script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  "itemListElement": [
-    {"@type": "ListItem", "position": 1, "name": "git-parsec", "item": "https://erishforg.github.io/git-parsec/"},
-    {"@type": "ListItem", "position": 2, "name": "Reference", "item": "https://erishforg.github.io/git-parsec/reference/"}
-  ]
-}
-</script>
 </head>
 <body>
 
   <!-- ============ NAV ============ -->
   <nav>
     <div class="nav-inner">
-      <a href="/git-parsec/" class="nav-brand">
+      <a href="/git-parsec/v/0.3.1/" class="nav-brand">
         <div class="nav-brand-icon">P</div>
         <span>git-parsec</span>
       </a>
       <ul class="nav-links">
-        <li><a href="/git-parsec/#features">Features</a></li>
-        <li><a href="/git-parsec/#comparison">Compare</a></li>
-        <li><a href="/git-parsec/#quickstart">Quick Start</a></li>
-        <li><a href="/git-parsec/reference/" class="active">Docs</a></li>
-        <li><a href="/git-parsec/#install">Install</a></li>
+        <li><a href="/git-parsec/v/0.3.1/#features">Features</a></li>
+        <li><a href="/git-parsec/v/0.3.1/#comparison">Compare</a></li>
+        <li><a href="/git-parsec/v/0.3.1/#quickstart">Quick Start</a></li>
+        <li><a href="/git-parsec/v/0.3.1/reference/" class="active">Docs</a></li>
+        <li><a href="/git-parsec/v/0.3.1/#install">Install</a></li>
       </ul>
       <a href="https://github.com/erishforG/git-parsec" class="nav-cta" target="_blank" rel="noopener">
         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -983,7 +911,6 @@
           <li><a href="#clean">clean</a></li>
           <li><a href="#create">create</a></li>
           <li><a href="#new-issue">new-issue</a></li>
-          <li><a href="#rename">rename</a></li>
           <li><a href="#release">release</a></li>
         </ul>
       </div>
@@ -1033,15 +960,6 @@
           <li><a href="#doctor">doctor</a></li>
         </ul>
       </div>
-
-      <!-- Reference -->
-      <div class="sidebar-section">
-        <div class="sidebar-category">Reference</div>
-        <ul class="sidebar-nav">
-          <li><a href="#error-codes">Error Codes</a></li>
-          <li><a href="#policy-config">Policy Config</a></li>
-        </ul>
-      </div>
     </aside>
 
     <!-- ============ MAIN CONTENT ============ -->
@@ -1064,7 +982,6 @@
             <div class="flag-chip"><code>--json</code> <span class="flag-desc">machine-readable output</span></div>
             <div class="flag-chip"><code>-q</code> / <code>--quiet</code> <span class="flag-desc">suppress non-essential output</span></div>
             <div class="flag-chip"><code>--repo &lt;PATH&gt;</code> <span class="flag-desc">target repository path</span></div>
-            <div class="flag-chip"><code>--dry-run</code> <span class="flag-desc">preview changes without executing</span></div>
           </div>
         </div>
 
@@ -2130,7 +2047,6 @@
                 </thead>
                 <tbody>
                   <tr><td><code>--json</code></td><td>Output results as JSON (<code>{"checks":[...],"all_ok":bool}</code>).</td></tr>
-                  <tr><td><code>--ai</code></td><td>Include AI-powered diagnostic suggestions for failed checks.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -2256,63 +2172,6 @@
             </div>
           </div>
 
-          <!-- rename -->
-          <div class="cmd-block reveal" id="rename">
-            <div class="cmd-heading">
-              <span class="cmd-name">rename</span>
-              <span class="cmd-short-desc">Re-ticket an existing workspace</span>
-              <a href="#rename" class="cmd-anchor">#</a>
-            </div>
-            <p style="color: var(--text-secondary); font-size: 15px; margin-bottom: 12px; line-height: 1.7;">
-              Reassigns an existing worktree to a different ticket ID. Updates the branch name, directory symlink, and internal state — useful when a ticket is split, renumbered, or moved between trackers.
-            </p>
-            <div class="usage-block">
-              <span class="usage-label">Usage</span>
-              <code><span class="cmd-kw">parsec rename</span> <span class="arg">&lt;OLD-TICKET&gt;</span> <span class="arg">&lt;NEW-TICKET&gt;</span> <span class="opt">[OPTIONS]</span></code>
-            </div>
-
-            <div class="ref-table-wrap">
-              <table class="ref-table">
-                <thead>
-                  <tr><th>Argument</th><th>Description</th></tr>
-                </thead>
-                <tbody>
-                  <tr><td><code>&lt;OLD-TICKET&gt;</code> <span class="req-badge">required</span></td><td>The current ticket ID of the workspace to rename.</td></tr>
-                  <tr><td><code>&lt;NEW-TICKET&gt;</code> <span class="req-badge">required</span></td><td>The new ticket ID to assign to the workspace.</td></tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="ref-table-wrap">
-              <table class="ref-table">
-                <thead>
-                  <tr><th>Option</th><th>Description</th></tr>
-                </thead>
-                <tbody>
-                  <tr><td><code>--dry-run</code></td><td>Preview what would be renamed without making changes.</td></tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="terminal-wrap">
-              <div class="terminal-bar">
-                <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
-                <span class="terminal-title-label">parsec rename</span>
-              </div>
-              <div class="terminal-body">
-<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec rename</span> <span class="arg">PROJ-123</span> <span class="arg">PROJ-456</span></span>
-<span class="terminal-line"><span class="success">✓</span> <span class="info">Branch renamed: feature/PROJ-123-fix-login → feature/PROJ-456-fix-login</span></span>
-<span class="terminal-line"><span class="success">✓</span> <span class="info">Workspace directory updated</span></span>
-<span class="terminal-line"><span class="success">✓</span> <span class="info">State updated for PROJ-456</span></span>
-<span class="terminal-line">&nbsp;</span>
-<span class="terminal-line"><span class="comment"># Preview changes first</span></span>
-<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec rename</span> <span class="arg">OLD-99</span> <span class="arg">NEW-100</span> <span class="flag">--dry-run</span></span>
-<span class="terminal-line"><span class="info">Would rename branch feature/OLD-99-… → feature/NEW-100-…</span></span>
-<span class="terminal-line"><span class="info">Would update workspace directory and state file</span></span>
-              </div>
-            </div>
-          </div>
-
           <!-- release -->
           <div class="cmd-block reveal" id="release">
             <div class="cmd-heading">
@@ -2375,104 +2234,6 @@
         </div>
         <!-- end setup section -->
 
-        <!-- ==============================
-             ERROR CODES
-             ============================== -->
-        <div class="cmd-section" id="error-codes">
-          <div class="cmd-section-divider">
-            <h2>Error Codes</h2>
-          </div>
-
-          <div class="cmd-block reveal">
-            <p style="color: var(--text-secondary); font-size: 15px; margin-bottom: 16px; line-height: 1.7;">
-              All <code>parsec</code> commands exit with a structured exit code. Use these in scripts to handle failures precisely. JSON output (<code>--json</code>) also includes an <code>"error_code"</code> field on failure.
-            </p>
-
-            <div class="ref-table-wrap">
-              <table class="ref-table">
-                <thead>
-                  <tr><th>Exit Code</th><th>Name</th><th>Description</th></tr>
-                </thead>
-                <tbody>
-                  <tr><td><code>0</code></td><td>Success</td><td>Command completed successfully.</td></tr>
-                  <tr><td><code>1</code></td><td>GeneralError</td><td>Unspecified error — check stderr for details.</td></tr>
-                  <tr><td><code>2</code></td><td>ConfigError</td><td>Missing or invalid configuration (run <code>parsec config init</code>).</td></tr>
-                  <tr><td><code>3</code></td><td>TrackerError</td><td>Could not reach or authenticate with the issue tracker.</td></tr>
-                  <tr><td><code>4</code></td><td>GitError</td><td>Git operation failed (merge conflict, missing remote, etc.).</td></tr>
-                  <tr><td><code>5</code></td><td>WorktreeError</td><td>Worktree already exists, is missing, or is in a bad state.</td></tr>
-                  <tr><td><code>6</code></td><td>NotFound</td><td>Ticket or workspace not found.</td></tr>
-                  <tr><td><code>7</code></td><td>AuthError</td><td>API token missing or insufficient permissions.</td></tr>
-                  <tr><td><code>8</code></td><td>PolicyViolation</td><td>Operation blocked by an active policy rule.</td></tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="terminal-wrap">
-              <div class="terminal-bar">
-                <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
-                <span class="terminal-title-label">exit code in scripts</span>
-              </div>
-              <div class="terminal-body">
-<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">PROJ-123</span> <span class="flag">--json</span></span>
-<span class="terminal-line"><span class="output">{"error_code":3,"message":"Could not reach Jira: connection refused"}</span></span>
-<span class="terminal-line"><span class="prompt">$</span> <span class="info">echo $?</span></span>
-<span class="terminal-line"><span class="output">3</span></span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- end error-codes section -->
-
-        <!-- ==============================
-             POLICY CONFIG
-             ============================== -->
-        <div class="cmd-section" id="policy-config">
-          <div class="cmd-section-divider">
-            <h2>Policy Config</h2>
-          </div>
-
-          <div class="cmd-block reveal">
-            <p style="color: var(--text-secondary); font-size: 15px; margin-bottom: 16px; line-height: 1.7;">
-              The <code>[policy]</code> table in <code>~/.config/parsec/config.toml</code> lets teams enforce guardrails on parsec operations. Violations exit with code <code>8</code> (PolicyViolation) and print an actionable message.
-            </p>
-
-            <div class="ref-table-wrap">
-              <table class="ref-table">
-                <thead>
-                  <tr><th>Key</th><th>Type</th><th>Description</th></tr>
-                </thead>
-                <tbody>
-                  <tr><td><code>require_ticket_prefix</code></td><td><code>String</code></td><td>All ticket IDs must match this prefix (e.g., <code>"PROJ-"</code>). Prevents freeform branch names.</td></tr>
-                  <tr><td><code>max_open_workspaces</code></td><td><code>u32</code></td><td>Block <code>parsec start</code> when open workspace count reaches this limit.</td></tr>
-                  <tr><td><code>protected_branches</code></td><td><code>[String]</code></td><td>Branches that <code>parsec ship</code> and <code>parsec merge</code> will refuse to target (e.g., <code>["main", "production"]</code>).</td></tr>
-                  <tr><td><code>require_pr_review</code></td><td><code>bool</code></td><td>When <code>true</code>, <code>parsec ship</code> checks that at least one review is approved before merging.</td></tr>
-                  <tr><td><code>allow_force_push</code></td><td><code>bool</code></td><td>When <code>false</code> (default), <code>parsec ship</code> refuses to push with <code>--force</code>.</td></tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="terminal-wrap">
-              <div class="terminal-bar">
-                <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
-                <span class="terminal-title-label">~/.config/parsec/config.toml</span>
-              </div>
-              <div class="terminal-body">
-<span class="terminal-line"><span class="comment">[policy]</span></span>
-<span class="terminal-line"><span class="info">require_ticket_prefix = </span><span class="arg">"PROJ-"</span></span>
-<span class="terminal-line"><span class="info">max_open_workspaces = </span><span class="arg">5</span></span>
-<span class="terminal-line"><span class="info">protected_branches = </span><span class="arg">["main", "production"]</span></span>
-<span class="terminal-line"><span class="info">require_pr_review = </span><span class="arg">true</span></span>
-<span class="terminal-line"><span class="info">allow_force_push = </span><span class="arg">false</span></span>
-<span class="terminal-line">&nbsp;</span>
-<span class="terminal-line"><span class="comment"># Policy violation example</span></span>
-<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">my-feature</span></span>
-<span class="terminal-line"><span class="error">✗ Policy violation: ticket ID must start with "PROJ-"</span></span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- end policy-config section -->
-
       </div>
       <!-- end docs-content -->
     </main>
@@ -2488,7 +2249,7 @@
           <li><a href="https://github.com/erishforG/git-parsec" target="_blank" rel="noopener">GitHub</a></li>
           <li><a href="https://github.com/erishforG/git-parsec/issues" target="_blank" rel="noopener">Issues</a></li>
           <li><a href="https://github.com/erishforG/git-parsec/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
-          <li><a href="/git-parsec/guide/">Guide</a></li>
+          <li><a href="/git-parsec/v/0.3.1/guide/">Guide</a></li>
         </ul>
       </div>
       <div class="footer-right">Built with Rust. Designed for velocity.</div>

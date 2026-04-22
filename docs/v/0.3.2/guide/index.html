@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="en" data-doc-version="latest">
+<html lang="en" data-doc-version="0.3.2">
 <head>
   <meta charset="UTF-8">
+  <meta name="robots" content="noindex, follow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Guide — git-parsec</title>
   <meta name="description" content="Getting started guide for git-parsec. Installation, shell integration, quick start workflow, tracker configuration, and AI agent workflows.">
@@ -944,124 +945,37 @@
       transition: opacity 0.5s ease-out, transform 0.5s ease-out;
     }
     .reveal.visible { opacity: 1; transform: translateY(0); }
-
-    /* ================================================
-       VERSION SWITCHER
-       ================================================ */
-    .version-switcher {
-      position: relative;
-      margin-left: 12px;
-    }
-    .version-btn {
-      background: var(--bg-raised);
-      color: var(--accent-cyan);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-sm);
-      padding: 4px 10px;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      cursor: pointer;
-      transition: background 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 2px;
-    }
-    .version-btn:hover { background: var(--bg-card); }
+  
+    /* VERSION SWITCHER */
+    .version-switcher { position: relative; margin-left: 12px; }
+    .version-btn { background: var(--bg-raised, #0f1424); color: var(--accent-cyan, #4FC3F7); border: 1px solid var(--border-accent, rgba(79,195,247,0.2)); border-radius: var(--radius-sm, 6px); padding: 4px 10px; font-family: var(--font-mono, monospace); font-size: 0.8rem; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 2px; }
+    .version-btn:hover { background: var(--bg-card, #111828); }
     .version-arrow { font-size: 0.7rem; }
-    .version-dropdown {
-      display: none;
-      position: absolute;
-      top: calc(100% + 6px);
-      left: 0;
-      background: var(--bg-raised);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-sm);
-      min-width: 160px;
-      z-index: 1000;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    }
+    .version-dropdown { display: none; position: absolute; top: calc(100% + 6px); left: 0; background: var(--bg-raised, #0f1424); border: 1px solid var(--border-accent, rgba(79,195,247,0.2)); border-radius: var(--radius-sm, 6px); min-width: 160px; z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
     .version-dropdown.open { display: block; }
-    .version-dropdown a {
-      display: block;
-      padding: 8px 14px;
-      color: var(--text-secondary);
-      text-decoration: none;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      transition: background 0.15s, color 0.15s;
-    }
-    .version-dropdown a:hover {
-      background: var(--bg-card);
-      color: var(--text-primary);
-    }
-    .version-dropdown a.active {
-      color: var(--accent-cyan);
-      background: var(--accent-glow);
-    }
-    .version-banner {
-      background: rgba(255, 193, 7, 0.12);
-      border-bottom: 1px solid rgba(255, 193, 7, 0.3);
-      color: #ffd54f;
-      text-align: center;
-      padding: 8px 16px;
-      font-family: var(--font-body);
-      font-size: 0.9rem;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 10000;
-    }
-    .version-banner a {
-      color: #fff;
-      text-decoration: underline;
-      margin-left: 4px;
-    }
-    .version-banner a:hover { color: var(--accent-cyan); }
+    .version-dropdown a { display: block; padding: 8px 14px; color: var(--text-secondary, #8892a4); text-decoration: none; font-family: var(--font-mono, monospace); font-size: 0.8rem; transition: background 0.15s, color 0.15s; }
+    .version-dropdown a:hover { background: var(--bg-card, #111828); color: var(--text-primary, #e8edf5); }
+    .version-dropdown a.active { color: var(--accent-cyan, #4FC3F7); background: var(--accent-glow, rgba(79,195,247,0.15)); }
+    .version-banner { background: rgba(255,193,7,0.12); border-bottom: 1px solid rgba(255,193,7,0.3); color: #ffd54f; text-align: center; padding: 8px 16px; font-size: 0.9rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000; }
+    .version-banner a { color: #fff; text-decoration: underline; margin-left: 4px; }
+    .version-banner a:hover { color: var(--accent-cyan, #4FC3F7); }
   </style>
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="git-parsec Guide — Installation and Quick Start">
-  <meta name="twitter:description" content="Get started with git-parsec: installation, configuration, and your first ticket-to-PR workflow.">
-  <script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  "itemListElement": [
-    {"@type": "ListItem", "position": 1, "name": "git-parsec", "item": "https://erishforg.github.io/git-parsec/"},
-    {"@type": "ListItem", "position": 2, "name": "Guide", "item": "https://erishforg.github.io/git-parsec/guide/"}
-  ]
-}
-</script>
-  <script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "HowTo",
-  "name": "How to install and use git-parsec",
-  "description": "Install git-parsec and create your first ticket-driven worktree in under 2 minutes.",
-  "step": [
-    {"@type": "HowToStep", "name": "Install parsec", "text": "Run cargo install git-parsec, or download a pre-built binary from GitHub Releases."},
-    {"@type": "HowToStep", "name": "Configure your tracker", "text": "Run parsec config init to set up Jira, GitHub Issues, or GitLab integration."},
-    {"@type": "HowToStep", "name": "Start a workspace", "text": "Run parsec start TICKET-ID to create an isolated worktree for your ticket."},
-    {"@type": "HowToStep", "name": "Ship your work", "text": "Run parsec ship TICKET-ID to push, create a PR, and clean up in one step."}
-  ]
-}
-</script>
 </head>
 <body>
 
   <!-- ============ NAV ============ -->
   <nav>
     <div class="nav-inner">
-      <a href="/git-parsec/" class="nav-brand">
+      <a href="/git-parsec/v/0.3.2/" class="nav-brand">
         <div class="nav-brand-icon">P</div>
         <span>git-parsec</span>
       </a>
       <ul class="nav-links">
-        <li><a href="/git-parsec/#features">Features</a></li>
-        <li><a href="/git-parsec/#comparison">Compare</a></li>
-        <li><a href="/git-parsec/#quickstart">Quick Start</a></li>
-        <li><a href="/git-parsec/reference/" class="active">Docs</a></li>
-        <li><a href="/git-parsec/#install">Install</a></li>
+        <li><a href="/git-parsec/v/0.3.2/#features">Features</a></li>
+        <li><a href="/git-parsec/v/0.3.2/#comparison">Compare</a></li>
+        <li><a href="/git-parsec/v/0.3.2/#quickstart">Quick Start</a></li>
+        <li><a href="/git-parsec/v/0.3.2/reference/" class="active">Docs</a></li>
+        <li><a href="/git-parsec/v/0.3.2/#install">Install</a></li>
       </ul>
       <a href="https://github.com/erishforG/git-parsec" class="nav-cta" target="_blank" rel="noopener">
         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -1092,7 +1006,7 @@
 
       <div class="sidebar-also">
         <div class="sidebar-also-label">Also see</div>
-        <a href="/git-parsec/reference/">
+        <a href="/git-parsec/v/0.3.2/reference/">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           Command Reference
         </a>
@@ -1142,7 +1056,7 @@
 <span class="terminal-line">&nbsp;</span>
 <span class="terminal-line"><span class="comment"># Verify installation</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec</span> <span class="flag">--version</span></span>
-<span class="terminal-line"><span class="info">  parsec 0.3.3</span></span>
+<span class="terminal-line"><span class="info">  parsec 0.2.4</span></span>
             </div>
           </div>
 
@@ -1694,10 +1608,10 @@
               <span class="terminal-title-label">parsec release</span>
             </div>
             <div class="terminal-body">
-<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.3.3</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.3.0</span></span>
 <span class="terminal-line"><span class="success">✓</span> <span class="info">Merged develop → main</span></span>
-<span class="terminal-line"><span class="success">✓</span> <span class="info">Tagged </span><span class="link">v0.3.3</span></span>
-<span class="terminal-line"><span class="success">✓</span> <span class="info">GitHub Release: </span><span class="link">github.com/org/repo/releases/tag/v0.3.3</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Tagged </span><span class="link">v0.3.0</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">GitHub Release: </span><span class="link">github.com/org/repo/releases/tag/v0.3.0</span></span>
 <span class="terminal-line">&nbsp;</span>
 <span class="terminal-line"><span class="comment"># Always preview first with --dry-run</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.4.0</span> <span class="flag">--dry-run</span></span>
@@ -1751,7 +1665,7 @@
           <li><a href="https://github.com/erishforG/git-parsec" target="_blank" rel="noopener">GitHub</a></li>
           <li><a href="https://github.com/erishforG/git-parsec/issues" target="_blank" rel="noopener">Issues</a></li>
           <li><a href="https://github.com/erishforG/git-parsec/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
-          <li><a href="/git-parsec/reference/">Command Reference</a></li>
+          <li><a href="/git-parsec/v/0.3.2/reference/">Command Reference</a></li>
         </ul>
       </div>
       <div class="footer-right">Built with Rust. Designed for velocity.</div>
