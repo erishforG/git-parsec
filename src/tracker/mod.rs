@@ -84,11 +84,7 @@ pub fn resolve_jira_credentials(config: &ParsecConfig) -> Result<JiraCredentials
 
     let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
 
-    let config_token = config
-        .tracker
-        .jira
-        .as_ref()
-        .and_then(|j| j.token.clone());
+    let config_token = config.tracker.jira.as_ref().and_then(|j| j.token.clone());
 
     Ok(JiraCredentials {
         base_url,
@@ -99,8 +95,7 @@ pub fn resolve_jira_credentials(config: &ParsecConfig) -> Result<JiraCredentials
 
 /// Check if Jira credentials are available (for auto-detection).
 pub fn has_jira_credentials(config: &ParsecConfig) -> bool {
-    let has_url =
-        std::env::var(crate::env::JIRA_BASE_URL).is_ok() || config.tracker.jira.is_some();
+    let has_url = std::env::var(crate::env::JIRA_BASE_URL).is_ok() || config.tracker.jira.is_some();
     let ct = config
         .tracker
         .jira
@@ -176,7 +171,11 @@ pub async fn try_transition(config: &ParsecConfig, ticket: &str, target_status: 
         Ok(c) => c,
         Err(_) => return,
     };
-    let jira = jira::JiraTracker::new(&creds.base_url, creds.email.as_deref(), creds.config_token.as_deref());
+    let jira = jira::JiraTracker::new(
+        &creds.base_url,
+        creds.email.as_deref(),
+        creds.config_token.as_deref(),
+    );
 
     match jira.transition_issue(ticket, target_status).await {
         Ok(()) => {
@@ -203,7 +202,11 @@ pub async fn post_comment(
     match config.tracker.provider {
         TrackerProvider::Jira => {
             let creds = resolve_jira_credentials(config)?;
-            let tracker = jira::JiraTracker::new(&creds.base_url, creds.email.as_deref(), creds.config_token.as_deref());
+            let tracker = jira::JiraTracker::new(
+                &creds.base_url,
+                creds.email.as_deref(),
+                creds.config_token.as_deref(),
+            );
             tracker.add_comment(id, body).await
         }
         TrackerProvider::Github => {
@@ -214,7 +217,11 @@ pub async fn post_comment(
             // Auto-detect Jira
             if has_jira_credentials(config) {
                 if let Ok(creds) = resolve_jira_credentials(config) {
-                    let tracker = jira::JiraTracker::new(&creds.base_url, creds.email.as_deref(), creds.config_token.as_deref());
+                    let tracker = jira::JiraTracker::new(
+                        &creds.base_url,
+                        creds.email.as_deref(),
+                        creds.config_token.as_deref(),
+                    );
                     if tracker.add_comment(id, body).await.is_ok() {
                         return Ok(());
                     }
@@ -245,7 +252,11 @@ pub async fn post_comment(
 /// Internal: fetch from Jira, resolving base_url from config or env var.
 async fn fetch_jira_ticket(config: &ParsecConfig, id: &str) -> Result<Option<Ticket>> {
     let creds = resolve_jira_credentials(config)?;
-    let tracker = jira::JiraTracker::new(&creds.base_url, creds.email.as_deref(), creds.config_token.as_deref());
+    let tracker = jira::JiraTracker::new(
+        &creds.base_url,
+        creds.email.as_deref(),
+        creds.config_token.as_deref(),
+    );
     let ticket = tracker.fetch_ticket(id).await?;
     Ok(Some(ticket))
 }

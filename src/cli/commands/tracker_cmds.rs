@@ -81,7 +81,11 @@ pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
 
     // Resolve Jira credentials
     let creds = tracker::resolve_jira_credentials(&config)?;
-    let jira = JiraTracker::new(&creds.base_url, creds.email.as_deref(), creds.config_token.as_deref());
+    let jira = JiraTracker::new(
+        &creds.base_url,
+        creds.email.as_deref(),
+        creds.config_token.as_deref(),
+    );
 
     // JQL: assigned to current user, open statuses, ordered by priority
     let jql =
@@ -158,7 +162,11 @@ pub async fn board(
 
     // Resolve Jira credentials
     let creds = tracker::resolve_jira_credentials(&config)?;
-    let jira = JiraTracker::new(&creds.base_url, creds.email.as_deref(), creds.config_token.as_deref());
+    let jira = JiraTracker::new(
+        &creds.base_url,
+        creds.email.as_deref(),
+        creds.config_token.as_deref(),
+    );
 
     // Resolve project key: --project CLI > PARSEC_JIRA_PROJECT env > config > worktree inference
     let project = if let Some(p) = project_override {
