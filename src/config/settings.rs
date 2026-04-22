@@ -312,7 +312,12 @@ pub struct ParsecConfig {
 
 impl ParsecConfig {
     /// Return the canonical path to the config file.
+    ///
+    /// Respects `PARSEC_CONFIG_DIR` env var for testing and CI isolation.
     pub fn config_path() -> PathBuf {
+        if let Ok(dir) = std::env::var("PARSEC_CONFIG_DIR") {
+            return PathBuf::from(dir).join("config.toml");
+        }
         dirs::config_dir()
             .unwrap_or_else(|| {
                 dirs::home_dir()

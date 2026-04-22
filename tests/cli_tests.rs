@@ -111,7 +111,10 @@ fn setup_repo_with_remote() -> (TempDir, TempDir) {
 }
 
 fn parsec() -> Command {
-    Command::cargo_bin("parsec").unwrap()
+    let mut cmd = Command::cargo_bin("parsec").unwrap();
+    // Isolate tests from user's global config (e.g. default_base = "develop")
+    cmd.env("PARSEC_CONFIG_DIR", "/tmp/parsec-test-nonexistent");
+    cmd
 }
 
 // ---------------------------------------------------------------------------
