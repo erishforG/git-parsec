@@ -57,6 +57,54 @@ pub fn load_atlassian_env() {
     }
 }
 
+/// Resolved Jira credentials from config + environment variables.
+pub struct JiraCredentials {
+    pub base_url: String,
+    pub email: Option<String>,
+    pub config_token: Option<String>,
+}
+
+/// Resolve Jira credentials from config and environment variables.
+///
+/// Priority: config file values > environment variables.
+/// Returns an error if no base_url can be determined.
+pub fn resolve_jira_credentials(config: &ParsecConfig) -> Result<JiraCredentials> {
+    let base_url = config
+        .tracker
+        .jira
+        .as_ref()
+        .map(|j| j.base_url.clone())
+        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Jira base URL not found. Set it in config or {} env var.",
+                crate::env::JIRA_BASE_URL,
+            )
+        })?;
+
+    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
+
+    let config_token = config.tracker.jira.as_ref().and_then(|j| j.token.clone());
+
+    Ok(JiraCredentials {
+        base_url,
+        email,
+        config_token,
+    })
+}
+
+/// Check if Jira credentials are available (for auto-detection).
+pub fn has_jira_credentials(config: &ParsecConfig) -> bool {
+    let has_url = std::env::var(crate::env::JIRA_BASE_URL).is_ok() || config.tracker.jira.is_some();
+    let ct = config
+        .tracker
+        .jira
+        .as_ref()
+        .and_then(|j| j.token.as_deref());
+    let has_token = crate::env::jira_token(ct).is_some();
+    has_url && has_token
+}
+
 /// Fetch a ticket from the configured tracker. Returns None if no tracker configured.
 ///
 /// Auto-detects Jira from `~/.claude/.atlassian-env` even if config says provider = "none".
@@ -79,15 +127,7 @@ pub async fn fetch_ticket(
         }
         TrackerProvider::Gitlab | TrackerProvider::None => {
             // Auto-detect Jira: try if env vars or config token available
-            let has_jira_url =
-                std::env::var(crate::env::JIRA_BASE_URL).is_ok() || config.tracker.jira.is_some();
-            let config_token = config
-                .tracker
-                .jira
-                .as_ref()
-                .and_then(|j| j.token.as_deref());
-            let has_jira_token = crate::env::jira_token(config_token).is_some();
-            if has_jira_url && has_jira_token {
+            if has_jira_credentials(config) {
                 if let Ok(Some(ticket)) = fetch_jira_ticket(config, id).await {
                     return Ok(Some(ticket));
                 }
@@ -127,25 +167,15 @@ pub async fn try_transition(config: &ParsecConfig, ticket: &str, target_status: 
     // Need atlassian env loaded
     load_atlassian_env();
 
-    let base_url = config
-        .tracker
-        .jira
-        .as_ref()
-        .map(|j| j.base_url.clone())
-        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok());
-
-    let base_url = match base_url {
-        Some(url) => url,
-        None => return,
+    let creds = match resolve_jira_credentials(config) {
+        Ok(c) => c,
+        Err(_) => return,
     };
-
-    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-    let config_token = config
-        .tracker
-        .jira
-        .as_ref()
-        .and_then(|j| j.token.as_deref());
-    let jira = jira::JiraTracker::new(&base_url, email.as_deref(), config_token);
+    let jira = jira::JiraTracker::new(
+        &creds.base_url,
+        creds.email.as_deref(),
+        creds.config_token.as_deref(),
+    );
 
     match jira.transition_issue(ticket, target_status).await {
         Ok(()) => {
@@ -171,25 +201,12 @@ pub async fn post_comment(
 
     match config.tracker.provider {
         TrackerProvider::Jira => {
-            let base_url = config
-                .tracker
-                .jira
-                .as_ref()
-                .map(|j| j.base_url.clone())
-                .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Jira base URL not found. Set it in config or {} env var.",
-                        crate::env::JIRA_BASE_URL,
-                    )
-                })?;
-            let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-            let config_token = config
-                .tracker
-                .jira
-                .as_ref()
-                .and_then(|j| j.token.as_deref());
-            let tracker = jira::JiraTracker::new(&base_url, email.as_deref(), config_token);
+            let creds = resolve_jira_credentials(config)?;
+            let tracker = jira::JiraTracker::new(
+                &creds.base_url,
+                creds.email.as_deref(),
+                creds.config_token.as_deref(),
+            );
             tracker.add_comment(id, body).await
         }
         TrackerProvider::Github => {
@@ -198,31 +215,16 @@ pub async fn post_comment(
         }
         TrackerProvider::Gitlab | TrackerProvider::None => {
             // Auto-detect Jira
-            let has_jira_url =
-                std::env::var(crate::env::JIRA_BASE_URL).is_ok() || config.tracker.jira.is_some();
-            let ct = config
-                .tracker
-                .jira
-                .as_ref()
-                .and_then(|j| j.token.as_deref());
-            let has_jira_token = crate::env::jira_token(ct).is_some();
-            if has_jira_url && has_jira_token {
-                let base_url = config
-                    .tracker
-                    .jira
-                    .as_ref()
-                    .map(|j| j.base_url.clone())
-                    .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
-                    .ok_or_else(|| anyhow::anyhow!("Jira base URL not configured"))?;
-                let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-                let config_token = config
-                    .tracker
-                    .jira
-                    .as_ref()
-                    .and_then(|j| j.token.as_deref());
-                let tracker = jira::JiraTracker::new(&base_url, email.as_deref(), config_token);
-                if tracker.add_comment(id, body).await.is_ok() {
-                    return Ok(());
+            if has_jira_credentials(config) {
+                if let Ok(creds) = resolve_jira_credentials(config) {
+                    let tracker = jira::JiraTracker::new(
+                        &creds.base_url,
+                        creds.email.as_deref(),
+                        creds.config_token.as_deref(),
+                    );
+                    if tracker.add_comment(id, body).await.is_ok() {
+                        return Ok(());
+                    }
                 }
             }
 
@@ -249,28 +251,12 @@ pub async fn post_comment(
 
 /// Internal: fetch from Jira, resolving base_url from config or env var.
 async fn fetch_jira_ticket(config: &ParsecConfig, id: &str) -> Result<Option<Ticket>> {
-    // Resolve base_url: config > JIRA_BASE_URL env var
-    let base_url = config
-        .tracker
-        .jira
-        .as_ref()
-        .map(|j| j.base_url.clone())
-        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Jira base URL not found. Set it in config or {} env var.",
-                crate::env::JIRA_BASE_URL,
-            )
-        })?;
-
-    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-
-    let config_token = config
-        .tracker
-        .jira
-        .as_ref()
-        .and_then(|j| j.token.as_deref());
-    let tracker = jira::JiraTracker::new(&base_url, email.as_deref(), config_token);
+    let creds = resolve_jira_credentials(config)?;
+    let tracker = jira::JiraTracker::new(
+        &creds.base_url,
+        creds.email.as_deref(),
+        creds.config_token.as_deref(),
+    );
     let ticket = tracker.fetch_ticket(id).await?;
     Ok(Some(ticket))
 }
