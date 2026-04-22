@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::config::ParsecConfig;
+use crate::errors::ErrorCode;
 use crate::git;
 use crate::github;
 use crate::output::{self, Mode};
@@ -33,7 +34,10 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
             })
             .collect();
         if entries.is_empty() {
-            anyhow::bail!("no shipped PRs found. Ship a ticket first with `parsec ship`.");
+            bail_code!(
+                ErrorCode::E010,
+                "no shipped PRs found. Ship a ticket first with `parsec ship`."
+            );
         }
         targets = entries;
     } else if !tickets.is_empty() {
@@ -61,7 +65,8 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
                 match gh.find_pr_by_branch(&ws.branch).await? {
                     Some(pr_number) => targets.push((ticket_id, pr_number)),
                     None => {
-                        anyhow::bail!(
+                        bail_code!(
+                            ErrorCode::E010,
                             "no PR found for {ticket_id}. Push and create a PR first, or ship with `parsec ship {ticket_id}`."
                         );
                     }
@@ -129,7 +134,8 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
             // Determine exit code based on overall status
             let has_failure = statuses.iter().any(|(_t, ci)| ci.overall == "failing");
             if has_failure {
-                anyhow::bail!(
+                bail_code!(
+                    ErrorCode::E002,
                     "CI checks failing for {} ticket(s)",
                     statuses
                         .iter()
@@ -148,7 +154,8 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
         if all_completed {
             let has_failure = statuses.iter().any(|(_t, ci)| ci.overall == "failing");
             if has_failure {
-                anyhow::bail!(
+                bail_code!(
+                    ErrorCode::E002,
                     "CI checks failing for {} ticket(s)",
                     statuses
                         .iter()

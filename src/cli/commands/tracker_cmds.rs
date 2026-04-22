@@ -5,6 +5,7 @@ use anyhow::Result;
 use colored::Colorize;
 
 use crate::config::{ParsecConfig, TrackerProvider};
+use crate::errors::ErrorCode;
 use crate::git;
 use crate::output::{self, BoardTicketDisplay, Mode};
 use crate::tracker;
@@ -73,7 +74,7 @@ pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
         config.tracker.provider,
         TrackerProvider::Jira | TrackerProvider::None
     ) {
-        anyhow::bail!("Inbox currently supports Jira only.");
+        bail_code!(ErrorCode::E011, "Inbox currently supports Jira only.");
     }
 
     // Load atlassian env for auto-detection
@@ -105,7 +106,10 @@ pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
 
     if pick {
         if inbox_tickets.is_empty() {
-            anyhow::bail!("No assigned tickets without active worktrees.");
+            bail_code!(
+                ErrorCode::E007,
+                "No assigned tickets without active worktrees."
+            );
         }
         let items: Vec<String> = inbox_tickets
             .iter()
@@ -154,7 +158,7 @@ pub async fn board(
         config.tracker.provider,
         TrackerProvider::Jira | TrackerProvider::None
     ) {
-        anyhow::bail!("Board view currently supports Jira only.");
+        bail_code!(ErrorCode::E011, "Board view currently supports Jira only.");
     }
 
     // Load atlassian env for auto-detection

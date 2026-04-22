@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::config::ParsecConfig;
+use crate::errors::ErrorCode;
 use crate::git;
 use crate::github;
 use crate::gitlab;
@@ -40,7 +41,8 @@ pub async fn ship(
             if !output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!(
+                bail_code!(
+                    ErrorCode::E008,
                     "pre-ship hook failed: {}\n{}{}",
                     hook_cmd,
                     if stdout.is_empty() {
@@ -52,7 +54,7 @@ pub async fn ship(
                         String::new()
                     } else {
                         format!("stderr:\n{}", stderr)
-                    },
+                    }
                 );
             }
         }
@@ -267,7 +269,10 @@ pub async fn ship(
     }
 
     if pr_failed {
-        anyhow::bail!("Ship partial: branch pushed but PR/MR creation failed. Worktree preserved.");
+        bail_code!(
+            ErrorCode::E012,
+            "Ship partial: branch pushed but PR/MR creation failed. Worktree preserved."
+        );
     }
 
     Ok(())
