@@ -25,10 +25,7 @@ pub fn validate_ticket_id(ticket: &str) -> Result<()> {
 
     // Block path traversal
     if ticket.contains("..") || ticket.contains('/') || ticket.contains('\\') {
-        bail!(
-            "Ticket ID contains unsafe path characters: {}",
-            ticket
-        );
+        bail!("Ticket ID contains unsafe path characters: {}", ticket);
     }
 
     // Block null bytes and control characters
@@ -55,7 +52,9 @@ pub fn validate_ticket_id(ticket: &str) -> Result<()> {
     }
 
     // Block shell meta-characters
-    const SHELL_CHARS: &[char] = &['$', '`', '!', '&', '|', ';', '(', ')', '{', '}', '<', '>', '"', '\''];
+    const SHELL_CHARS: &[char] = &[
+        '$', '`', '!', '&', '|', ';', '(', ')', '{', '}', '<', '>', '"', '\'',
+    ];
     if let Some(c) = ticket.chars().find(|c| SHELL_CHARS.contains(c)) {
         bail!(
             "Ticket ID contains shell-unsafe character '{}': {}",
