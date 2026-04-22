@@ -113,3 +113,59 @@ jobs:
           gh release upload "${{ needs.release.outputs.tag }}" \
             parsec-${{ needs.release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }} \
             --clobber
+
+  snapshot-docs:
+    name: Snapshot Versioned Docs
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: main
+
+      - name: Create versioned docs snapshot
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          mkdir -p "docs/v/${VERSION}/guide" "docs/v/${VERSION}/reference"
+
+          for file in index.html guide/index.html reference/index.html; do
+            sed \
+              -e 's/data-doc-version="latest"/data-doc-version="'"${VERSION}"'"/' \
+              -e 's|<meta charset="UTF-8">|<meta charset="UTF-8">\n  <meta name="robots" content="noindex, follow">|' \
+              -e 's|href="/git-parsec/"|href="/git-parsec/v/'"${VERSION}"'/"|g' \
+              -e 's|href="/git-parsec/#|href="/git-parsec/v/'"${VERSION}"'/#|g' \
+              -e 's|href="/git-parsec/reference/|href="/git-parsec/v/'"${VERSION}"'/reference/|g' \
+              -e 's|href="/git-parsec/guide/|href="/git-parsec/v/'"${VERSION}"'/guide/|g' \
+              -e 's|src="demo.gif"|src="/git-parsec/demo.gif"|' \
+              "docs/${file}" > "docs/v/${VERSION}/${file}"
+          done
+
+      - name: Update versions.json
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          jq --arg ver "$VERSION" --arg date "$DATE" \
+            '.latest = $ver | .versions = [{"version": $ver, "date": $date, "path": ("/git-parsec/v/" + $ver + "/")}] + .versions' \
+            docs/versions.json > docs/versions.json.tmp
+          mv docs/versions.json.tmp docs/versions.json
+
+      - name: Update sitemap.xml
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          sed -i '/<\/urlset>/i \
+            <url>\n    <loc>https://erishforg.github.io/git-parsec/v/'"${VERSION}"'/</loc>\n    <lastmod>'"${DATE}"'</lastmod>\n    <changefreq>never</changefreq>\n    <priority>0.3</priority>\n  </url>\n  <url>\n    <loc>https://erishforg.github.io/git-parsec/v/'"${VERSION}"'/guide/</loc>\n    <lastmod>'"${DATE}"'</lastmod>\n    <changefreq>never</changefreq>\n    <priority>0.3</priority>\n  </url>\n  <url>\n    <loc>https://erishforg.github.io/git-parsec/v/'"${VERSION}"'/reference/</loc>\n    <lastmod>'"${DATE}"'</lastmod>\n    <changefreq>never</changefreq>\n    <priority>0.3</priority>\n  </url>' docs/sitemap.xml
+
+      - name: Commit and push versioned docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/v/ docs/versions.json docs/sitemap.xml
+          git commit -m "docs: snapshot versioned docs for v${VERSION}"
+          git push origin main

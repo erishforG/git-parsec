@@ -6,4 +6,5 @@ Cargo.lock
 .env
 .parsec/
 .omc/
+.claude/
 demo.mp4
