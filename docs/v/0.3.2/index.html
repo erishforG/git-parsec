@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="en" data-doc-version="latest">
+<html lang="en" data-doc-version="0.3.2">
 <head>
   <meta charset="UTF-8">
+  <meta name="robots" content="noindex, follow">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>git-parsec — Full-lifecycle worktree management</title>
   <meta name="description" content="From ticket to PR in one command. git-parsec manages the full lifecycle of git worktrees tied to issue tickets with Jira and GitHub Issues integration.">
@@ -31,8 +32,8 @@
     "operatingSystem": "macOS, Linux, Windows",
     "description": "Git worktree lifecycle manager for parallel AI agent workflows. Create isolated workspaces from ticket IDs (Jira, GitHub Issues, GitLab), work in parallel without lock conflicts, ship with one command (push + PR + cleanup). Supports CI monitoring, stacked PRs, conflict detection, and operation history with undo.",
     "url": "https://erishforg.github.io/git-parsec/",
-    "downloadUrl": "https://github.com/erishforG/git-parsec/releases",
-    "softwareVersion": "0.3.3",
+    "downloadUrl": "https://crates.io/crates/git-parsec",
+    "softwareVersion": "0.2.4",
     "author": {
       "@type": "Person",
       "name": "erishforG",
@@ -75,7 +76,7 @@
         "name": "Can multiple AI agents use parsec on the same repository?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Yes. Each parsec workspace is a separate git worktree with its own index, so multiple AI agents (or developers) can run git add, commit, and push simultaneously without index.lock conflicts. Every command supports --json for structured output, and parsec doctor --ai outputs workflow rules optimized for AI consumption."
+          "text": "Yes. Each parsec workspace is a separate git worktree with its own index, so multiple AI agents (or developers) can run git add, commit, and push simultaneously without index.lock conflicts. parsec also detects when multiple workspaces modify the same files."
         }
       },
       {
@@ -83,55 +84,7 @@
         "name": "How do I install parsec?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Install via cargo: cargo install git-parsec. Or download pre-built binaries for macOS (Apple Silicon, Intel), Linux, and Windows from the GitHub Releases page. Or build from source: git clone and cargo build --release."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Does parsec support GitLab?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Yes. parsec supports GitLab for both issue tracking and merge request creation. Set provider = gitlab in your config and configure the base_url. Authentication uses PARSEC_GITLAB_TOKEN or GITLAB_TOKEN environment variables."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "How do stacked PRs work in parsec?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Use parsec start CHILD --on PARENT to create dependent worktrees. When you ship, parsec automatically sets the correct base branch for each PR. Use parsec stack to view the dependency graph and parsec stack --sync to rebase the entire chain."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Does parsec work with GitHub Enterprise?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Yes. parsec auto-detects GitHub Enterprise from the git remote URL and routes API calls to the correct host. Token resolution is host-aware, supporting both github.com and GitHub Enterprise instances."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Can I undo a parsec operation?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Yes. parsec log shows all operations with timestamps, and parsec undo reverses the last one. Undoing a start removes the worktree; undoing a ship or clean re-creates it from the branch if still available."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "How do I protect branches from accidental shipping?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Add a [policy] section to ~/.config/parsec/config.toml with protected_branches and allowed_ship_targets. parsec will reject ship and merge operations that violate these rules, returning error code E009."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "What are parsec error codes?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "When using --json mode, parsec returns structured error codes (E001 through E013) with specific exit codes for programmatic handling. For example, E001 means no token configured (exit 2), E002 means CI failing (exit 4), E003 means conflicts detected (exit 3). This enables AI agents and scripts to handle errors precisely."
+          "text": "Install via cargo: cargo install git-parsec. Or build from source: git clone https://github.com/erishforG/git-parsec.git && cd git-parsec && cargo build --release. The binary is at ./target/release/parsec."
         }
       }
     ]
@@ -1461,80 +1414,20 @@
       width: 100%;
       display: block;
     }
-
-    /* ================================================
-       VERSION SWITCHER
-       ================================================ */
-    .version-switcher {
-      position: relative;
-      margin-left: 12px;
-    }
-    .version-btn {
-      background: var(--bg-raised);
-      color: var(--accent-cyan);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-sm);
-      padding: 4px 10px;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      cursor: pointer;
-      transition: background 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 2px;
-    }
-    .version-btn:hover { background: var(--bg-card); }
+  
+    /* VERSION SWITCHER */
+    .version-switcher { position: relative; margin-left: 12px; }
+    .version-btn { background: var(--bg-raised, #0f1424); color: var(--accent-cyan, #4FC3F7); border: 1px solid var(--border-accent, rgba(79,195,247,0.2)); border-radius: var(--radius-sm, 6px); padding: 4px 10px; font-family: var(--font-mono, monospace); font-size: 0.8rem; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 2px; }
+    .version-btn:hover { background: var(--bg-card, #111828); }
     .version-arrow { font-size: 0.7rem; }
-    .version-dropdown {
-      display: none;
-      position: absolute;
-      top: calc(100% + 6px);
-      left: 0;
-      background: var(--bg-raised);
-      border: 1px solid var(--border-accent);
-      border-radius: var(--radius-sm);
-      min-width: 160px;
-      z-index: 1000;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    }
+    .version-dropdown { display: none; position: absolute; top: calc(100% + 6px); left: 0; background: var(--bg-raised, #0f1424); border: 1px solid var(--border-accent, rgba(79,195,247,0.2)); border-radius: var(--radius-sm, 6px); min-width: 160px; z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
     .version-dropdown.open { display: block; }
-    .version-dropdown a {
-      display: block;
-      padding: 8px 14px;
-      color: var(--text-secondary);
-      text-decoration: none;
-      font-family: var(--font-mono);
-      font-size: 0.8rem;
-      transition: background 0.15s, color 0.15s;
-    }
-    .version-dropdown a:hover {
-      background: var(--bg-card);
-      color: var(--text-primary);
-    }
-    .version-dropdown a.active {
-      color: var(--accent-cyan);
-      background: var(--accent-glow);
-    }
-    .version-banner {
-      background: rgba(255, 193, 7, 0.12);
-      border-bottom: 1px solid rgba(255, 193, 7, 0.3);
-      color: #ffd54f;
-      text-align: center;
-      padding: 8px 16px;
-      font-family: var(--font-body);
-      font-size: 0.9rem;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 10000;
-    }
-    .version-banner a {
-      color: #fff;
-      text-decoration: underline;
-      margin-left: 4px;
-    }
-    .version-banner a:hover { color: var(--accent-cyan); }
+    .version-dropdown a { display: block; padding: 8px 14px; color: var(--text-secondary, #8892a4); text-decoration: none; font-family: var(--font-mono, monospace); font-size: 0.8rem; transition: background 0.15s, color 0.15s; }
+    .version-dropdown a:hover { background: var(--bg-card, #111828); color: var(--text-primary, #e8edf5); }
+    .version-dropdown a.active { color: var(--accent-cyan, #4FC3F7); background: var(--accent-glow, rgba(79,195,247,0.15)); }
+    .version-banner { background: rgba(255,193,7,0.12); border-bottom: 1px solid rgba(255,193,7,0.3); color: #ffd54f; text-align: center; padding: 8px 16px; font-size: 0.9rem; position: fixed; top: 0; left: 0; right: 0; z-index: 10000; }
+    .version-banner a { color: #fff; text-decoration: underline; margin-left: 4px; }
+    .version-banner a:hover { color: var(--accent-cyan, #4FC3F7); }
   </style>
 </head>
 <body>
@@ -1542,7 +1435,7 @@
   <!-- ============ NAV ============ -->
   <nav>
     <div class="nav-inner">
-      <a href="/git-parsec/" class="nav-brand">
+      <a href="/git-parsec/v/0.3.2/" class="nav-brand">
         <div class="nav-brand-icon">P</div>
         <span>git-parsec</span>
       </a>
@@ -1550,7 +1443,7 @@
         <li><a href="#features">Features</a></li>
         <li><a href="#comparison">Compare</a></li>
         <li><a href="#quickstart">Quick Start</a></li>
-        <li><a href="/git-parsec/reference/">Docs</a></li>
+        <li><a href="/git-parsec/v/0.3.2/reference/">Docs</a></li>
         <li><a href="#install">Install</a></li>
       </ul>
       <a href="https://github.com/erishforG/git-parsec" class="nav-cta" target="_blank" rel="noopener">
@@ -1741,7 +1634,7 @@
         <div class="section-title">From ticket to PR in 60 seconds.</div>
       </div>
       <div class="demo-container reveal reveal-delay-1">
-        <img src="demo.gif" alt="git-parsec demo showing start, list, switch, log, undo, and clean commands" class="demo-gif" loading="lazy">
+        <img src="/git-parsec/demo.gif" alt="git-parsec demo showing start, list, switch, log, undo, and clean commands" class="demo-gif" loading="lazy">
       </div>
     </div>
   </section>
