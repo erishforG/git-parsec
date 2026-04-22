@@ -6,6 +6,7 @@ use std::fmt;
 /// Exit code mapping:
 ///   1 = general, 2 = auth, 3 = conflict, 4 = CI, 5 = state, 6 = policy
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[allow(dead_code)]
 pub enum ErrorCode {
     // Auth (exit code 2)
     /// No token configured for the forge/tracker
