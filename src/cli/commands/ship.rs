@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::config::ParsecConfig;
+use crate::errors::ErrorCode;
 use crate::git;
 use crate::github;
 use crate::gitlab;
@@ -10,12 +11,14 @@ use crate::output::{self, Mode};
 use crate::tracker;
 use crate::worktree::WorktreeManager;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn ship(
     repo: &Path,
     ticket: &str,
     draft: bool,
     no_pr: bool,
     base_override: Option<String>,
+    title_override: Option<String>,
     skip_hooks: bool,
     mode: Mode,
 ) -> Result<()> {
@@ -38,7 +41,8 @@ pub async fn ship(
             if !output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!(
+                bail_code!(
+                    ErrorCode::E008,
                     "pre-ship hook failed: {}\n{}{}",
                     hook_cmd,
                     if stdout.is_empty() {
@@ -50,7 +54,7 @@ pub async fn ship(
                         String::new()
                     } else {
                         format!("stderr:\n{}", stderr)
-                    },
+                    }
                 );
             }
         }
@@ -101,6 +105,19 @@ pub async fn ship(
     }
     // else: keep the worktree's original base_branch
 
+    // Policy guard: check if the target branch is allowed
+    if !config.policy.is_allowed_target(&result.base_branch) {
+        anyhow::bail!(
+            "Policy violation: shipping to '{}' is not allowed.\n  \
+             Protected branches: {:?}\n  \
+             Allowed targets: {:?}\n  \
+             Use --base to specify a different target branch.",
+            result.base_branch,
+            config.policy.protected_branches,
+            config.policy.allowed_ship_targets,
+        );
+    }
+
     // Phase 2: Create PR/MR (async)
     let mut pr_failed = false;
     if !no_pr && config.ship.auto_pr {
@@ -110,12 +127,16 @@ pub async fn ship(
                 _ => (None, None),
             };
 
-        // Prefer freshly fetched title over stored one
+        // Priority: --title flag > fresh tracker fetch > stored workspace title
         let effective_title = ticket_title.as_deref().or(result.ticket_title.as_deref());
 
-        let pr_title = effective_title
-            .map(|t| format!("{}: {}", result.ticket, t))
-            .unwrap_or_else(|| result.ticket.clone());
+        let pr_title = if let Some(ref t) = title_override {
+            t.clone()
+        } else {
+            effective_title
+                .map(|t| format!("[{}] {}", result.ticket, t))
+                .unwrap_or_else(|| result.ticket.clone())
+        };
 
         let pr_body = build_pr_body(&result.ticket, effective_title, ticket_url.as_deref());
 
@@ -237,13 +258,21 @@ pub async fn ship(
             base_branch: Some(result.base_branch.clone()),
             path: None,
             ticket_title: result.ticket_title.clone(),
+            pr_number: result
+                .pr_url
+                .as_ref()
+                .and_then(|u| u.rsplit('/').next().and_then(|n| n.parse::<u64>().ok())),
+            pr_url: result.pr_url.clone(),
         }),
     ) {
         eprintln!("warning: failed to write oplog: {e}");
     }
 
     if pr_failed {
-        anyhow::bail!("Ship partial: branch pushed but PR/MR creation failed. Worktree preserved.");
+        bail_code!(
+            ErrorCode::E012,
+            "Ship partial: branch pushed but PR/MR creation failed. Worktree preserved."
+        );
     }
 
     Ok(())

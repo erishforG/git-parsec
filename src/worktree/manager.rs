@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 
+use crate::errors::ErrorCode;
+
 use super::lifecycle::{ParsecState, ShipResult, Workspace, WorkspaceStatus};
 use crate::config::ParsecConfig;
 use crate::git;
@@ -66,6 +68,8 @@ impl WorktreeManager {
         parent_ticket: Option<&str>,
         existing_branch: Option<&str>,
     ) -> Result<Workspace> {
+        super::validate_ticket_id(ticket)?;
+
         let base_branch = match base {
             Some(b) => b.to_owned(),
             None => {
@@ -185,7 +189,8 @@ impl WorktreeManager {
 
         // Check if ticket is already managed
         if state.get_workspace(ticket).is_some() {
-            anyhow::bail!(
+            bail_code!(
+                ErrorCode::E006,
                 "ticket '{}' is already managed by parsec. Use `parsec status {}` to see it.",
                 ticket,
                 ticket
@@ -216,7 +221,8 @@ impl WorktreeManager {
                         )
                         .context("could not detect branch. Specify one with --branch <name>")?;
                         if current == "HEAD" || current == "main" || current == "master" {
-                            anyhow::bail!(
+                            bail_code!(
+                                ErrorCode::E005,
                                 "no branch found for ticket '{}'. Specify one with: parsec adopt {} --branch <branch-name>",
                                 ticket, ticket
                             );
@@ -336,10 +342,10 @@ impl WorktreeManager {
             .get_workspace(ticket)
             .cloned()
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no workspace found for ticket '{}'. Run `parsec list` to see active workspaces, or `parsec adopt {}` to import an existing branch.",
-                    ticket, ticket
-                )
+                anyhow::Error::from(crate::errors::ParsecError::new(
+                    ErrorCode::E005,
+                    format!("no workspace found for ticket '{}'. Run `parsec list` to see active workspaces, or `parsec adopt {}` to import an existing branch.", ticket, ticket),
+                ))
             })
     }
 
@@ -355,10 +361,10 @@ impl WorktreeManager {
             .get_workspace(ticket)
             .cloned()
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no workspace found for ticket '{}'. Run `parsec list` to see active workspaces, or `parsec adopt {}` to import an existing branch.",
-                    ticket, ticket
-                )
+                anyhow::Error::from(crate::errors::ParsecError::new(
+                    ErrorCode::E005,
+                    format!("no workspace found for ticket '{}'. Run `parsec list` to see active workspaces, or `parsec adopt {}` to import an existing branch.", ticket, ticket),
+                ))
             })?;
 
         // Push the branch from the worktree itself so HEAD is correct.

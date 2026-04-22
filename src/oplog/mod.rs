@@ -33,6 +33,12 @@ pub struct UndoInfo {
     pub base_branch: Option<String>,
     pub path: Option<PathBuf>,
     pub ticket_title: Option<String>,
+    /// PR/MR number created during ship
+    #[serde(default)]
+    pub pr_number: Option<u64>,
+    /// PR/MR URL created during ship
+    #[serde(default)]
+    pub pr_url: Option<String>,
 }
 
 /// A single operation log entry

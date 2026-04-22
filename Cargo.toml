@@ -1,6 +1,6 @@
 [package]
 name = "git-parsec"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 authors = ["erishforG"]
 description = "Git worktree lifecycle manager — ticket to PR in one command. Parallel AI agent workflows with Jira & GitHub Issues integration."
@@ -19,18 +19,18 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive", "color"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1"
 anyhow = "1"
 thiserror = "2"
-colored = "2"
+colored = "3"
 dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
-tabled = { version = "0.17", features = ["ansi"] }
-indicatif = "0.17"
-dialoguer = "0.11"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+tabled = { version = "0.20", features = ["ansi"] }
+indicatif = "0.18"
+dialoguer = "0.12"
+reqwest = { version = "0.13", features = ["json", "query", "rustls", "rustls-native-certs"], default-features = false }
 tokio = { version = "1", features = ["full"] }
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 clap_complete = "4"
 
 [dev-dependencies]

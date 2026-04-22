@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::config::{ParsecConfig, TrackerProvider};
+use crate::errors::ErrorCode;
 use crate::git;
 use crate::github;
 use crate::output::{self, Mode};
@@ -73,6 +74,8 @@ pub async fn start(
             base_branch: Some(workspace.base_branch.clone()),
             path: Some(workspace.path.clone()),
             ticket_title: workspace.ticket_title.clone(),
+            pr_number: None,
+            pr_url: None,
         }),
     ) {
         eprintln!("warning: failed to write oplog: {e}");
@@ -175,7 +178,8 @@ pub async fn create(
                     let result = gh.create_issue(title, body, labels).await?;
                     (format!("#{}", result.number), result.url)
                 } else {
-                    anyhow::bail!(
+                    bail_code!(
+                        ErrorCode::E011,
                         "Tracker not configured (or not yet supported). \
                          Set tracker.provider = \"github\" or \"jira\" in parsec config."
                     )
@@ -247,6 +251,8 @@ pub async fn adopt(
             base_branch: Some(workspace.base_branch.clone()),
             path: Some(workspace.path.clone()),
             ticket_title: workspace.ticket_title.clone(),
+            pr_number: None,
+            pr_url: None,
         }),
     ) {
         eprintln!("warning: failed to write oplog: {e}");
@@ -427,7 +433,10 @@ pub async fn switch(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()>
         None => {
             let workspaces = manager.list()?;
             if workspaces.is_empty() {
-                anyhow::bail!("no active workspaces. Run `parsec start <ticket>` to create one.");
+                bail_code!(
+                    ErrorCode::E007,
+                    "no active workspaces. Run `parsec start <ticket>` to create one."
+                );
             }
             let items: Vec<String> = workspaces
                 .iter()
@@ -577,6 +586,8 @@ pub async fn clean(
                 base_branch: Some(ws.base_branch.clone()),
                 path: Some(ws.path.clone()),
                 ticket_title: ws.ticket_title.clone(),
+                pr_number: None,
+                pr_url: None,
             }),
         ) {
             eprintln!("warning: failed to write oplog: {e}");
@@ -610,6 +621,8 @@ pub async fn clean(
                     base_branch: Some(ws.base_branch.clone()),
                     path: Some(ws.path.clone()),
                     ticket_title: ws.ticket_title.clone(),
+                    pr_number: None,
+                    pr_url: None,
                 }),
             ) {
                 eprintln!("warning: failed to write oplog: {e}");
@@ -621,6 +634,8 @@ pub async fn clean(
 }
 
 pub async fn rename(repo: &Path, old_ticket: &str, new_ticket: &str, mode: Mode) -> Result<()> {
+    crate::worktree::validate_ticket_id(new_ticket)?;
+
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let manager = WorktreeManager::new(repo, &config)?;
@@ -630,7 +645,8 @@ pub async fn rename(repo: &Path, old_ticket: &str, new_ticket: &str, mode: Mode)
 
     // Verify new ticket doesn't already exist
     if manager.get(new_ticket).is_ok() {
-        anyhow::bail!(
+        bail_code!(
+            ErrorCode::E006,
             "ticket '{}' already exists. Choose a different ticket ID.",
             new_ticket
         );

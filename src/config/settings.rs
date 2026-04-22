@@ -285,6 +285,53 @@ pub struct RepoOverrideConfig {
 }
 
 // ---------------------------------------------------------------------------
+// PolicyConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PolicyConfig {
+    /// Branches that cannot be used as ship targets (e.g. ["main", "release/*"])
+    #[serde(default)]
+    pub protected_branches: Vec<String>,
+    /// Branches allowed as ship targets (if empty, all non-protected are allowed)
+    #[serde(default)]
+    pub allowed_ship_targets: Vec<String>,
+    /// Require CI to pass before `parsec merge` (default: false)
+    #[serde(default)]
+    pub require_ci: bool,
+}
+
+impl PolicyConfig {
+    /// Check if a branch is protected (supports glob patterns with `*`).
+    pub fn is_protected(&self, branch: &str) -> bool {
+        self.protected_branches.iter().any(|pattern| {
+            if pattern.contains('*') {
+                let prefix = pattern.trim_end_matches('*');
+                branch.starts_with(prefix)
+            } else {
+                branch == pattern
+            }
+        })
+    }
+
+    /// Check if a branch is allowed as a ship target.
+    pub fn is_allowed_target(&self, branch: &str) -> bool {
+        if self.allowed_ship_targets.is_empty() {
+            // If no allow-list, everything non-protected is allowed
+            return !self.is_protected(branch);
+        }
+        self.allowed_ship_targets.iter().any(|pattern| {
+            if pattern.contains('*') {
+                let prefix = pattern.trim_end_matches('*');
+                branch.starts_with(prefix)
+            } else {
+                branch == pattern
+            }
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ParsecConfig
 // ---------------------------------------------------------------------------
 
@@ -300,6 +347,8 @@ pub struct ParsecConfig {
     pub hooks: HooksConfig,
     #[serde(default)]
     pub release: ReleaseConfig,
+    #[serde(default)]
+    pub policy: PolicyConfig,
     /// Per-host GitHub tokens. Keys are hostnames like "github.com" or
     /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
     #[serde(default)]
@@ -312,7 +361,12 @@ pub struct ParsecConfig {
 
 impl ParsecConfig {
     /// Return the canonical path to the config file.
+    ///
+    /// Respects `PARSEC_CONFIG_DIR` env var for testing and CI isolation.
     pub fn config_path() -> PathBuf {
+        if let Ok(dir) = std::env::var("PARSEC_CONFIG_DIR") {
+            return PathBuf::from(dir).join("config.toml");
+        }
         dirs::config_dir()
             .unwrap_or_else(|| {
                 dirs::home_dir()

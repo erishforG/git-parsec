@@ -197,50 +197,38 @@ pub async fn doctor(repo: &Path, mode: Mode) -> Result<()> {
                     if let Some(jira) = &cfg.tracker.jira {
                         let url =
                             format!("{}/rest/api/2/myself", jira.base_url.trim_end_matches('/'));
-                        let token = std::env::var("JIRA_TOKEN").unwrap_or_default();
+                        let config_token =
+                            cfg.tracker.jira.as_ref().and_then(|j| j.token.as_deref());
+                        let token = crate::env::jira_token(config_token).unwrap_or_default();
                         let email = jira.email.clone().unwrap_or_default();
-                        let reachable = if token.is_empty() || email.is_empty() {
-                            // Try a simple HEAD without auth
-                            StdCommand::new("curl")
-                                .args([
-                                    "-s",
-                                    "-o",
-                                    "/dev/null",
-                                    "-w",
-                                    "%{http_code}",
-                                    "--max-time",
-                                    "5",
-                                    &url,
-                                ])
-                                .output()
-                                .map(|o| {
-                                    let code =
-                                        String::from_utf8_lossy(&o.stdout).trim().to_string();
-                                    code == "200" || code == "401"
-                                })
-                                .unwrap_or(false)
-                        } else {
-                            let creds = format!("{}:{}", email, token);
-                            StdCommand::new("curl")
-                                .args([
-                                    "-s",
-                                    "-o",
-                                    "/dev/null",
-                                    "-w",
-                                    "%{http_code}",
-                                    "--max-time",
-                                    "5",
-                                    "-u",
-                                    &creds,
-                                    &url,
-                                ])
-                                .output()
-                                .map(|o| {
-                                    let code =
-                                        String::from_utf8_lossy(&o.stdout).trim().to_string();
-                                    code == "200"
-                                })
-                                .unwrap_or(false)
+                        let reachable = {
+                            let client = reqwest::Client::builder()
+                                .timeout(std::time::Duration::from_secs(5))
+                                .build()
+                                .unwrap_or_default();
+                            if token.is_empty() || email.is_empty() {
+                                // Try unauthenticated; 200 or 401 both mean the
+                                // server is reachable.
+                                client
+                                    .get(&url)
+                                    .send()
+                                    .await
+                                    .map(|r| {
+                                        let s = r.status().as_u16();
+                                        s == 200 || s == 401
+                                    })
+                                    .unwrap_or(false)
+                            } else {
+                                // Authenticated check — credentials stay out of
+                                // the process list.
+                                client
+                                    .get(&url)
+                                    .basic_auth(&email, Some(&token))
+                                    .send()
+                                    .await
+                                    .map(|r| r.status().as_u16() == 200)
+                                    .unwrap_or(false)
+                            }
                         };
                         checks.push(DoctorCheck {
                             name: "tracker_connectivity".to_string(),
@@ -259,35 +247,46 @@ pub async fn doctor(repo: &Path, mode: Mode) -> Result<()> {
                     }
                 }
                 crate::config::TrackerProvider::Github => {
-                    let reachable = StdCommand::new("curl")
-                        .args([
-                            "-s",
-                            "-o",
-                            "/dev/null",
-                            "-w",
-                            "%{http_code}",
-                            "--max-time",
-                            "5",
-                            "https://api.github.com",
-                        ])
-                        .output()
-                        .map(|o| {
-                            let code = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                            !code.is_empty() && code != "000"
-                        })
-                        .unwrap_or(false);
+                    // Derive API base URL from the configured GitHub host
+                    // (supports GitHub Enterprise).
+                    let gh_host = cfg
+                        .github
+                        .keys()
+                        .next()
+                        .map(String::as_str)
+                        .unwrap_or("github.com");
+                    let api_base = if gh_host == "github.com" {
+                        "https://api.github.com".to_string()
+                    } else {
+                        format!("https://{}/api/v3", gh_host)
+                    };
+                    let reachable = {
+                        let client = reqwest::Client::builder()
+                            .timeout(std::time::Duration::from_secs(5))
+                            .build()
+                            .unwrap_or_default();
+                        client
+                            .get(&api_base)
+                            .send()
+                            .await
+                            .map(|r| {
+                                let s = r.status().as_u16();
+                                s > 0 && s != 000
+                            })
+                            .unwrap_or(false)
+                    };
                     checks.push(DoctorCheck {
                         name: "tracker_connectivity".to_string(),
                         ok: reachable,
                         detail: if reachable {
-                            "GitHub API reachable (api.github.com)".to_string()
+                            format!("GitHub API reachable ({})", gh_host)
                         } else {
-                            "GitHub API unreachable".to_string()
+                            format!("GitHub API unreachable ({})", gh_host)
                         },
                         fix: if reachable {
                             None
                         } else {
-                            Some("Check network connectivity to api.github.com".to_string())
+                            Some(format!("Check network connectivity to {}", gh_host))
                         },
                     });
                 }
@@ -421,5 +420,98 @@ pub async fn doctor(repo: &Path, mode: Mode) -> Result<()> {
     }
 
     output::print_doctor(&checks, mode);
+    Ok(())
+}
+
+/// Output parsec workflow rules for AI coding agents.
+pub async fn doctor_ai(repo: &Path) -> Result<()> {
+    let config = crate::config::ParsecConfig::load().unwrap_or_default();
+
+    let layout = &config.workspace.layout;
+    let prefix = &config.workspace.branch_prefix;
+    let provider = &config.tracker.provider;
+    let default_base = config
+        .workspace
+        .default_base
+        .as_deref()
+        .unwrap_or("(auto-detect)");
+    let ship_base = config
+        .ship
+        .default_base
+        .as_deref()
+        .unwrap_or("(auto-detect)");
+    let auto_pr = config.ship.auto_pr;
+    let draft = config.ship.draft;
+
+    // Detect repo info
+    let repo_root = git::get_repo_root(repo).ok();
+    let remote_url = repo_root
+        .as_ref()
+        .and_then(|r| git::get_remote_url(r).ok())
+        .unwrap_or_default();
+
+    print!(
+        r#"# Parsec Workflow Rules
+
+## What is Parsec?
+Git worktree lifecycle manager. Use `parsec` commands instead of raw `git`/`gh` for all worktree and PR operations.
+
+## Current Project Config
+- **Layout**: {layout}
+- **Branch prefix**: `{prefix}`
+- **Tracker**: {provider}
+- **Default base branch**: {default_base}
+- **Ship base branch**: {ship_base}
+- **Auto PR on ship**: {auto_pr}
+- **Draft PRs**: {draft}
+- **Remote**: {remote_url}
+
+## Core Workflow
+```
+parsec start TICKET       # Create worktree for a ticket
+parsec list               # See all active workspaces
+parsec switch TICKET      # Jump into a workspace (use with cd: cd $(parsec switch TICKET))
+parsec ship TICKET        # Push branch + create PR + cleanup
+parsec ci TICKET          # Check CI status
+parsec merge TICKET       # Merge PR after CI passes
+```
+
+## Command Reference
+
+| Instead of...                  | Use...                          |
+|--------------------------------|---------------------------------|
+| `git worktree add ...`         | `parsec start TICKET`           |
+| `git push && gh pr create`     | `parsec ship TICKET`            |
+| `gh pr checks`                 | `parsec ci TICKET`              |
+| `gh pr merge`                  | `parsec merge TICKET`           |
+| `git worktree remove ...`      | `parsec clean TICKET`           |
+| `gh pr view`                   | `parsec open TICKET`            |
+| `git branch -m ...`            | `parsec rename OLD NEW`         |
+
+## Rules for AI Agents
+
+1. **ALWAYS use parsec commands** — never use raw `git worktree`, `gh pr create`, or `gh pr merge`
+2. **Work in parallel** — use multiple `parsec start` to create parallel worktrees
+3. **Use parsec ci** to check CI status, not `gh pr checks` or `gh run watch`
+4. **Use parsec merge** to merge PRs, not `gh pr merge`
+5. **All tests must pass** before shipping — run `cargo test` (or project-specific test command) in the worktree
+6. **Run `cargo fmt`** (or project-specific formatter) before committing
+7. **Commit in the worktree directory**, not the main repo
+8. **One ticket per worktree** — don't mix changes across tickets
+
+## Additional Commands
+```
+parsec status [TICKET]    # Show workspace details
+parsec diff [TICKET]      # Show changes in workspace
+parsec sync TICKET        # Rebase worktree on latest base
+parsec log                # View operation history
+parsec undo               # Revert last operation
+parsec doctor             # Validate environment setup
+parsec stack TICKET       # View PR stack
+parsec board              # View Jira board (if configured)
+parsec inbox              # View assigned tickets (if configured)
+```
+"#
+    );
     Ok(())
 }

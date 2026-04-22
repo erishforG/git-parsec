@@ -89,10 +89,16 @@ pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
                 .filter(|w| w.parent_ticket.as_deref() == Some(parent_ticket))
                 .collect();
             for child in &children {
-                let parent_ws = workspaces
-                    .iter()
-                    .find(|w| w.ticket == parent_ticket)
-                    .unwrap();
+                let parent_ws = match workspaces.iter().find(|w| w.ticket == parent_ticket) {
+                    Some(ws) => ws,
+                    None => {
+                        failed.push((
+                            child.ticket.clone(),
+                            format!("parent workspace '{}' not found", parent_ticket),
+                        ));
+                        continue;
+                    }
+                };
                 if let Err(e) = git::run(&child.path, &["rebase", &parent_ws.branch]) {
                     let _ = git::run(&child.path, &["rebase", "--abort"]);
                     failed.push((

@@ -29,6 +29,10 @@ pub struct Cli {
     /// Target repository path (default: current directory)
     #[arg(long, global = true)]
     pub repo: Option<PathBuf>,
+
+    /// Preview what would happen without making changes
+    #[arg(long, global = true)]
+    pub dry_run: bool,
 }
 
 #[derive(Subcommand)]
@@ -120,6 +124,10 @@ pub enum Command {
         /// Target base branch for PR (default from config or worktree base)
         #[arg(long)]
         base: Option<String>,
+
+        /// Override PR title (default: [TICKET] tracker title)
+        #[arg(long, short)]
+        title: Option<String>,
 
         /// Skip pre-ship hooks
         #[arg(long)]
@@ -389,7 +397,11 @@ pub enum Command {
     /// Checks git version, token configuration, tracker connectivity,
     /// shell integration, and remote access. Prints ✓/✗ for each check
     /// with actionable fix instructions.
-    Doctor,
+    Doctor {
+        /// Output parsec workflow rules for AI coding agents
+        #[arg(long)]
+        ai: bool,
+    },
 
     /// Create a release: merge to release branch, tag, and create GitHub Release
     ///
@@ -510,6 +522,14 @@ pub async fn run(cli: Cli) -> Result<()> {
             existing_branch,
             hook,
         } => {
+            if cli.dry_run {
+                eprintln!(
+                    "[dry-run] Would create worktree for ticket '{}' (base: {}, prefix: auto)",
+                    ticket,
+                    base.as_deref().unwrap_or("auto")
+                );
+                return Ok(());
+            }
             commands::start(
                 &repo_path,
                 &ticket,
@@ -534,14 +554,26 @@ pub async fn run(cli: Cli) -> Result<()> {
             draft,
             no_pr,
             base,
+            title,
             skip_hooks,
         } => {
+            if cli.dry_run {
+                eprintln!(
+                    "[dry-run] Would ship ticket '{}' (draft: {}, no_pr: {}, base: {})",
+                    ticket,
+                    draft,
+                    no_pr,
+                    base.as_deref().unwrap_or("auto")
+                );
+                return Ok(());
+            }
             commands::ship(
                 &repo_path,
                 &ticket,
                 draft,
                 no_pr,
                 base,
+                title,
                 skip_hooks,
                 output_mode,
             )
@@ -557,7 +589,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 &repo_path,
                 ticket.as_deref(),
                 all,
-                dry_run,
+                dry_run || cli.dry_run,
                 orphans,
                 output_mode,
             )
@@ -567,7 +599,21 @@ pub async fn run(cli: Cli) -> Result<()> {
             ticket,
             all,
             strategy,
-        } => commands::sync(&repo_path, ticket.as_deref(), all, &strategy, output_mode).await,
+        } => {
+            if cli.dry_run {
+                eprintln!(
+                    "[dry-run] Would sync {} (strategy: {})",
+                    if all {
+                        "all worktrees".to_string()
+                    } else {
+                        format!("ticket '{}'", ticket.as_deref().unwrap_or("auto"))
+                    },
+                    strategy
+                );
+                return Ok(());
+            }
+            commands::sync(&repo_path, ticket.as_deref(), all, &strategy, output_mode).await
+        }
         Command::Adopt {
             ticket,
             branch,
@@ -587,6 +633,15 @@ pub async fn run(cli: Cli) -> Result<()> {
             no_wait,
             no_delete_branch,
         } => {
+            if cli.dry_run {
+                let ticket_str = if tickets.is_empty() {
+                    "auto-detect".to_string()
+                } else {
+                    tickets.join(", ")
+                };
+                eprintln!("[dry-run] Would merge ticket(s) '{}' (rebase: {}, no_wait: {}, no_delete_branch: {})", ticket_str, rebase, no_wait, no_delete_branch);
+                return Ok(());
+            }
             if tickets.len() > 1 {
                 commands::merge_batch(
                     &repo_path,
@@ -663,7 +718,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Man { dir } => commands::config_man(&dir).await,
             ConfigAction::Completions { shell } => commands::config_completions(shell).await,
         },
-        Command::Doctor => commands::doctor(&repo_path, output_mode).await,
+        Command::Doctor { ai } => {
+            if ai {
+                commands::doctor_ai(&repo_path).await
+            } else {
+                commands::doctor(&repo_path, output_mode).await
+            }
+        }
         Command::Release {
             version,
             from,
@@ -703,6 +764,15 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Rename {
             old_ticket,
             new_ticket,
-        } => commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await,
+        } => {
+            if cli.dry_run {
+                eprintln!(
+                    "[dry-run] Would rename workspace '{}' to '{}'",
+                    old_ticket, new_ticket
+                );
+                return Ok(());
+            }
+            commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await
+        }
     }
 }
