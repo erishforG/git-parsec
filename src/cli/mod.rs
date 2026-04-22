@@ -393,7 +393,11 @@ pub enum Command {
     /// Checks git version, token configuration, tracker connectivity,
     /// shell integration, and remote access. Prints ✓/✗ for each check
     /// with actionable fix instructions.
-    Doctor,
+    Doctor {
+        /// Output parsec workflow rules for AI coding agents
+        #[arg(long)]
+        ai: bool,
+    },
 
     /// Create a release: merge to release branch, tag, and create GitHub Release
     ///
@@ -669,7 +673,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Man { dir } => commands::config_man(&dir).await,
             ConfigAction::Completions { shell } => commands::config_completions(shell).await,
         },
-        Command::Doctor => commands::doctor(&repo_path, output_mode).await,
+        Command::Doctor { ai } => {
+            if ai {
+                commands::doctor_ai(&repo_path).await
+            } else {
+                commands::doctor(&repo_path, output_mode).await
+            }
+        }
         Command::Release {
             version,
             from,
