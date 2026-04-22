@@ -7,6 +7,7 @@ description = "Git worktree lifecycle manager — ticket to PR in one command. P
 license = "MIT"
 repository = "https://github.com/erishforG/git-parsec"
 homepage = "https://erishforg.github.io/git-parsec/"
+documentation = "https://erishforg.github.io/git-parsec/"
 keywords = ["git", "worktree", "cli", "jira", "github"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
