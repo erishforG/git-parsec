@@ -205,7 +205,7 @@ pub async fn post_comment(
                     .as_ref()
                     .map(|j| j.base_url.clone())
                     .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
-                    .unwrap();
+                    .ok_or_else(|| anyhow::anyhow!("Jira base URL not configured"))?;
                 let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
                 let config_token = config
                     .tracker
