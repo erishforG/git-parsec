@@ -945,6 +945,33 @@
     }
     .reveal.visible { opacity: 1; transform: translateY(0); }
   </style>
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="git-parsec Guide — Installation and Quick Start">
+  <meta name="twitter:description" content="Get started with git-parsec: installation, configuration, and your first ticket-to-PR workflow.">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {"@type": "ListItem", "position": 1, "name": "git-parsec", "item": "https://erishforg.github.io/git-parsec/"},
+    {"@type": "ListItem", "position": 2, "name": "Guide", "item": "https://erishforg.github.io/git-parsec/guide/"}
+  ]
+}
+</script>
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  "name": "How to install and use git-parsec",
+  "description": "Install git-parsec and create your first ticket-driven worktree in under 2 minutes.",
+  "step": [
+    {"@type": "HowToStep", "name": "Install parsec", "text": "Run cargo install git-parsec, or download a pre-built binary from GitHub Releases."},
+    {"@type": "HowToStep", "name": "Configure your tracker", "text": "Run parsec config init to set up Jira, GitHub Issues, or GitLab integration."},
+    {"@type": "HowToStep", "name": "Start a workspace", "text": "Run parsec start TICKET-ID to create an isolated worktree for your ticket."},
+    {"@type": "HowToStep", "name": "Ship your work", "text": "Run parsec ship TICKET-ID to push, create a PR, and clean up in one step."}
+  ]
+}
+</script>
 </head>
 <body>
 
@@ -1041,7 +1068,7 @@
 <span class="terminal-line">&nbsp;</span>
 <span class="terminal-line"><span class="comment"># Verify installation</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec</span> <span class="flag">--version</span></span>
-<span class="terminal-line"><span class="info">  parsec 0.2.4</span></span>
+<span class="terminal-line"><span class="info">  parsec 0.3.3</span></span>
             </div>
           </div>
 
@@ -1593,10 +1620,10 @@
               <span class="terminal-title-label">parsec release</span>
             </div>
             <div class="terminal-body">
-<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.3.0</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.3.3</span></span>
 <span class="terminal-line"><span class="success">✓</span> <span class="info">Merged develop → main</span></span>
-<span class="terminal-line"><span class="success">✓</span> <span class="info">Tagged </span><span class="link">v0.3.0</span></span>
-<span class="terminal-line"><span class="success">✓</span> <span class="info">GitHub Release: </span><span class="link">github.com/org/repo/releases/tag/v0.3.0</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Tagged </span><span class="link">v0.3.3</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">GitHub Release: </span><span class="link">github.com/org/repo/releases/tag/v0.3.3</span></span>
 <span class="terminal-line">&nbsp;</span>
 <span class="terminal-line"><span class="comment"># Always preview first with --dry-run</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.4.0</span> <span class="flag">--dry-run</span></span>
