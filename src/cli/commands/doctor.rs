@@ -197,50 +197,38 @@ pub async fn doctor(repo: &Path, mode: Mode) -> Result<()> {
                     if let Some(jira) = &cfg.tracker.jira {
                         let url =
                             format!("{}/rest/api/2/myself", jira.base_url.trim_end_matches('/'));
-                        let token = std::env::var("JIRA_TOKEN").unwrap_or_default();
+                        let config_token =
+                            cfg.tracker.jira.as_ref().and_then(|j| j.token.as_deref());
+                        let token = crate::env::jira_token(config_token).unwrap_or_default();
                         let email = jira.email.clone().unwrap_or_default();
-                        let reachable = if token.is_empty() || email.is_empty() {
-                            // Try a simple HEAD without auth
-                            StdCommand::new("curl")
-                                .args([
-                                    "-s",
-                                    "-o",
-                                    "/dev/null",
-                                    "-w",
-                                    "%{http_code}",
-                                    "--max-time",
-                                    "5",
-                                    &url,
-                                ])
-                                .output()
-                                .map(|o| {
-                                    let code =
-                                        String::from_utf8_lossy(&o.stdout).trim().to_string();
-                                    code == "200" || code == "401"
-                                })
-                                .unwrap_or(false)
-                        } else {
-                            let creds = format!("{}:{}", email, token);
-                            StdCommand::new("curl")
-                                .args([
-                                    "-s",
-                                    "-o",
-                                    "/dev/null",
-                                    "-w",
-                                    "%{http_code}",
-                                    "--max-time",
-                                    "5",
-                                    "-u",
-                                    &creds,
-                                    &url,
-                                ])
-                                .output()
-                                .map(|o| {
-                                    let code =
-                                        String::from_utf8_lossy(&o.stdout).trim().to_string();
-                                    code == "200"
-                                })
-                                .unwrap_or(false)
+                        let reachable = {
+                            let client = reqwest::Client::builder()
+                                .timeout(std::time::Duration::from_secs(5))
+                                .build()
+                                .unwrap_or_default();
+                            if token.is_empty() || email.is_empty() {
+                                // Try unauthenticated; 200 or 401 both mean the
+                                // server is reachable.
+                                client
+                                    .get(&url)
+                                    .send()
+                                    .await
+                                    .map(|r| {
+                                        let s = r.status().as_u16();
+                                        s == 200 || s == 401
+                                    })
+                                    .unwrap_or(false)
+                            } else {
+                                // Authenticated check — credentials stay out of
+                                // the process list.
+                                client
+                                    .get(&url)
+                                    .basic_auth(&email, Some(&token))
+                                    .send()
+                                    .await
+                                    .map(|r| r.status().as_u16() == 200)
+                                    .unwrap_or(false)
+                            }
                         };
                         checks.push(DoctorCheck {
                             name: "tracker_connectivity".to_string(),
@@ -259,35 +247,46 @@ pub async fn doctor(repo: &Path, mode: Mode) -> Result<()> {
                     }
                 }
                 crate::config::TrackerProvider::Github => {
-                    let reachable = StdCommand::new("curl")
-                        .args([
-                            "-s",
-                            "-o",
-                            "/dev/null",
-                            "-w",
-                            "%{http_code}",
-                            "--max-time",
-                            "5",
-                            "https://api.github.com",
-                        ])
-                        .output()
-                        .map(|o| {
-                            let code = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                            !code.is_empty() && code != "000"
-                        })
-                        .unwrap_or(false);
+                    // Derive API base URL from the configured GitHub host
+                    // (supports GitHub Enterprise).
+                    let gh_host = cfg
+                        .github
+                        .keys()
+                        .next()
+                        .map(String::as_str)
+                        .unwrap_or("github.com");
+                    let api_base = if gh_host == "github.com" {
+                        "https://api.github.com".to_string()
+                    } else {
+                        format!("https://{}/api/v3", gh_host)
+                    };
+                    let reachable = {
+                        let client = reqwest::Client::builder()
+                            .timeout(std::time::Duration::from_secs(5))
+                            .build()
+                            .unwrap_or_default();
+                        client
+                            .get(&api_base)
+                            .send()
+                            .await
+                            .map(|r| {
+                                let s = r.status().as_u16();
+                                s > 0 && s != 000
+                            })
+                            .unwrap_or(false)
+                    };
                     checks.push(DoctorCheck {
                         name: "tracker_connectivity".to_string(),
                         ok: reachable,
                         detail: if reachable {
-                            "GitHub API reachable (api.github.com)".to_string()
+                            format!("GitHub API reachable ({})", gh_host)
                         } else {
-                            "GitHub API unreachable".to_string()
+                            format!("GitHub API unreachable ({})", gh_host)
                         },
                         fix: if reachable {
                             None
                         } else {
-                            Some("Check network connectivity to api.github.com".to_string())
+                            Some(format!("Check network connectivity to {}", gh_host))
                         },
                     });
                 }
