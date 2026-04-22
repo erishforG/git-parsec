@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::config::ParsecConfig;
+use crate::errors::ErrorCode;
 use crate::git;
 use crate::output::{self, Mode};
 
@@ -140,7 +141,7 @@ pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
             state.save(&repo_root)?;
         }
         crate::oplog::OpKind::Undo => {
-            anyhow::bail!("cannot undo an undo operation");
+            bail_code!(ErrorCode::E013, "cannot undo an undo operation");
         }
     }
 

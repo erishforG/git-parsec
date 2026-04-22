@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 
 use crate::config::ParsecConfig;
+use crate::errors::ErrorCode;
 use crate::git;
 use crate::github;
 use crate::output::{self, Mode};
@@ -143,15 +144,19 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
 
         if all_entries.is_empty() {
             if let Some(t) = ticket {
-                anyhow::bail!("no PR found for {t}. Ship it first with `parsec ship {t}`, or check your GitHub token.");
+                bail_code!(ErrorCode::E010, "no PR found for {t}. Ship it first with `parsec ship {t}`, or check your GitHub token.");
             } else {
-                anyhow::bail!("no PRs found. Ship a ticket first with `parsec ship`, or check your GitHub token.");
+                bail_code!(ErrorCode::E010, "no PRs found. Ship a ticket first with `parsec ship`, or check your GitHub token.");
             }
         }
     }
 
-    let gh = github::GitHubClient::new(&remote_url, &config)?
-        .ok_or_else(|| anyhow::anyhow!("no GitHub token found. Set PARSEC_GITHUB_TOKEN."))?;
+    let gh = github::GitHubClient::new(&remote_url, &config)?.ok_or_else(|| {
+        anyhow::Error::from(crate::errors::ParsecError::new(
+            ErrorCode::E001,
+            "no GitHub token found. Set PARSEC_GITHUB_TOKEN.",
+        ))
+    })?;
     let mut statuses = Vec::new();
     for (ticket_id, pr_number, _url) in &all_entries {
         let status = gh.get_pr_status(*pr_number).await?;
@@ -173,8 +178,12 @@ pub async fn merge(
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
-    let gh = github::GitHubClient::new(&remote_url, &config)?
-        .ok_or_else(|| anyhow::anyhow!("no GitHub token found. Set PARSEC_GITHUB_TOKEN."))?;
+    let gh = github::GitHubClient::new(&remote_url, &config)?.ok_or_else(|| {
+        anyhow::Error::from(crate::errors::ParsecError::new(
+            ErrorCode::E001,
+            "no GitHub token found. Set PARSEC_GITHUB_TOKEN.",
+        ))
+    })?;
     let oplog = crate::oplog::OpLog::load(&repo_root)?;
     let manager = WorktreeManager::new(repo, &config)?;
 
@@ -262,7 +271,8 @@ pub async fn merge(
                 if mode == Mode::Human {
                     eprintln!(" {}", "✗".red());
                 }
-                anyhow::bail!(
+                bail_code!(
+                    ErrorCode::E002,
                     "CI is failing for PR #{}. Fix CI or use --no-wait to merge anyway.",
                     pr_number
                 );
@@ -295,7 +305,8 @@ pub async fn merge(
                         if ci.overall == "passing" {
                             break;
                         } else if ci.overall == "failing" {
-                            anyhow::bail!(
+                            bail_code!(
+                                ErrorCode::E002,
                                 "CI is failing after branch update for PR #{}.",
                                 pr_number
                             );
@@ -306,7 +317,8 @@ pub async fn merge(
                     gh.merge_pr(pr_number, method, delete_branch).await?
                 }
                 false => {
-                    anyhow::bail!(
+                    bail_code!(
+                        ErrorCode::E003,
                         "PR #{} has conflicts with the base branch. Resolve conflicts manually and retry.",
                         pr_number
                     );
@@ -454,7 +466,7 @@ pub async fn merge_batch(
     }
 
     if !failed.is_empty() {
-        anyhow::bail!("{} merge(s) failed", failed.len());
+        bail_code!(ErrorCode::E004, "{} merge(s) failed", failed.len());
     }
 
     Ok(())

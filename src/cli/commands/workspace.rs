@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::config::{ParsecConfig, TrackerProvider};
+use crate::errors::ErrorCode;
 use crate::git;
 use crate::github;
 use crate::output::{self, Mode};
@@ -175,7 +176,8 @@ pub async fn create(
                     let result = gh.create_issue(title, body, labels).await?;
                     (format!("#{}", result.number), result.url)
                 } else {
-                    anyhow::bail!(
+                    bail_code!(
+                        ErrorCode::E011,
                         "Tracker not configured (or not yet supported). \
                          Set tracker.provider = \"github\" or \"jira\" in parsec config."
                     )
@@ -427,7 +429,10 @@ pub async fn switch(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()>
         None => {
             let workspaces = manager.list()?;
             if workspaces.is_empty() {
-                anyhow::bail!("no active workspaces. Run `parsec start <ticket>` to create one.");
+                bail_code!(
+                    ErrorCode::E007,
+                    "no active workspaces. Run `parsec start <ticket>` to create one."
+                );
             }
             let items: Vec<String> = workspaces
                 .iter()
@@ -632,7 +637,8 @@ pub async fn rename(repo: &Path, old_ticket: &str, new_ticket: &str, mode: Mode)
 
     // Verify new ticket doesn't already exist
     if manager.get(new_ticket).is_ok() {
-        anyhow::bail!(
+        bail_code!(
+            ErrorCode::E006,
             "ticket '{}' already exists. Choose a different ticket ID.",
             new_ticket
         );
