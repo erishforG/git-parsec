@@ -34,6 +34,14 @@ pub fn load_atlassian_env() {
             if let Some((key, value)) = line.split_once('=') {
                 let key = key.trim();
                 let value = value.trim();
+                // Strip surrounding quotes (common in .env files)
+                let value = if (value.starts_with('"') && value.ends_with('"'))
+                    || (value.starts_with('\'') && value.ends_with('\''))
+                {
+                    &value[1..value.len() - 1]
+                } else {
+                    value
+                };
                 // Only allow specific prefixes for security
                 let allowed_prefixes = ["JIRA_", "PARSEC_", "CONFLUENCE_", "ATLASSIAN_"];
                 if !allowed_prefixes.iter().any(|p| key.starts_with(p)) {
