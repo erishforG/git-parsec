@@ -10,12 +10,14 @@ use crate::output::{self, Mode};
 use crate::tracker;
 use crate::worktree::WorktreeManager;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn ship(
     repo: &Path,
     ticket: &str,
     draft: bool,
     no_pr: bool,
     base_override: Option<String>,
+    title_override: Option<String>,
     skip_hooks: bool,
     mode: Mode,
 ) -> Result<()> {
@@ -110,12 +112,16 @@ pub async fn ship(
                 _ => (None, None),
             };
 
-        // Prefer freshly fetched title over stored one
+        // Priority: --title flag > fresh tracker fetch > stored workspace title
         let effective_title = ticket_title.as_deref().or(result.ticket_title.as_deref());
 
-        let pr_title = effective_title
-            .map(|t| format!("{}: {}", result.ticket, t))
-            .unwrap_or_else(|| result.ticket.clone());
+        let pr_title = if let Some(ref t) = title_override {
+            t.clone()
+        } else {
+            effective_title
+                .map(|t| format!("[{}] {}", result.ticket, t))
+                .unwrap_or_else(|| result.ticket.clone())
+        };
 
         let pr_body = build_pr_body(&result.ticket, effective_title, ticket_url.as_deref());
 
