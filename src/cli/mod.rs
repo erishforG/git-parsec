@@ -121,6 +121,10 @@ pub enum Command {
         #[arg(long)]
         base: Option<String>,
 
+        /// Override PR title (default: [TICKET] tracker title)
+        #[arg(long, short)]
+        title: Option<String>,
+
         /// Skip pre-ship hooks
         #[arg(long)]
         skip_hooks: bool,
@@ -534,6 +538,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             draft,
             no_pr,
             base,
+            title,
             skip_hooks,
         } => {
             commands::ship(
@@ -542,6 +547,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 draft,
                 no_pr,
                 base,
+                title,
                 skip_hooks,
                 output_mode,
             )
