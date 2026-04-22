@@ -621,6 +621,8 @@ pub async fn clean(
 }
 
 pub async fn rename(repo: &Path, old_ticket: &str, new_ticket: &str, mode: Mode) -> Result<()> {
+    crate::worktree::validate_ticket_id(new_ticket)?;
+
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let manager = WorktreeManager::new(repo, &config)?;

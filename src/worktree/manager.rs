@@ -66,6 +66,8 @@ impl WorktreeManager {
         parent_ticket: Option<&str>,
         existing_branch: Option<&str>,
     ) -> Result<Workspace> {
+        super::validate_ticket_id(ticket)?;
+
         let base_branch = match base {
             Some(b) => b.to_owned(),
             None => {
