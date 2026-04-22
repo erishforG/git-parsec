@@ -31,8 +31,8 @@
     "operatingSystem": "macOS, Linux, Windows",
     "description": "Git worktree lifecycle manager for parallel AI agent workflows. Create isolated workspaces from ticket IDs (Jira, GitHub Issues, GitLab), work in parallel without lock conflicts, ship with one command (push + PR + cleanup). Supports CI monitoring, stacked PRs, conflict detection, and operation history with undo.",
     "url": "https://erishforg.github.io/git-parsec/",
-    "downloadUrl": "https://crates.io/crates/git-parsec",
-    "softwareVersion": "0.2.4",
+    "downloadUrl": "https://github.com/erishforG/git-parsec/releases",
+    "softwareVersion": "0.3.3",
     "author": {
       "@type": "Person",
       "name": "erishforG",
@@ -75,7 +75,7 @@
         "name": "Can multiple AI agents use parsec on the same repository?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Yes. Each parsec workspace is a separate git worktree with its own index, so multiple AI agents (or developers) can run git add, commit, and push simultaneously without index.lock conflicts. parsec also detects when multiple workspaces modify the same files."
+          "text": "Yes. Each parsec workspace is a separate git worktree with its own index, so multiple AI agents (or developers) can run git add, commit, and push simultaneously without index.lock conflicts. Every command supports --json for structured output, and parsec doctor --ai outputs workflow rules optimized for AI consumption."
         }
       },
       {
@@ -83,7 +83,55 @@
         "name": "How do I install parsec?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Install via cargo: cargo install git-parsec. Or build from source: git clone https://github.com/erishforG/git-parsec.git && cd git-parsec && cargo build --release. The binary is at ./target/release/parsec."
+          "text": "Install via cargo: cargo install git-parsec. Or download pre-built binaries for macOS (Apple Silicon, Intel), Linux, and Windows from the GitHub Releases page. Or build from source: git clone and cargo build --release."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does parsec support GitLab?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. parsec supports GitLab for both issue tracking and merge request creation. Set provider = gitlab in your config and configure the base_url. Authentication uses PARSEC_GITLAB_TOKEN or GITLAB_TOKEN environment variables."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do stacked PRs work in parsec?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Use parsec start CHILD --on PARENT to create dependent worktrees. When you ship, parsec automatically sets the correct base branch for each PR. Use parsec stack to view the dependency graph and parsec stack --sync to rebase the entire chain."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does parsec work with GitHub Enterprise?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. parsec auto-detects GitHub Enterprise from the git remote URL and routes API calls to the correct host. Token resolution is host-aware, supporting both github.com and GitHub Enterprise instances."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I undo a parsec operation?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. parsec log shows all operations with timestamps, and parsec undo reverses the last one. Undoing a start removes the worktree; undoing a ship or clean re-creates it from the branch if still available."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I protect branches from accidental shipping?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Add a [policy] section to ~/.config/parsec/config.toml with protected_branches and allowed_ship_targets. parsec will reject ship and merge operations that violate these rules, returning error code E009."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What are parsec error codes?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "When using --json mode, parsec returns structured error codes (E001 through E013) with specific exit codes for programmatic handling. For example, E001 means no token configured (exit 2), E002 means CI failing (exit 4), E003 means conflicts detected (exit 3). This enables AI agents and scripts to handle errors precisely."
         }
       }
     ]

@@ -323,6 +323,7 @@ $ parsec log
 | [`parsec create`](#parsec-create) | Create a new issue and optionally start a worktree |
 | [`parsec new-issue`](#parsec-new-issue) | Create a new issue (alias with extra options) |
 | [`parsec release`](#parsec-release-version) | Merge, tag, and create a GitHub Release |
+| [`parsec rename`](#parsec-rename-ticket---new-ticket-id) | Re-ticket a workspace to a different ticket ID |
 
 ---
 
@@ -1029,6 +1030,14 @@ $ parsec doctor --json
 {"checks":[...],"all_ok":false}
 ```
 
+**AI agent mode** — output parsec workflow rules as a Markdown document for AI agents to consume:
+
+```bash
+$ parsec doctor --ai
+# Outputs structured Markdown with workflow rules, command patterns,
+# and best practices for AI agents using parsec
+```
+
 ---
 
 ### `parsec create`
@@ -1119,12 +1128,38 @@ $ parsec release 0.3.1 --no-github-release
 
 ---
 
+### `parsec rename <ticket> --new <ticket-id>`
+
+Re-ticket an existing workspace to a different ticket ID. Renames the branch and updates internal state. Useful when a ticket is split or re-assigned.
+
+```
+parsec rename <ticket> --new <ticket-id>
+```
+
+| Option | Description |
+|--------|-------------|
+| `--new <ticket-id>` | New ticket ID to assign (required) |
+
+```bash
+# Re-ticket a workspace
+$ parsec rename PROJ-100 --new PROJ-200
+Renamed PROJ-100 → PROJ-200
+  Branch: feature/PROJ-100 → feature/PROJ-200
+  Path: /home/user/myapp.PROJ-200
+
+# JSON output
+$ parsec rename PROJ-100 --new PROJ-200 --json
+```
+
+---
+
 ## Global Flags
 
 These flags work on every command:
 
 | Flag | Description |
 |------|-------------|
+| `--dry-run` | Preview what a command would do without making changes |
 | `--json` | Machine-readable JSON output |
 | `-q, --quiet` | Suppress non-essential output |
 | `--repo <path>` | Target a different repository |
@@ -1244,6 +1279,11 @@ pre_ship = ["cargo test", "cargo clippy"]
 # tag_prefix = "v"       # Tag prefix (default: "v")
 # changelog = true       # Generate changelog in release notes
 
+[policy]
+# protected_branches = ["main", "develop", "release/*"]  # Branches that cannot be shipped to
+# allowed_ship_targets = ["develop"]                       # Restrict PR target branches
+# require_ci = false                                        # Require CI pass before merge
+
 [tracker.auto_transition]
 # on_start = "In Progress"   # Transition when `parsec start` runs
 # on_ship = "In Review"      # Transition when `parsec ship` runs
@@ -1272,6 +1312,36 @@ Token priority: `PARSEC_*_TOKEN` > platform-specific variables.
 
 ---
 
+## Error Codes
+
+When using `--json`, errors include a structured error code for programmatic handling:
+
+| Code | Meaning | Exit Code |
+|------|---------|-----------|
+| E001 | No authentication token configured | 2 |
+| E002 | CI checks failing | 4 |
+| E003 | Merge conflicts detected | 3 |
+| E004 | PR not mergeable | 5 |
+| E005 | Workspace not found | 5 |
+| E006 | Workspace already exists | 5 |
+| E007 | No active workspaces | 5 |
+| E008 | Pre-ship hook failed | 1 |
+| E009 | Policy violation | 6 |
+| E010 | PR not found | 5 |
+| E011 | Tracker not configured | 2 |
+| E012 | Ship partially completed | 1 |
+| E013 | Cannot undo operation | 1 |
+
+```bash
+# JSON error output example
+$ parsec ship PROJ-1234 --json 2>&1
+{"error":{"code":"E001","message":"No GitHub token configured","hint":"Set PARSEC_GITHUB_TOKEN or run gh auth login"}}
+$ echo $?
+2
+```
+
+---
+
 ## Comparison with Alternatives
 
 | Feature | parsec | GitButler | worktrunk | git worktree | git-town |
@@ -1291,6 +1361,40 @@ Token priority: `PARSEC_*_TOKEN` > platform-specific variables.
 | AI token efficiency | Single-command ops | N/A | N/A | N/A | N/A |
 | GUI | CLI only | Desktop + TUI | CLI | CLI | CLI |
 | Zero config start | Yes | No | Yes | No | No |
+
+---
+
+## FAQ
+
+**How do I set up parsec with Jira?**
+Set `PARSEC_JIRA_TOKEN` (or `JIRA_PAT`) and configure `[tracker.jira]` in `~/.config/parsec/config.toml` with your `base_url` and `project`. Run `parsec config init` for interactive setup, or `parsec doctor` to validate.
+
+**How do I set up parsec with GitHub Issues?**
+Set `provider = "github"` under `[tracker]` in your config. Authentication uses `PARSEC_GITHUB_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token` automatically.
+
+**Does parsec support GitLab?**
+Yes. parsec supports GitLab for both issue tracking and MR creation. Set `provider = "gitlab"` and configure `[tracker.gitlab]` with your `base_url`. Set `PARSEC_GITLAB_TOKEN` for authentication.
+
+**Can I use parsec without a ticket tracker?**
+Yes. Set `provider = "none"` or use `--title` with `parsec start` to skip tracker lookup entirely.
+
+**How do stacked PRs work?**
+Use `parsec start CHILD --on PARENT` to create dependent worktrees. `parsec ship` automatically sets the correct base branch. `parsec stack --sync` rebases the entire chain.
+
+**What happens if two worktrees modify the same file?**
+`parsec conflicts` detects cross-worktree file overlap before you push. It compares changed files across all active worktrees and warns about collisions.
+
+**Can I undo a ship or clean?**
+Yes. `parsec undo` reverses the last operation. For `ship`, it re-creates the worktree from the branch. For `clean`, it restores from the remote branch if still available.
+
+**How do I protect branches from accidental shipping?**
+Add a `[policy]` section to your config with `protected_branches` and `allowed_ship_targets`. parsec will reject operations that violate these rules.
+
+**Does parsec work with GitHub Enterprise?**
+Yes. parsec auto-detects GitHub Enterprise from the remote URL and routes API calls to the correct host. Token resolution is host-aware.
+
+**How do AI agents use parsec?**
+Every command supports `--json` for structured output. Run `parsec doctor --ai` to get a Markdown document with workflow rules and command patterns optimized for AI agent consumption.
 
 ---
 
