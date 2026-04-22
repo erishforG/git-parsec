@@ -103,6 +103,19 @@ pub async fn ship(
     }
     // else: keep the worktree's original base_branch
 
+    // Policy guard: check if the target branch is allowed
+    if !config.policy.is_allowed_target(&result.base_branch) {
+        anyhow::bail!(
+            "Policy violation: shipping to '{}' is not allowed.\n  \
+             Protected branches: {:?}\n  \
+             Allowed targets: {:?}\n  \
+             Use --base to specify a different target branch.",
+            result.base_branch,
+            config.policy.protected_branches,
+            config.policy.allowed_ship_targets,
+        );
+    }
+
     // Phase 2: Create PR/MR (async)
     let mut pr_failed = false;
     if !no_pr && config.ship.auto_pr {
