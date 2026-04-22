@@ -42,11 +42,14 @@ pub async fn open(
             .map(|j| format!("{}/browse/{}", j.base_url.trim_end_matches('/'), ticket)),
         TrackerProvider::Github => git::run_output(repo, &["remote", "get-url", "origin"])
             .ok()
-            .map(|url| {
-                let url = url
-                    .trim_end_matches(".git")
-                    .replace("git@github.com:", "https://github.com/");
-                format!("{}/issues/{}", url, ticket.trim_start_matches('#'))
+            .and_then(|url| {
+                let remote = github::parse_github_remote(url.trim())?;
+                let base = format!("https://{}/{}/{}", remote.host, remote.owner, remote.repo);
+                Some(format!(
+                    "{}/issues/{}",
+                    base,
+                    ticket.trim_start_matches('#')
+                ))
             }),
         TrackerProvider::Gitlab => config.tracker.gitlab.as_ref().map(|g| {
             let base = g.base_url.trim_end_matches('/');
