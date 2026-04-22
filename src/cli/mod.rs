@@ -29,6 +29,10 @@ pub struct Cli {
     /// Target repository path (default: current directory)
     #[arg(long, global = true)]
     pub repo: Option<PathBuf>,
+
+    /// Preview what would happen without making changes
+    #[arg(long, global = true)]
+    pub dry_run: bool,
 }
 
 #[derive(Subcommand)]
@@ -514,6 +518,14 @@ pub async fn run(cli: Cli) -> Result<()> {
             existing_branch,
             hook,
         } => {
+            if cli.dry_run {
+                eprintln!(
+                    "[dry-run] Would create worktree for ticket '{}' (base: {}, prefix: auto)",
+                    ticket,
+                    base.as_deref().unwrap_or("auto")
+                );
+                return Ok(());
+            }
             commands::start(
                 &repo_path,
                 &ticket,
@@ -541,6 +553,16 @@ pub async fn run(cli: Cli) -> Result<()> {
             title,
             skip_hooks,
         } => {
+            if cli.dry_run {
+                eprintln!(
+                    "[dry-run] Would ship ticket '{}' (draft: {}, no_pr: {}, base: {})",
+                    ticket,
+                    draft,
+                    no_pr,
+                    base.as_deref().unwrap_or("auto")
+                );
+                return Ok(());
+            }
             commands::ship(
                 &repo_path,
                 &ticket,
@@ -563,7 +585,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 &repo_path,
                 ticket.as_deref(),
                 all,
-                dry_run,
+                dry_run || cli.dry_run,
                 orphans,
                 output_mode,
             )
@@ -573,7 +595,21 @@ pub async fn run(cli: Cli) -> Result<()> {
             ticket,
             all,
             strategy,
-        } => commands::sync(&repo_path, ticket.as_deref(), all, &strategy, output_mode).await,
+        } => {
+            if cli.dry_run {
+                eprintln!(
+                    "[dry-run] Would sync {} (strategy: {})",
+                    if all {
+                        "all worktrees".to_string()
+                    } else {
+                        format!("ticket '{}'", ticket.as_deref().unwrap_or("auto"))
+                    },
+                    strategy
+                );
+                return Ok(());
+            }
+            commands::sync(&repo_path, ticket.as_deref(), all, &strategy, output_mode).await
+        }
         Command::Adopt {
             ticket,
             branch,
@@ -593,6 +629,15 @@ pub async fn run(cli: Cli) -> Result<()> {
             no_wait,
             no_delete_branch,
         } => {
+            if cli.dry_run {
+                let ticket_str = if tickets.is_empty() {
+                    "auto-detect".to_string()
+                } else {
+                    tickets.join(", ")
+                };
+                eprintln!("[dry-run] Would merge ticket(s) '{}' (rebase: {}, no_wait: {}, no_delete_branch: {})", ticket_str, rebase, no_wait, no_delete_branch);
+                return Ok(());
+            }
             if tickets.len() > 1 {
                 commands::merge_batch(
                     &repo_path,
@@ -709,6 +754,15 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Rename {
             old_ticket,
             new_ticket,
-        } => commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await,
+        } => {
+            if cli.dry_run {
+                eprintln!(
+                    "[dry-run] Would rename workspace '{}' to '{}'",
+                    old_ticket, new_ticket
+                );
+                return Ok(());
+            }
+            commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await
+        }
     }
 }
