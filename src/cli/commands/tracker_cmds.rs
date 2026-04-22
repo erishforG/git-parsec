@@ -79,26 +79,9 @@ pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
     // Load atlassian env for auto-detection
     tracker::load_atlassian_env();
 
-    // Resolve Jira base URL and email
-    let base_url = config
-        .tracker
-        .jira
-        .as_ref()
-        .map(|j| j.base_url.clone())
-        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Jira not configured. Run `parsec config init` or set {}.",
-                crate::env::JIRA_BASE_URL,
-            )
-        })?;
-    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-    let config_token = config
-        .tracker
-        .jira
-        .as_ref()
-        .and_then(|j| j.token.as_deref());
-    let jira = JiraTracker::new(&base_url, email.as_deref(), config_token);
+    // Resolve Jira credentials
+    let creds = tracker::resolve_jira_credentials(&config)?;
+    let jira = JiraTracker::new(&creds.base_url, creds.email.as_deref(), creds.config_token.as_deref());
 
     // JQL: assigned to current user, open statuses, ordered by priority
     let jql =
@@ -173,26 +156,9 @@ pub async fn board(
     // Load atlassian env for auto-detection
     tracker::load_atlassian_env();
 
-    // Resolve Jira base URL and email
-    let base_url = config
-        .tracker
-        .jira
-        .as_ref()
-        .map(|j| j.base_url.clone())
-        .or_else(|| std::env::var(crate::env::JIRA_BASE_URL).ok())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Jira not configured. Run `parsec config init` or set {}.",
-                crate::env::JIRA_BASE_URL,
-            )
-        })?;
-    let email = config.tracker.jira.as_ref().and_then(|j| j.email.clone());
-    let config_token = config
-        .tracker
-        .jira
-        .as_ref()
-        .and_then(|j| j.token.as_deref());
-    let jira = JiraTracker::new(&base_url, email.as_deref(), config_token);
+    // Resolve Jira credentials
+    let creds = tracker::resolve_jira_credentials(&config)?;
+    let jira = JiraTracker::new(&creds.base_url, creds.email.as_deref(), creds.config_token.as_deref());
 
     // Resolve project key: --project CLI > PARSEC_JIRA_PROJECT env > config > worktree inference
     let project = if let Some(p) = project_override {
@@ -301,7 +267,7 @@ pub async fn board(
                 has_pr: shipped_tickets.contains(&t.key),
                 url: Some(format!(
                     "{}/browse/{}",
-                    base_url.trim_end_matches('/'),
+                    creds.base_url.trim_end_matches('/'),
                     t.key
                 )),
             })
