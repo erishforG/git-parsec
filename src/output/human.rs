@@ -353,6 +353,8 @@ pub fn print_log(entries: &[&OpEntry]) {
         op: String,
         #[tabled(rename = "Ticket")]
         ticket: String,
+        #[tabled(rename = "PR")]
+        pr: String,
         #[tabled(rename = "Detail")]
         detail: String,
         #[tabled(rename = "Time")]
@@ -362,18 +364,27 @@ pub fn print_log(entries: &[&OpEntry]) {
     let rows: Vec<LogRow> = entries
         .iter()
         .rev()
-        .map(|e| LogRow {
-            id: e.id,
-            op: match &e.op {
-                crate::oplog::OpKind::Start => "start".green().to_string(),
-                crate::oplog::OpKind::Adopt => "adopt".cyan().to_string(),
-                crate::oplog::OpKind::Ship => "ship".yellow().to_string(),
-                crate::oplog::OpKind::Clean => "clean".red().to_string(),
-                crate::oplog::OpKind::Undo => "undo".magenta().to_string(),
-            },
-            ticket: e.ticket.clone().unwrap_or_else(|| "-".to_string()),
-            detail: e.detail.clone(),
-            time: e.timestamp.format("%Y-%m-%d %H:%M").to_string(),
+        .map(|e| {
+            let pr = e
+                .undo_info
+                .as_ref()
+                .and_then(|u| u.pr_number)
+                .map(|n| format!("#{}", n))
+                .unwrap_or_else(|| "-".to_string());
+            LogRow {
+                id: e.id,
+                op: match &e.op {
+                    crate::oplog::OpKind::Start => "start".green().to_string(),
+                    crate::oplog::OpKind::Adopt => "adopt".cyan().to_string(),
+                    crate::oplog::OpKind::Ship => "ship".yellow().to_string(),
+                    crate::oplog::OpKind::Clean => "clean".red().to_string(),
+                    crate::oplog::OpKind::Undo => "undo".magenta().to_string(),
+                },
+                ticket: e.ticket.clone().unwrap_or_else(|| "-".to_string()),
+                pr,
+                detail: e.detail.clone(),
+                time: e.timestamp.format("%Y-%m-%d %H:%M").to_string(),
+            }
         })
         .collect();
 

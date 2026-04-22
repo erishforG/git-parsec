@@ -73,6 +73,8 @@ pub async fn start(
             base_branch: Some(workspace.base_branch.clone()),
             path: Some(workspace.path.clone()),
             ticket_title: workspace.ticket_title.clone(),
+            pr_number: None,
+            pr_url: None,
         }),
     ) {
         eprintln!("warning: failed to write oplog: {e}");
@@ -247,6 +249,8 @@ pub async fn adopt(
             base_branch: Some(workspace.base_branch.clone()),
             path: Some(workspace.path.clone()),
             ticket_title: workspace.ticket_title.clone(),
+            pr_number: None,
+            pr_url: None,
         }),
     ) {
         eprintln!("warning: failed to write oplog: {e}");
@@ -577,6 +581,8 @@ pub async fn clean(
                 base_branch: Some(ws.base_branch.clone()),
                 path: Some(ws.path.clone()),
                 ticket_title: ws.ticket_title.clone(),
+                pr_number: None,
+                pr_url: None,
             }),
         ) {
             eprintln!("warning: failed to write oplog: {e}");
@@ -610,6 +616,8 @@ pub async fn clean(
                     base_branch: Some(ws.base_branch.clone()),
                     path: Some(ws.path.clone()),
                     ticket_title: ws.ticket_title.clone(),
+                    pr_number: None,
+                    pr_url: None,
                 }),
             ) {
                 eprintln!("warning: failed to write oplog: {e}");
