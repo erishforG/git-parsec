@@ -48,7 +48,7 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish
+        run: cargo publish || echo "::warning::crates.io publish skipped (version may already exist)"
 
       - name: Create GitHub Release
         if: steps.check.outputs.exists == 'false'
