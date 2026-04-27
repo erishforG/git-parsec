@@ -1274,6 +1274,8 @@
                   <tr><td><code>--no-pr</code></td><td>Push the branch but skip creating a PR/MR.</td></tr>
                   <tr><td><code>--base &lt;BRANCH&gt;</code></td><td>Override the target base branch for the PR.</td></tr>
                   <tr><td><code>--skip-hooks</code></td><td>Skip pre-ship hooks defined in <code>[hooks]</code> config.</td></tr>
+                  <tr><td><code>-r, --reviewer &lt;USER&gt;</code></td><td>Request review from a GitHub user (repeatable).</td></tr>
+                  <tr><td><code>-l, --label &lt;NAME&gt;</code></td><td>Add a label to the PR (repeatable).</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1292,6 +1294,10 @@
 <span class="terminal-line"><span class="comment"># Open as draft PR</span></span>
 <span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">PROJ-125</span> <span class="flag">--draft</span></span>
 <span class="terminal-line"><span class="success">✓</span> <span class="info">Draft PR created: </span><span class="link">github.com/org/myrepo/pull/43</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Ship with reviewers and labels</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">PROJ-126</span> <span class="flag">--reviewer alice --reviewer bob --label needs-review</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">PR #44 created with reviewers and labels</span></span>
               </div>
             </div>
           </div>
@@ -1767,6 +1773,7 @@
                 </thead>
                 <tbody>
                   <tr><td><code>--sync</code></td><td>Re-target stacked PRs after an upstream PR was merged.</td></tr>
+                  <tr><td><code>--submit</code></td><td>Ship the entire stack in topological order (root first). Stops on first failure.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1781,6 +1788,13 @@
 <span class="terminal-line"><span class="info">  main</span></span>
 <span class="terminal-line"><span class="info">  └── </span><span class="link">feature/PROJ-123</span><span class="info">  (PROJ-123) PR #42 open</span></span>
 <span class="terminal-line"><span class="info">      └── </span><span class="link">feature/PROJ-124</span><span class="info">  (PROJ-124) PR #43 open</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Ship the entire stack at once</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec stack</span> <span class="flag">--submit</span></span>
+<span class="terminal-line"><span class="info">Submitting stack (2 worktrees):</span></span>
+<span class="terminal-line"><span class="info">  1. PROJ-123</span></span>
+<span class="terminal-line"><span class="info">  2. PROJ-124</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Stack submit complete: 2/2 shipped</span></span>
               </div>
             </div>
           </div>
