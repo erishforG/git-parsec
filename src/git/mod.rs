@@ -78,7 +78,8 @@ pub fn get_default_branch(repo: &Path) -> Result<String> {
 /// Note: in a worktree, this returns the worktree root, not the main repo.
 pub fn get_repo_root(path: &Path) -> Result<PathBuf> {
     let out = run_output(path, &["rev-parse", "--show-toplevel"])?;
-    Ok(PathBuf::from(out))
+    // On Windows, strip UNC prefix (\\?\) that git may produce
+    dunce::canonicalize(Path::new(&out)).or_else(|_| Ok(PathBuf::from(out)))
 }
 
 /// Return the main repository root, even when called from a worktree.
@@ -99,8 +100,7 @@ pub fn get_main_repo_root(path: &Path) -> Result<PathBuf> {
     };
 
     // The main repo root is the parent of the .git directory
-    let canonical = abs_common
-        .canonicalize()
+    let canonical = dunce::canonicalize(&abs_common)
         .with_context(|| format!("failed to canonicalize git common dir: {:?}", abs_common))?;
 
     canonical
