@@ -798,4 +798,52 @@ impl GitHubClient {
             number,
         })
     }
+
+    /// Request reviews from GitHub users on a PR.
+    pub async fn request_reviewers(&self, pr_number: u64, reviewers: &[String]) -> Result<()> {
+        if reviewers.is_empty() {
+            return Ok(());
+        }
+        let payload = serde_json::json!({ "reviewers": reviewers });
+        let response = self
+            .post(&format!(
+                "{}/pulls/{}/requested_reviewers",
+                self.repo_path(),
+                pr_number
+            ))
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to request reviewers")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Failed to request reviewers: {} {}", status, body);
+        }
+        Ok(())
+    }
+
+    /// Add labels to a PR/issue.
+    pub async fn add_labels(&self, issue_number: u64, labels: &[String]) -> Result<()> {
+        if labels.is_empty() {
+            return Ok(());
+        }
+        let payload = serde_json::json!({ "labels": labels });
+        let response = self
+            .post(&format!(
+                "{}/issues/{}/labels",
+                self.repo_path(),
+                issue_number
+            ))
+            .json(&payload)
+            .send()
+            .await
+            .context("Failed to add labels")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Failed to add labels: {} {}", status, body);
+        }
+        Ok(())
+    }
 }
