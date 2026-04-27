@@ -112,6 +112,9 @@ Removed 1 worktree(s):
 - **Pre-ship hooks** -- Run custom commands before shipping with configurable `[hooks]` pre_ship
 - **Issue creation** -- Create GitHub/Jira issues and start worktrees in one step with `parsec create`
 - **Release workflow** -- Merge, tag, and create GitHub Releases with `parsec release`
+- **PR reviewers and labels** -- Assign reviewers and labels on ship with `--reviewer`/`--label` or config defaults
+- **Stack submit** -- Ship an entire stack in topological order with `parsec stack --submit`
+- **Cross-platform** -- Tested on Linux, macOS, and Windows CI
 
 ---
 
@@ -315,7 +318,7 @@ $ parsec log
 | [`parsec ci`](#parsec-ci-ticket---watch---all) | Check CI pipeline status for a PR |
 | [`parsec merge`](#parsec-merge-ticket---rebase---no-wait---no-delete-branch) | Merge a PR from the terminal |
 | [`parsec diff`](#parsec-diff-ticket---stat---name-only) | View changes vs base branch |
-| [`parsec stack`](#parsec-stack---sync) | View and manage stacked PR dependencies |
+| [`parsec stack`](#parsec-stack---sync---submit) | View and manage stacked PR dependencies |
 | [`parsec board`](#parsec-board) | Show sprint as a Kanban board |
 | [`parsec init`](#parsec-init) | Install shell integration |
 | [`parsec config`](#parsec-config) | Configure parsec |
@@ -489,7 +492,7 @@ $ parsec ticket CL-2283 --json
 Push the branch, create a PR (GitHub) or MR (GitLab), and clean up the worktree. The forge is auto-detected from the remote URL.
 
 ```
-parsec ship <ticket> [--draft] [--no-pr] [--base <branch>] [--skip-hooks]
+parsec ship <ticket> [--draft] [--no-pr] [--base <branch>] [--skip-hooks] [--reviewer <user>]... [--label <name>]...
 ```
 
 | Option | Description |
@@ -498,6 +501,8 @@ parsec ship <ticket> [--draft] [--no-pr] [--base <branch>] [--skip-hooks]
 | `--no-pr` | Push only, skip PR/MR creation |
 | `--base <branch>` | Target base branch for PR (overrides config `default_base` and worktree base) |
 | `--skip-hooks` | Skip pre-ship hooks defined in config |
+| `-r, --reviewer <user>` | Request review from a GitHub user (repeatable) |
+| `-l, --label <name>` | Add a label to the PR (repeatable) |
 
 ```bash
 # Push + PR + cleanup
@@ -511,6 +516,17 @@ $ parsec ship PROJ-5678 --draft
 
 # Push only, no PR
 $ parsec ship PROJ-9000 --no-pr
+
+# Ship with reviewers and labels
+$ parsec ship PROJ-1234 --reviewer alice --reviewer bob --label "needs-review"
+```
+
+Reviewers and labels can also be set as defaults in config:
+
+```toml
+[ship]
+default_reviewers = ["alice", "bob"]
+default_labels = ["team-backend"]
 ```
 
 Token required: set `PARSEC_GITHUB_TOKEN` (or `GITHUB_TOKEN`, `GH_TOKEN`) for GitHub, or `PARSEC_GITLAB_TOKEN` (or `GITLAB_TOKEN`) for GitLab.
@@ -866,17 +882,18 @@ $ parsec diff PROJ-1234 --json
 
 ---
 
-### `parsec stack [--sync]`
+### `parsec stack [--sync] [--submit]`
 
-View and manage stacked PR dependencies. Worktrees created with `--on` form a dependency chain.
+View and manage stacked PR dependencies. Worktrees created with `--on` form a dependency chain. PRs include a **stack navigation table** showing parent/child relationships.
 
 ```
-parsec stack [--sync]
+parsec stack [--sync] [--submit]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--sync` | Rebase the entire stack chain |
+| `--submit` | Ship the entire stack in topological order (root first) |
 
 ```bash
 # Create a stack
@@ -898,7 +915,23 @@ $ parsec stack --sync
 $ parsec ship PROJ-1   # PR to main
 $ parsec ship PROJ-2   # PR to feature/PROJ-1
 $ parsec ship PROJ-3   # PR to feature/PROJ-2
+
+# Or ship the entire stack at once
+$ parsec stack --submit
+Submitting stack (3 worktrees):
+  1. PROJ-1
+  2. PROJ-2
+  3. PROJ-3
+Stack submit complete: 3/3 shipped
 ```
+
+Each PR body includes a stack navigation table:
+
+| | Ticket | Branch |
+|---|--------|--------|
+| ⬆ Parent | PROJ-1 | `feature/PROJ-1` |
+| **➡ Current** | **PROJ-2** | **`feature/PROJ-2`** |
+| ⬇ Child | PROJ-3 | `feature/PROJ-3` |
 
 ---
 
