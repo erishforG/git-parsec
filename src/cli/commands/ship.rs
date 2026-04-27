@@ -138,7 +138,10 @@ pub async fn ship(
                 .unwrap_or_else(|| result.ticket.clone())
         };
 
-        let pr_body = build_pr_body(&result.ticket, effective_title, ticket_url.as_deref());
+        // Gather stack context for PR body (#234)
+        let stack_info = gather_stack_info(&manager, ticket);
+
+        let pr_body = build_pr_body(&result.ticket, effective_title, ticket_url.as_deref(), stack_info.as_ref());
 
         let remote_url = git::get_remote_url(manager.repo_root());
         if let Ok(ref remote_url) = remote_url {
@@ -278,7 +281,52 @@ pub async fn ship(
     Ok(())
 }
 
-fn build_pr_body(ticket: &str, title: Option<&str>, ticket_url: Option<&str>) -> String {
+/// Stack context for PR body navigation links.
+struct StackPrInfo {
+    parent_ticket: Option<String>,
+    parent_branch: Option<String>,
+    child_tickets: Vec<(String, String)>, // (ticket, branch)
+    current_branch: String,
+}
+
+/// Gather stack relationship info for a ticket, if it's part of a stack.
+fn gather_stack_info(
+    manager: &WorktreeManager,
+    ticket: &str,
+) -> Option<StackPrInfo> {
+    let workspaces = manager.list().ok()?;
+    let current_ws = manager.get(ticket).ok()?;
+
+    let parent = current_ws.parent_ticket.as_ref().and_then(|pt| {
+        workspaces.iter().find(|w| w.ticket == *pt)
+    });
+
+    let children: Vec<_> = workspaces
+        .iter()
+        .filter(|w| w.parent_ticket.as_deref() == Some(ticket))
+        .collect();
+
+    if parent.is_none() && children.is_empty() {
+        return None;
+    }
+
+    Some(StackPrInfo {
+        parent_ticket: current_ws.parent_ticket.clone(),
+        parent_branch: parent.map(|p| p.branch.clone()),
+        child_tickets: children
+            .iter()
+            .map(|c| (c.ticket.clone(), c.branch.clone()))
+            .collect(),
+        current_branch: current_ws.branch.clone(),
+    })
+}
+
+fn build_pr_body(
+    ticket: &str,
+    title: Option<&str>,
+    ticket_url: Option<&str>,
+    stack_info: Option<&StackPrInfo>,
+) -> String {
     let mut body = String::new();
 
     if let Some(title) = title {
@@ -288,6 +336,28 @@ fn build_pr_body(ticket: &str, title: Option<&str>, ticket_url: Option<&str>) ->
     // Add ticket link if URL is available (works for any tracker)
     if let Some(url) = ticket_url {
         body.push_str(&format!("**Ticket**: [{ticket}]({url})\n\n"));
+    }
+
+    // Add stack navigation section (#234)
+    if let Some(stack) = stack_info {
+        body.push_str("### Stack\n\n");
+        body.push_str("| | Ticket | Branch |\n");
+        body.push_str("|---|--------|--------|\n");
+
+        if let (Some(ref pt), Some(ref pb)) = (&stack.parent_ticket, &stack.parent_branch) {
+            body.push_str(&format!("| \u{2b06} Parent | {} | `{}` |\n", pt, pb));
+        }
+
+        body.push_str(&format!(
+            "| **\u{27a1} Current** | **{}** | **`{}`** |\n",
+            ticket, stack.current_branch
+        ));
+
+        for (ct, cb) in &stack.child_tickets {
+            body.push_str(&format!("| \u{2b07} Child | {} | `{}` |\n", ct, cb));
+        }
+
+        body.push('\n');
     }
 
     body.push_str(&format!("Shipped via `parsec ship {ticket}`\n"));

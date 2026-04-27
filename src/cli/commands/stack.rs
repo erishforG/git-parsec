@@ -116,3 +116,106 @@ pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
     output::print_sync(&synced, &failed, "rebase (stack)", mode);
     Ok(())
 }
+
+/// Ship the entire stack in topological order (#235).
+pub async fn stack_submit(repo: &Path, mode: Mode) -> Result<()> {
+    let config = ParsecConfig::load()?;
+    let manager = WorktreeManager::new(repo, &config)?;
+    let workspaces = manager.list()?;
+
+    // Find roots: workspaces that have children but no parent themselves
+    let roots: Vec<_> = workspaces
+        .iter()
+        .filter(|w| {
+            w.parent_ticket.is_none()
+                && workspaces
+                    .iter()
+                    .any(|other| other.parent_ticket.as_deref() == Some(&w.ticket))
+        })
+        .collect();
+
+    if roots.is_empty() {
+        if mode == Mode::Human {
+            println!(
+                "No stacked worktrees to submit. Use `parsec start <ticket> --on <parent>` to create a stack."
+            );
+        }
+        return Ok(());
+    }
+
+    // Build topological order: roots first, then children (BFS)
+    let mut ordered = Vec::new();
+    let mut queue: Vec<String> = Vec::new();
+    for root in &roots {
+        ordered.push(root.ticket.clone());
+        queue.push(root.ticket.clone());
+    }
+    while let Some(parent) = queue.first().cloned() {
+        queue.remove(0);
+        let children: Vec<_> = workspaces
+            .iter()
+            .filter(|w| w.parent_ticket.as_deref() == Some(parent.as_str()))
+            .collect();
+        for child in children {
+            ordered.push(child.ticket.clone());
+            queue.push(child.ticket.clone());
+        }
+    }
+
+    if mode == Mode::Human {
+        println!("Submitting stack ({} worktrees):", ordered.len());
+        for (i, ticket) in ordered.iter().enumerate() {
+            println!("  {}. {}", i + 1, ticket);
+        }
+        println!();
+    }
+
+    // Ship each in dependency order
+    let mut shipped = Vec::new();
+    let mut failed = Vec::new();
+    for ticket in &ordered {
+        if mode == Mode::Human {
+            eprintln!("Shipping {}...", ticket);
+        }
+        match super::ship(
+            repo,
+            ticket,
+            false,  // draft
+            false,  // no_pr
+            None,   // base_override
+            None,   // title_override
+            false,  // skip_hooks
+            mode,
+        )
+        .await
+        {
+            Ok(()) => shipped.push(ticket.clone()),
+            Err(e) => {
+                eprintln!("error: failed to ship {}: {}", ticket, e);
+                failed.push((ticket.clone(), e.to_string()));
+                // Stop on first failure to prevent broken stack
+                break;
+            }
+        }
+    }
+
+    if mode == Mode::Human {
+        println!();
+        println!("Stack submit complete: {}/{} shipped", shipped.len(), ordered.len());
+        if !failed.is_empty() {
+            for (t, err) in &failed {
+                println!("  failed: {} - {}", t, err);
+            }
+        }
+    }
+
+    if !failed.is_empty() {
+        anyhow::bail!(
+            "Stack submit incomplete: {} of {} shipped",
+            shipped.len(),
+            ordered.len()
+        );
+    }
+
+    Ok(())
+}

@@ -353,10 +353,15 @@ pub enum Command {
     ///
     /// Displays the dependency graph of worktrees created with --on.
     /// Use `parsec stack --sync` to rebase the entire chain.
+    /// Use `parsec stack --submit` to ship the entire stack at once.
     Stack {
         /// Sync the entire stack (rebase chain)
         #[arg(long)]
         sync: bool,
+
+        /// Ship the entire stack in dependency order
+        #[arg(long)]
+        submit: bool,
     },
 
     /// Print the main repository root path
@@ -692,8 +697,10 @@ pub async fn run(cli: Cli) -> Result<()> {
             assignee,
             all,
         } => commands::board(&repo_path, board_id, project, assignee, all, output_mode).await,
-        Command::Stack { sync } => {
-            if sync {
+        Command::Stack { sync, submit } => {
+            if submit {
+                commands::stack_submit(&repo_path, output_mode).await
+            } else if sync {
                 commands::stack_sync(&repo_path, output_mode).await
             } else {
                 commands::stack(&repo_path, output_mode).await
