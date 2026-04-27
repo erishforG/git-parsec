@@ -178,11 +178,15 @@ pub async fn stack_submit(repo: &Path, mode: Mode) -> Result<()> {
             eprintln!("Shipping {}...", ticket);
         }
         match super::ship(
-            repo, ticket, false, // draft
-            false, // no_pr
-            None,  // base_override
-            None,  // title_override
-            false, // skip_hooks
+            repo,
+            ticket,
+            false,      // draft
+            false,      // no_pr
+            None,       // base_override
+            None,       // title_override
+            false,      // skip_hooks
+            Vec::new(), // reviewers
+            Vec::new(), // labels
             mode,
         )
         .await
