@@ -20,11 +20,25 @@ pub async fn ship(
     base_override: Option<String>,
     title_override: Option<String>,
     skip_hooks: bool,
+    reviewers: Vec<String>,
+    labels: Vec<String>,
     mode: Mode,
 ) -> Result<()> {
     let mut config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
     config.resolve_for_repo(manager.repo_root());
+
+    // Merge CLI args with config defaults (CLI overrides when non-empty)
+    let effective_reviewers = if reviewers.is_empty() {
+        config.ship.default_reviewers.clone()
+    } else {
+        reviewers
+    };
+    let effective_labels = if labels.is_empty() {
+        config.ship.default_labels.clone()
+    } else {
+        labels
+    };
 
     // Run pre-ship hooks before pushing
     if !skip_hooks && !config.hooks.pre_ship.is_empty() {
@@ -163,6 +177,18 @@ pub async fn ship(
                         .await
                     {
                         Ok(pr) => {
+                            // Request reviewers if specified
+                            if !effective_reviewers.is_empty() {
+                                if let Err(e) = gh.request_reviewers(pr.number, &effective_reviewers).await {
+                                    eprintln!("warning: failed to request reviewers: {e}");
+                                }
+                            }
+                            // Add labels if specified
+                            if !effective_labels.is_empty() {
+                                if let Err(e) = gh.add_labels(pr.number, &effective_labels).await {
+                                    eprintln!("warning: failed to add labels: {e}");
+                                }
+                            }
                             result.pr_url = Some(pr.url);
                         }
                         Err(e) => {

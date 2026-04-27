@@ -132,6 +132,14 @@ pub enum Command {
         /// Skip pre-ship hooks
         #[arg(long)]
         skip_hooks: bool,
+
+        /// Request review from GitHub users (can be specified multiple times)
+        #[arg(long, short = 'r')]
+        reviewer: Vec<String>,
+
+        /// Add labels to the PR (can be specified multiple times)
+        #[arg(long, short = 'l')]
+        label: Vec<String>,
     },
 
     /// Remove merged or stale worktrees
@@ -556,6 +564,8 @@ pub async fn run(cli: Cli) -> Result<()> {
             base,
             title,
             skip_hooks,
+            reviewer,
+            label,
         } => {
             if cli.dry_run {
                 eprintln!(
@@ -575,6 +585,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                 base,
                 title,
                 skip_hooks,
+                reviewer,
+                label,
                 output_mode,
             )
             .await
