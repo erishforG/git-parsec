@@ -181,6 +181,12 @@ pub struct ShipConfig {
     pub draft: bool,
     #[serde(default)]
     pub default_base: Option<String>,
+    /// Default reviewers to request on PRs (GitHub usernames)
+    #[serde(default)]
+    pub default_reviewers: Vec<String>,
+    /// Default labels to apply to PRs
+    #[serde(default)]
+    pub default_labels: Vec<String>,
 }
 
 impl Default for ShipConfig {
@@ -190,6 +196,8 @@ impl Default for ShipConfig {
             auto_cleanup: true,
             draft: false,
             default_base: None,
+            default_reviewers: Vec::new(),
+            default_labels: Vec::new(),
         }
     }
 }
