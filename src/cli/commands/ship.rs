@@ -179,7 +179,9 @@ pub async fn ship(
                         Ok(pr) => {
                             // Request reviewers if specified
                             if !effective_reviewers.is_empty() {
-                                if let Err(e) = gh.request_reviewers(pr.number, &effective_reviewers).await {
+                                if let Err(e) =
+                                    gh.request_reviewers(pr.number, &effective_reviewers).await
+                                {
                                     eprintln!("warning: failed to request reviewers: {e}");
                                 }
                             }
