@@ -178,13 +178,11 @@ pub async fn stack_submit(repo: &Path, mode: Mode) -> Result<()> {
             eprintln!("Shipping {}...", ticket);
         }
         match super::ship(
-            repo,
-            ticket,
-            false,  // draft
-            false,  // no_pr
-            None,   // base_override
-            None,   // title_override
-            false,  // skip_hooks
+            repo, ticket, false, // draft
+            false, // no_pr
+            None,  // base_override
+            None,  // title_override
+            false, // skip_hooks
             mode,
         )
         .await
@@ -201,7 +199,11 @@ pub async fn stack_submit(repo: &Path, mode: Mode) -> Result<()> {
 
     if mode == Mode::Human {
         println!();
-        println!("Stack submit complete: {}/{} shipped", shipped.len(), ordered.len());
+        println!(
+            "Stack submit complete: {}/{} shipped",
+            shipped.len(),
+            ordered.len()
+        );
         if !failed.is_empty() {
             for (t, err) in &failed {
                 println!("  failed: {} - {}", t, err);

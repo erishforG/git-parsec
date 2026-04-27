@@ -141,7 +141,12 @@ pub async fn ship(
         // Gather stack context for PR body (#234)
         let stack_info = gather_stack_info(&manager, ticket);
 
-        let pr_body = build_pr_body(&result.ticket, effective_title, ticket_url.as_deref(), stack_info.as_ref());
+        let pr_body = build_pr_body(
+            &result.ticket,
+            effective_title,
+            ticket_url.as_deref(),
+            stack_info.as_ref(),
+        );
 
         let remote_url = git::get_remote_url(manager.repo_root());
         if let Ok(ref remote_url) = remote_url {
@@ -290,16 +295,14 @@ struct StackPrInfo {
 }
 
 /// Gather stack relationship info for a ticket, if it's part of a stack.
-fn gather_stack_info(
-    manager: &WorktreeManager,
-    ticket: &str,
-) -> Option<StackPrInfo> {
+fn gather_stack_info(manager: &WorktreeManager, ticket: &str) -> Option<StackPrInfo> {
     let workspaces = manager.list().ok()?;
     let current_ws = manager.get(ticket).ok()?;
 
-    let parent = current_ws.parent_ticket.as_ref().and_then(|pt| {
-        workspaces.iter().find(|w| w.ticket == *pt)
-    });
+    let parent = current_ws
+        .parent_ticket
+        .as_ref()
+        .and_then(|pt| workspaces.iter().find(|w| w.ticket == *pt));
 
     let children: Vec<_> = workspaces
         .iter()
