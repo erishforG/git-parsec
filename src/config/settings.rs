@@ -99,6 +99,9 @@ pub struct WorkspaceConfig {
     /// Default base branch for worktree creation (e.g. "develop")
     #[serde(default)]
     pub default_base: Option<String>,
+    /// When true, skip all network operations by default
+    #[serde(default)]
+    pub offline: bool,
 }
 
 impl Default for WorkspaceConfig {
@@ -108,6 +111,7 @@ impl Default for WorkspaceConfig {
             base_dir: default_base_dir(),
             branch_prefix: default_branch_prefix(),
             default_base: None,
+            offline: false,
         }
     }
 }

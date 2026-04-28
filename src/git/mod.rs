@@ -283,11 +283,17 @@ pub fn delete_branch(repo: &Path, branch: &str) -> Result<()> {
 
 /// Fetch all refs from `origin`.
 pub fn fetch(repo: &Path) -> Result<()> {
+    if crate::env::is_offline() {
+        return Ok(());
+    }
     run(repo, &["fetch", "origin", "--prune"])
 }
 
 /// Fetch from origin if a remote exists. Non-fatal if no remote configured.
 pub fn fetch_if_remote(repo: &Path) -> Result<()> {
+    if crate::env::is_offline() {
+        return Ok(());
+    }
     // Check if remote exists first
     let has_remote = std::process::Command::new("git")
         .args(["remote"])

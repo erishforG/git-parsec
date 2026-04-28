@@ -115,6 +115,10 @@ pub async fn fetch_ticket(
     id: &str,
     repo_root: Option<&Path>,
 ) -> Result<Option<Ticket>> {
+    if crate::env::is_offline() {
+        return Ok(None);
+    }
+
     // Load atlassian env file for seamless Claude Jira skill integration
     load_atlassian_env();
 
@@ -156,6 +160,9 @@ pub async fn fetch_ticket(
 
 /// Try to transition a ticket's status. Warns on failure but never blocks.
 pub async fn try_transition(config: &ParsecConfig, ticket: &str, target_status: &str) {
+    if crate::env::is_offline() {
+        return;
+    }
     // Only works for Jira currently
     if !matches!(
         config.tracker.provider,
@@ -197,6 +204,9 @@ pub async fn post_comment(
     body: &str,
     repo_root: Option<&Path>,
 ) -> Result<()> {
+    if crate::env::is_offline() {
+        return Ok(());
+    }
     load_atlassian_env();
 
     match config.tracker.provider {
