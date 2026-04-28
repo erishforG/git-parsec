@@ -1,0 +1,279 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/erishforG/git-parsec/main/schema/parsec-config.schema.json",
+  "title": "Parsec Configuration",
+  "description": "Configuration file for git-parsec CLI (https://github.com/erishforG/git-parsec)",
+  "type": "object",
+  "properties": {
+    "workspace": {
+      "type": "object",
+      "description": "Worktree layout and branch settings",
+      "properties": {
+        "layout": {
+          "type": "string",
+          "enum": ["sibling", "internal"],
+          "default": "sibling",
+          "description": "Worktree layout: sibling (../repo.ticket/) or internal (.parsec/workspaces/ticket/)"
+        },
+        "base_dir": {
+          "type": "string",
+          "default": ".parsec/workspaces",
+          "description": "Base directory for internal layout worktrees"
+        },
+        "branch_prefix": {
+          "type": "string",
+          "default": "feature/",
+          "description": "Prefix for new worktree branches"
+        },
+        "default_base": {
+          "type": "string",
+          "description": "Default base branch for worktree creation (e.g. develop)"
+        },
+        "offline": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, skip all network operations by default"
+        }
+      },
+      "additionalProperties": false
+    },
+    "tracker": {
+      "type": "object",
+      "description": "Issue tracker integration settings",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["none", "jira", "github", "gitlab"],
+          "default": "none",
+          "description": "Issue tracker provider"
+        },
+        "jira": {
+          "type": "object",
+          "description": "Jira-specific configuration",
+          "properties": {
+            "base_url": {
+              "type": "string",
+              "description": "Jira base URL (e.g. https://yourorg.atlassian.net)"
+            },
+            "email": {
+              "type": "string",
+              "description": "Jira account email"
+            },
+            "project": {
+              "type": "string",
+              "description": "Default Jira project key"
+            },
+            "board_id": {
+              "type": "integer",
+              "description": "Default Jira board ID"
+            },
+            "assignee": {
+              "type": "string",
+              "description": "Default assignee for board/inbox filters"
+            },
+            "token": {
+              "type": "string",
+              "description": "Jira API token (prefer PARSEC_JIRA_TOKEN env var)"
+            }
+          },
+          "required": ["base_url"]
+        },
+        "gitlab": {
+          "type": "object",
+          "description": "GitLab-specific configuration",
+          "properties": {
+            "base_url": {
+              "type": "string",
+              "description": "GitLab base URL (e.g. https://gitlab.com)"
+            }
+          },
+          "required": ["base_url"]
+        },
+        "auto_transition": {
+          "type": "object",
+          "description": "Automatic ticket status transitions",
+          "properties": {
+            "on_start": {
+              "type": "string",
+              "description": "Target status when running parsec start (e.g. In Progress)"
+            },
+            "on_ship": {
+              "type": "string",
+              "description": "Target status when running parsec ship (e.g. In Review)"
+            },
+            "on_merge": {
+              "type": "string",
+              "description": "Target status when running parsec merge (e.g. Done)"
+            }
+          },
+          "additionalProperties": false
+        },
+        "comment_on_ship": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-post PR link as comment on the ticket during parsec ship"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ship": {
+      "type": "object",
+      "description": "PR/MR creation settings",
+      "properties": {
+        "auto_pr": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open a PR when shipping"
+        },
+        "auto_cleanup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Clean up worktree after shipping"
+        },
+        "draft": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create PRs as drafts by default"
+        },
+        "default_base": {
+          "type": "string",
+          "description": "Default target base branch for PRs"
+        },
+        "default_reviewers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Default reviewers to request on PRs (GitHub usernames)"
+        },
+        "default_labels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Default labels to apply to PRs"
+        }
+      },
+      "additionalProperties": false
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Lifecycle hook commands",
+      "properties": {
+        "post_create": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Commands to run after creating a worktree"
+        },
+        "pre_ship": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Commands to run before shipping a worktree"
+        }
+      },
+      "additionalProperties": false
+    },
+    "release": {
+      "type": "object",
+      "description": "Release workflow settings",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "default": "main",
+          "description": "Target branch for release"
+        },
+        "tag_prefix": {
+          "type": "string",
+          "default": "v",
+          "description": "Tag prefix (e.g. v for v0.3.0)"
+        },
+        "changelog": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-generate changelog for releases"
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "description": "Branch policy and guardrails",
+      "properties": {
+        "protected_branches": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Branches that cannot be used as ship targets (supports glob with *)"
+        },
+        "allowed_ship_targets": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Branches allowed as ship targets (if empty, all non-protected are allowed)"
+        },
+        "require_ci": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require CI to pass before parsec merge"
+        }
+      },
+      "additionalProperties": false
+    },
+    "github": {
+      "type": "object",
+      "description": "Per-host GitHub tokens (keys are hostnames)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Personal access token for this GitHub host"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "repos": {
+      "type": "object",
+      "description": "Per-repo configuration overrides (keys are owner/repo)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "tracker": {
+            "type": "object",
+            "description": "Tracker overrides for this repo",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": ["none", "jira", "github", "gitlab"],
+                "description": "Override tracker provider for this repo"
+              },
+              "jira": {
+                "type": "object",
+                "properties": {
+                  "base_url": { "type": "string" },
+                  "email": { "type": "string" },
+                  "project": { "type": "string" },
+                  "board_id": { "type": "integer" },
+                  "assignee": { "type": "string" },
+                  "token": { "type": "string" }
+                },
+                "required": ["base_url"]
+              },
+              "gitlab": {
+                "type": "object",
+                "properties": {
+                  "base_url": { "type": "string" }
+                },
+                "required": ["base_url"]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
