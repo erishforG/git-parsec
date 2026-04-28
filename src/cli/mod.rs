@@ -514,6 +514,11 @@ pub enum ConfigAction {
         /// Shell type (zsh, bash, fish, elvish, powershell)
         shell: clap_complete::Shell,
     },
+    /// Output JSON Schema for config.toml
+    ///
+    /// Prints the JSON Schema for parsec's configuration format.
+    /// Useful for IDE autocomplete and validation.
+    Schema,
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -736,6 +741,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Shell { shell } => commands::config_shell(&shell, output_mode).await,
             ConfigAction::Man { dir } => commands::config_man(&dir).await,
             ConfigAction::Completions { shell } => commands::config_completions(shell).await,
+            ConfigAction::Schema => commands::config_schema().await,
         },
         Command::Doctor { ai } => {
             if ai {
