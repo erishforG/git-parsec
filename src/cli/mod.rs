@@ -33,6 +33,10 @@ pub struct Cli {
     /// Preview what would happen without making changes
     #[arg(long, global = true)]
     pub dry_run: bool,
+
+    /// Skip all network operations (tracker, PR, fetch)
+    #[arg(long, global = true)]
+    pub offline: bool,
 }
 
 #[derive(Subcommand)]
@@ -525,6 +529,15 @@ pub async fn run(cli: Cli) -> Result<()> {
     } else {
         output::Mode::Human
     };
+
+    // Propagate offline mode via env var so all subsystems can check it
+    let offline = cli.offline
+        || crate::config::ParsecConfig::load()
+            .map(|c| c.workspace.offline)
+            .unwrap_or(false);
+    if offline {
+        std::env::set_var("PARSEC_OFFLINE", "1");
+    }
 
     match cli.command {
         Command::Start {

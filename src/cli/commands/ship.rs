@@ -134,7 +134,7 @@ pub async fn ship(
 
     // Phase 2: Create PR/MR (async)
     let mut pr_failed = false;
-    if !no_pr && config.ship.auto_pr {
+    if !no_pr && config.ship.auto_pr && !crate::env::is_offline() {
         let (ticket_title, ticket_url) =
             match tracker::fetch_ticket(&config, ticket, Some(manager.repo_root())).await {
                 Ok(Some(t)) => (Some(t.title), t.url),
@@ -239,7 +239,7 @@ pub async fn ship(
     }
 
     // Auto-comment PR link on the ticket if configured
-    if config.tracker.comment_on_ship {
+    if config.tracker.comment_on_ship && !crate::env::is_offline() {
         if let Some(ref pr_url) = result.pr_url {
             let comment_body = format!("PR opened: {}", pr_url);
             if let Err(e) =

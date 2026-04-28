@@ -70,3 +70,16 @@ pub fn gitlab_token() -> Option<String> {
     }
     None
 }
+
+// ---------------------------------------------------------------------------
+// Offline mode
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_OFFLINE: &str = "PARSEC_OFFLINE";
+
+/// Check if offline mode is active (via --offline flag or PARSEC_OFFLINE env var).
+pub fn is_offline() -> bool {
+    std::env::var(PARSEC_OFFLINE)
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false)
+}
