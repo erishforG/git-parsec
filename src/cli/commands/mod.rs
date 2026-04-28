@@ -1,4 +1,5 @@
 mod ci;
+mod compress;
 mod config;
 mod diff;
 mod doctor;
@@ -11,6 +12,7 @@ mod tracker_cmds;
 mod workspace;
 
 pub use ci::*;
+pub use compress::*;
 pub use config::*;
 pub use diff::*;
 pub use doctor::*;
