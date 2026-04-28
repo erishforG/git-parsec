@@ -187,6 +187,9 @@ pub struct ShipConfig {
     /// Default labels to apply to PRs
     #[serde(default)]
     pub default_labels: Vec<String>,
+    /// Path to PR template file (auto-detected if not set)
+    #[serde(default)]
+    pub template: Option<String>,
 }
 
 impl Default for ShipConfig {
@@ -198,6 +201,7 @@ impl Default for ShipConfig {
             default_base: None,
             default_reviewers: Vec::new(),
             default_labels: Vec::new(),
+            template: None,
         }
     }
 }

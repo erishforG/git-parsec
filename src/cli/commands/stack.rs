@@ -187,6 +187,7 @@ pub async fn stack_submit(repo: &Path, mode: Mode) -> Result<()> {
             false,      // skip_hooks
             Vec::new(), // reviewers
             Vec::new(), // labels
+            None,       // template
             mode,
         )
         .await

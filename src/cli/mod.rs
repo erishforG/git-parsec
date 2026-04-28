@@ -140,6 +140,10 @@ pub enum Command {
         /// Add labels to the PR (can be specified multiple times)
         #[arg(long, short = 'l')]
         label: Vec<String>,
+
+        /// Path to PR body template file
+        #[arg(long)]
+        template: Option<String>,
     },
 
     /// Remove merged or stale worktrees
@@ -571,6 +575,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             skip_hooks,
             reviewer,
             label,
+            template,
         } => {
             if cli.dry_run {
                 eprintln!(
@@ -592,6 +597,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 skip_hooks,
                 reviewer,
                 label,
+                template,
                 output_mode,
             )
             .await

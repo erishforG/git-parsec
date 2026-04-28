@@ -22,6 +22,7 @@ pub async fn ship(
     skip_hooks: bool,
     reviewers: Vec<String>,
     labels: Vec<String>,
+    template: Option<String>,
     mode: Mode,
 ) -> Result<()> {
     let mut config = ParsecConfig::load()?;
@@ -155,11 +156,18 @@ pub async fn ship(
         // Gather stack context for PR body (#234)
         let stack_info = gather_stack_info(&manager, ticket);
 
+        // Resolve PR template (#233)
+        let template_content = resolve_template(
+            manager.repo_root(),
+            template.as_deref().or(config.ship.template.as_deref()),
+        );
+
         let pr_body = build_pr_body(
             &result.ticket,
             effective_title,
             ticket_url.as_deref(),
             stack_info.as_ref(),
+            template_content.as_deref(),
         );
 
         let remote_url = git::get_remote_url(manager.repo_root());
@@ -357,6 +365,7 @@ fn build_pr_body(
     title: Option<&str>,
     ticket_url: Option<&str>,
     stack_info: Option<&StackPrInfo>,
+    template_content: Option<&str>,
 ) -> String {
     let mut body = String::new();
 
@@ -391,7 +400,46 @@ fn build_pr_body(
         body.push('\n');
     }
 
+    // Include PR template content (#233)
+    if let Some(tmpl) = template_content {
+        body.push_str("---\n\n");
+        body.push_str(tmpl);
+        body.push('\n');
+    }
+
     body.push_str(&format!("Shipped via `parsec ship {ticket}`\n"));
 
     body
+}
+
+/// Resolve PR template content from explicit path or auto-detection.
+fn resolve_template(repo_root: &Path, explicit_path: Option<&str>) -> Option<String> {
+    if let Some(path) = explicit_path {
+        let full_path = if std::path::Path::new(path).is_absolute() {
+            std::path::PathBuf::from(path)
+        } else {
+            repo_root.join(path)
+        };
+        return std::fs::read_to_string(&full_path).ok();
+    }
+
+    // Auto-detect common template locations
+    let candidates = [
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/pull_request_template.md",
+        "PULL_REQUEST_TEMPLATE.md",
+        "pull_request_template.md",
+        "docs/PULL_REQUEST_TEMPLATE.md",
+    ];
+
+    for candidate in &candidates {
+        let path = repo_root.join(candidate);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if !content.trim().is_empty() {
+                return Some(content);
+            }
+        }
+    }
+
+    None
 }
