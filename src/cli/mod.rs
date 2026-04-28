@@ -466,6 +466,20 @@ pub enum Command {
         start: bool,
     },
 
+    /// Squash all branch commits into one
+    ///
+    /// Resets the branch to the merge-base with the base branch and
+    /// re-commits all changes as a single commit. Use --message to
+    /// set a custom commit message.
+    Compress {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Custom commit message (default: combines all squashed messages)
+        #[arg(long, short)]
+        message: Option<String>,
+    },
+
     /// Rename a workspace to a different ticket ID
     ///
     /// Changes the ticket ID, renames the branch, and moves the worktree directory.
@@ -792,6 +806,9 @@ pub async fn run(cli: Cli) -> Result<()> {
                 return Ok(());
             }
             commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await
+        }
+        Command::Compress { ticket, message } => {
+            commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
         }
     }
 }
