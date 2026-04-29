@@ -25,6 +25,8 @@ pub async fn ship(
     template: Option<String>,
     mode: Mode,
 ) -> Result<()> {
+    crate::execlog::set_ticket(ticket);
+
     let mut config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
     config.resolve_for_repo(manager.repo_root());
@@ -78,6 +80,7 @@ pub async fn ship(
     // Phase 1: Push only (don't clean up yet)
     // Idempotency: if workspace is already gone (cleaned up after a prior ship),
     // treat push as a no-op — the branch is already on the remote.
+    let push_start = std::time::Instant::now();
     let mut result = match manager.ship_push(ticket) {
         Ok(r) => r,
         Err(e) => {
@@ -112,6 +115,8 @@ pub async fn ship(
         }
     };
 
+    crate::execlog::record_step("push", "ok", push_start.elapsed().as_millis() as u64, None);
+
     // Resolve base branch: --base CLI > config default_base > worktree's base_branch
     if let Some(base) = base_override {
         result.base_branch = base;
@@ -134,6 +139,7 @@ pub async fn ship(
     }
 
     // Phase 2: Create PR/MR (async)
+    let pr_start = std::time::Instant::now();
     let mut pr_failed = false;
     if !no_pr && config.ship.auto_pr && !crate::env::is_offline() {
         let (ticket_title, ticket_url) =
@@ -245,6 +251,13 @@ pub async fn ship(
             }
         }
     }
+
+    crate::execlog::record_step(
+        "create_pr",
+        if pr_failed { "error" } else { "ok" },
+        pr_start.elapsed().as_millis() as u64,
+        result.pr_url.clone(),
+    );
 
     // Auto-comment PR link on the ticket if configured
     if config.tracker.comment_on_ship && !crate::env::is_offline() {
