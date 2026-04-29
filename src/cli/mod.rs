@@ -545,7 +545,7 @@ pub enum ConfigAction {
 
 pub async fn run(cli: Cli) -> Result<()> {
     let repo_path = cli.repo.unwrap_or_else(|| PathBuf::from("."));
-    let output_mode = if cli.json {
+    let output_mode = if cli.json || crate::env::is_agent() {
         output::Mode::Json
     } else if cli.quiet {
         output::Mode::Quiet

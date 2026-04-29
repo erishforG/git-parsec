@@ -449,6 +449,9 @@ pub async fn switch(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<()>
                     format!("{}{title}", w.ticket)
                 })
                 .collect();
+            if crate::env::is_agent() {
+                anyhow::bail!("Interactive workspace picker is not available in agent mode. Specify the ticket ID explicitly: `parsec switch <TICKET>`");
+            }
             let selection = dialoguer::Select::new()
                 .with_prompt("Switch to workspace")
                 .items(&items)

@@ -479,6 +479,10 @@ impl ParsecConfig {
 
     /// Interactively prompt the user to configure parsec and return the resulting config.
     pub fn init_interactive() -> Result<Self> {
+        if crate::env::is_agent() {
+            anyhow::bail!("Interactive config init is not available in agent mode. Use `parsec config show` or set config values directly.");
+        }
+
         let mut config = Self::default();
 
         // ---- Tracker provider ------------------------------------------------

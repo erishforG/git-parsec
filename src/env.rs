@@ -72,6 +72,20 @@ pub fn gitlab_token() -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// Agent mode
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_AGENT: &str = "PARSEC_AGENT";
+
+/// Check if agent mode is active (via PARSEC_AGENT env var).
+/// In agent mode: JSON output is forced, interactive prompts are skipped.
+pub fn is_agent() -> bool {
+    std::env::var(PARSEC_AGENT)
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false)
+}
+
+// ---------------------------------------------------------------------------
 // Offline mode
 // ---------------------------------------------------------------------------
 
