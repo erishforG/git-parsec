@@ -86,6 +86,26 @@ pub fn is_agent() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// AI
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_AI_API_KEY: &str = "PARSEC_AI_API_KEY";
+pub const OPENAI_API_KEY: &str = "OPENAI_API_KEY";
+pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";
+
+/// Resolve AI API key. Priority: PARSEC_AI_API_KEY > provider-specific > config
+pub fn ai_api_key(config_key: Option<&str>) -> Option<String> {
+    for var in [PARSEC_AI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY] {
+        if let Ok(key) = std::env::var(var) {
+            if !key.is_empty() {
+                return Some(key);
+            }
+        }
+    }
+    config_key.filter(|k| !k.is_empty()).map(|k| k.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Offline mode
 // ---------------------------------------------------------------------------
 

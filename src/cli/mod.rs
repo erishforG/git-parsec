@@ -497,6 +497,25 @@ pub enum Command {
         /// New ticket identifier
         new_ticket: String,
     },
+
+    /// AI-generated commit message from staged changes
+    ///
+    /// Analyzes the staged diff and generates a commit message using an AI
+    /// provider (OpenAI or Anthropic). Auto-detects the ticket from the
+    /// current worktree and prefixes the message accordingly.
+    /// Use --conventional to enforce Conventional Commits format.
+    Commit {
+        /// Ticket identifier (auto-detects from current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Force Conventional Commits format (type(scope): description)
+        #[arg(long)]
+        conventional: bool,
+
+        /// Provide a manual commit message (skips AI generation)
+        #[arg(long, short)]
+        message: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -834,6 +853,20 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Compress { ticket, message } => {
             commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
+        }
+        Command::Commit {
+            ticket,
+            conventional,
+            message,
+        } => {
+            commands::commit(
+                &repo_path,
+                ticket.as_deref(),
+                conventional,
+                message.as_deref(),
+                output_mode,
+            )
+            .await
         }
     }
 }
