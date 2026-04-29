@@ -68,6 +68,9 @@ pub async fn init_install(shell: &str, yes: bool) -> Result<()> {
     }
 
     if !yes {
+        if crate::env::is_agent() {
+            anyhow::bail!("Interactive confirmation is not available in agent mode. Use `parsec config shell --yes` to skip prompts.");
+        }
         let confirmed = dialoguer::Confirm::new()
             .with_prompt(format!(
                 "Add shell integration to {}?",
