@@ -18,6 +18,17 @@ pub async fn log(repo: &Path, ticket: Option<&str>, last: usize, mode: Mode) -> 
     Ok(())
 }
 
+pub async fn log_export(repo: &Path) -> Result<()> {
+    let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
+    let raw = crate::execlog::read_raw(&repo_root)?;
+    if raw.is_empty() {
+        eprintln!("No execution log entries. Run some commands first.");
+    } else {
+        print!("{}", raw);
+    }
+    Ok(())
+}
+
 pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
