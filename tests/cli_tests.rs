@@ -702,3 +702,362 @@ fn test_root_prints_repo_path() {
         .success()
         .stdout(predicate::str::is_empty().not());
 }
+
+// ---------------------------------------------------------------------------
+// quiet mode
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_quiet_mode_suppresses_output() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "QUIET-001", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // --quiet list should produce no stdout output (empty or whitespace-only).
+    let output = parsec()
+        .args(["--quiet", "list", "--repo", repo_path])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8(output.stdout).unwrap().trim().is_empty(),
+        "quiet mode should suppress normal output"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// start --title
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_start_with_title() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args([
+            "start",
+            "TITLE-001",
+            "--title",
+            "My Custom Title",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+
+    // The title should be stored in state.json.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let contents = std::fs::read_to_string(&state_path).unwrap();
+    assert!(
+        contents.contains("My Custom Title"),
+        "state.json should store the custom title"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// start --base (custom base branch)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_start_with_base_branch() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Create and push a "develop" branch.
+    StdCommand::new("git")
+        .args(["checkout", "-b", "develop"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "--allow-empty", "-m", "develop init"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["push", "origin", "develop"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["checkout", "main"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    parsec()
+        .args([
+            "start",
+            "BASE-001",
+            "--base",
+            "develop",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+
+    // Verify the worktree was created with develop as base.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let contents = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&contents).unwrap();
+    assert_eq!(
+        state["workspaces"]["BASE-001"]["base_branch"]
+            .as_str()
+            .unwrap(),
+        "develop"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// start --on (stacked worktrees)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_start_stacked_on_parent() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Start a parent worktree.
+    parsec()
+        .args(["start", "STACK-PARENT", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Start a child stacked on the parent.
+    parsec()
+        .args([
+            "start",
+            "STACK-CHILD",
+            "--on",
+            "STACK-PARENT",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+
+    // Verify parent_ticket is set in state.json.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let contents = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&contents).unwrap();
+    assert_eq!(
+        state["workspaces"]["STACK-CHILD"]["parent_ticket"]
+            .as_str()
+            .unwrap(),
+        "STACK-PARENT"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ship --dry-run
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_ship_dry_run() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "DRY-SHIP", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // --dry-run should succeed without actually shipping.
+    parsec()
+        .args(["--dry-run", "ship", "DRY-SHIP", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // The worktree should still be listed (not cleaned up).
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("DRY-SHIP"));
+}
+
+// ---------------------------------------------------------------------------
+// doctor
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doctor_succeeds() {
+    let repo = setup_repo();
+    parsec()
+        .args(["doctor", "--repo", repo.path().to_str().unwrap()])
+        .assert()
+        .success();
+}
+
+// ---------------------------------------------------------------------------
+// log --ticket filter
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_log_filter_by_ticket() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "LOGF-A", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args(["start", "LOGF-B", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Filter log to LOGF-A only (ticket is a positional arg).
+    let output = parsec()
+        .args(["log", "LOGF-A", "--repo", repo_path])
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("LOGF-A"), "filtered log should show LOGF-A");
+    assert!(
+        !stdout.contains("LOGF-B"),
+        "filtered log should not show LOGF-B"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// clean --orphans
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_clean_orphans() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "ORPHAN-001", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Manually delete the worktree directory to create an orphan.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let state_contents = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_contents).unwrap();
+    let wt_path = state["workspaces"]["ORPHAN-001"]["path"]
+        .as_str()
+        .unwrap();
+
+    // Remove the worktree directory and prune git worktree list.
+    std::fs::remove_dir_all(wt_path).unwrap();
+    StdCommand::new("git")
+        .args(["worktree", "prune"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    // clean --orphans should remove the stale entry.
+    parsec()
+        .args(["clean", "--orphans", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // The orphaned workspace should be gone.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ORPHAN-001").not());
+}
+
+// ---------------------------------------------------------------------------
+// rename
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_rename_ticket() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "OLD-NAME", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args(["rename", "OLD-NAME", "NEW-NAME", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // OLD-NAME gone, NEW-NAME present.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("OLD-NAME").not())
+        .stdout(predicate::str::contains("NEW-NAME"));
+}
+
+// ---------------------------------------------------------------------------
+// start --branch (existing branch)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_start_with_existing_branch() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Create an existing branch.
+    StdCommand::new("git")
+        .args(["branch", "my-existing-branch"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    parsec()
+        .args([
+            "start",
+            "EXIST-001",
+            "--branch",
+            "my-existing-branch",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+
+    // Should be listed with the correct branch.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let contents = std::fs::read_to_string(&state_path).unwrap();
+    assert!(contents.contains("my-existing-branch"));
+}
+
+// ---------------------------------------------------------------------------
+// JSON error format
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_json_error_format() {
+    let repo = setup_repo();
+    let output = parsec()
+        .args([
+            "--json",
+            "ship",
+            "NONEXIST",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("JSON error output must be parseable");
+    assert_eq!(parsed["error"].as_bool().unwrap(), true);
+    assert!(parsed.get("code").is_some());
+    assert!(parsed.get("message").is_some());
+}
