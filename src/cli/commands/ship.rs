@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use crate::config::ParsecConfig;
 use crate::errors::ErrorCode;
 use crate::git;
+use crate::bitbucket;
 use crate::github;
 use crate::gitlab;
 use crate::output::{self, Mode};
@@ -221,8 +222,36 @@ pub async fn ship(
                         }
                     }
                 }
+            } else if let Some(bb) = bitbucket::BitbucketClient::new(remote_url)? {
+                // No GitHub token — try Bitbucket
+                if let Ok(Some(existing_pr)) = bb.find_pr_by_branch(&result.branch).await {
+                    let pr_url = format!(
+                        "https://bitbucket.org/{}/{}/pull-requests/{}",
+                        bb.remote().workspace, bb.remote().repo_slug, existing_pr
+                    );
+                    result.pr_url = Some(pr_url);
+                } else {
+                    match bb
+                        .create_pr(
+                            &result.branch,
+                            &result.base_branch,
+                            &pr_title,
+                            &pr_body,
+                            draft || config.ship.draft,
+                        )
+                        .await
+                    {
+                        Ok(pr) => {
+                            result.pr_url = Some(pr.url);
+                        }
+                        Err(e) => {
+                            eprintln!("error: Bitbucket PR creation failed: {e}");
+                            pr_failed = true;
+                        }
+                    }
+                }
             } else {
-                // No GitHub token — try GitLab
+                // No GitHub/Bitbucket token — try GitLab
                 match gitlab::create_mr(
                     remote_url,
                     &result.branch,
@@ -239,7 +268,7 @@ pub async fn ship(
                     Ok(None) => {
                         eprintln!(
                             "note: PR/MR creation skipped — no token found.\n      \
-                             Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
+                             Set PARSEC_GITHUB_TOKEN, PARSEC_BITBUCKET_TOKEN, or PARSEC_GITLAB_TOKEN to enable."
                         );
                         pr_failed = true;
                     }

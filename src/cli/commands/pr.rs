@@ -1,8 +1,9 @@
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use colored::Colorize;
 
+use crate::bitbucket;
 use crate::config::ParsecConfig;
 use crate::errors::ErrorCode;
 use crate::git;
@@ -140,27 +141,52 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
                     all_entries.push((ws.ticket.clone(), pr_number, String::new()));
                 }
             }
+        } else if let Some(bb) = bitbucket::BitbucketClient::new(&remote_url)? {
+            for ws in &workspaces {
+                if let Ok(Some(pr_id)) = bb.find_pr_by_branch(&ws.branch).await {
+                    all_entries.push((ws.ticket.clone(), pr_id, String::new()));
+                }
+            }
         }
 
         if all_entries.is_empty() {
             if let Some(t) = ticket {
-                bail_code!(ErrorCode::E010, "no PR found for {t}. Ship it first with `parsec ship {t}`, or check your GitHub token.");
+                bail_code!(ErrorCode::E010, "no PR found for {t}. Ship it first with `parsec ship {t}`, or check your forge token.");
             } else {
-                bail_code!(ErrorCode::E010, "no PRs found. Ship a ticket first with `parsec ship`, or check your GitHub token.");
+                bail_code!(ErrorCode::E010, "no PRs found. Ship a ticket first with `parsec ship`, or check your forge token.");
             }
         }
     }
 
-    let gh = github::GitHubClient::new(&remote_url, &config)?.ok_or_else(|| {
-        anyhow::Error::from(crate::errors::ParsecError::new(
-            ErrorCode::E001,
-            "no GitHub token found. Set PARSEC_GITHUB_TOKEN.",
-        ))
-    })?;
+    // Try GitHub first, then Bitbucket
     let mut statuses = Vec::new();
-    for (ticket_id, pr_number, _url) in &all_entries {
-        let status = gh.get_pr_status(*pr_number).await?;
-        statuses.push((ticket_id.clone(), status));
+    if let Some(gh) = github::GitHubClient::new(&remote_url, &config)? {
+        for (ticket_id, pr_number, _url) in &all_entries {
+            let status = gh.get_pr_status(*pr_number).await?;
+            statuses.push((ticket_id.clone(), status));
+        }
+    } else if let Some(bb) = bitbucket::BitbucketClient::new(&remote_url)? {
+        for (ticket_id, pr_id, _url) in &all_entries {
+            let bb_status = bb.get_pr_status(*pr_id).await?;
+            // Map to github::PrStatus for output compatibility
+            statuses.push((
+                ticket_id.clone(),
+                github::PrStatus {
+                    number: bb_status.id,
+                    title: bb_status.title,
+                    state: bb_status.state.to_lowercase(),
+                    mergeable: None,
+                    ci_status: "unknown".to_string(),
+                    review_status: "unknown".to_string(),
+                    url: bb_status.url,
+                },
+            ));
+        }
+    } else {
+        bail_code!(
+            ErrorCode::E001,
+            "no forge token found. Set PARSEC_GITHUB_TOKEN or PARSEC_BITBUCKET_TOKEN."
+        );
     }
 
     output::print_pr_status(&statuses, mode);
@@ -178,14 +204,20 @@ pub async fn merge(
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let remote_url = git::run_output(repo, &["remote", "get-url", "origin"])?;
-    let gh = github::GitHubClient::new(&remote_url, &config)?.ok_or_else(|| {
-        anyhow::Error::from(crate::errors::ParsecError::new(
-            ErrorCode::E001,
-            "no GitHub token found. Set PARSEC_GITHUB_TOKEN.",
-        ))
-    })?;
     let oplog = crate::oplog::OpLog::load(&repo_root)?;
     let manager = WorktreeManager::new(repo, &config)?;
+
+    // Detect forge: GitHub or Bitbucket
+    let has_github = github::GitHubClient::new(&remote_url, &config)?.is_some();
+    let has_bitbucket =
+        !has_github && bitbucket::BitbucketClient::new(&remote_url)?.is_some();
+
+    if !has_github && !has_bitbucket {
+        bail_code!(
+            ErrorCode::E001,
+            "no forge token found. Set PARSEC_GITHUB_TOKEN or PARSEC_BITBUCKET_TOKEN."
+        );
+    }
 
     // Resolve ticket
     let ticket_id = if let Some(t) = ticket {
@@ -218,16 +250,73 @@ pub async fn merge(
             let ws = manager.get(&ticket_id).with_context(|| {
                 format!("ticket {ticket_id} not found in active workspaces or oplog")
             })?;
-            gh.find_pr_by_branch(&ws.branch)
-                .await?
-                .ok_or_else(|| {
+            if has_github {
+                let gh = github::GitHubClient::new(&remote_url, &config)?.unwrap();
+                gh.find_pr_by_branch(&ws.branch).await?.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "no open PR found for {ticket_id} (branch '{}'). Either ship it with `parsec ship {ticket_id}`, or check that PARSEC_GITHUB_TOKEN is set.",
+                        "no open PR found for {ticket_id} (branch '{}'). Ship it first.",
                         ws.branch
                     )
                 })?
+            } else {
+                let bb = bitbucket::BitbucketClient::new(&remote_url)?.unwrap();
+                bb.find_pr_by_branch(&ws.branch).await?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no open PR found for {ticket_id} (branch '{}'). Ship it first.",
+                        ws.branch
+                    )
+                })?
+            }
         }
     };
+
+    // Bitbucket merge path
+    if has_bitbucket {
+        let bb = bitbucket::BitbucketClient::new(&remote_url)?.unwrap();
+        let method = if rebase { "rebase" } else { "squash" };
+        match bb.merge_pr(pr_number, method).await {
+            Ok(mr) => {
+                if mode == Mode::Human {
+                    println!("Merged PR #{} ({})", pr_number, mr.message);
+                } else if mode == Mode::Json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "ticket": ticket_id,
+                            "pr_number": pr_number,
+                            "merged": mr.merged,
+                            "method": method,
+                        })
+                    );
+                }
+            }
+            Err(e) => {
+                bail!("Bitbucket merge failed: {e}");
+            }
+        }
+
+        // Auto-transition ticket status
+        if let Some(ref auto) = config.tracker.auto_transition {
+            if let Some(ref status) = auto.on_merge {
+                tracker::try_transition(&config, &ticket_id, status).await;
+            }
+        }
+
+        if let Err(e) = crate::oplog::record(
+            &repo_root,
+            crate::oplog::OpKind::Clean,
+            Some(&ticket_id),
+            &format!("Merged PR #{} ({})", pr_number, method),
+            None,
+        ) {
+            eprintln!("warning: failed to write oplog: {e}");
+        }
+
+        return Ok(());
+    }
+
+    // GitHub merge path
+    let gh = github::GitHubClient::new(&remote_url, &config)?.unwrap();
 
     // Idempotency: check if PR is already merged/closed
     if let Ok(status) = gh.get_pr_status(pr_number).await {
