@@ -106,6 +106,25 @@ pub fn ai_api_key(config_key: Option<&str>) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// Bitbucket
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_BITBUCKET_TOKEN: &str = "PARSEC_BITBUCKET_TOKEN";
+pub const BITBUCKET_TOKEN: &str = "BITBUCKET_TOKEN";
+
+/// Resolve Bitbucket token. Priority: PARSEC_BITBUCKET_TOKEN > BITBUCKET_TOKEN
+pub fn bitbucket_token() -> Option<String> {
+    for var in [PARSEC_BITBUCKET_TOKEN, BITBUCKET_TOKEN] {
+        if let Ok(token) = std::env::var(var) {
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
 // Offline mode
 // ---------------------------------------------------------------------------
 

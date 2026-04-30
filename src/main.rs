@@ -2,10 +2,12 @@
 mod errors;
 
 mod ai;
+mod bitbucket;
 mod cli;
 mod config;
 mod conflict;
 mod env;
+mod execlog;
 mod git;
 mod github;
 mod gitlab;
