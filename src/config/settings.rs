@@ -374,6 +374,9 @@ pub struct AiConfig {
     /// API key (prefer env vars PARSEC_AI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY)
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Automatically generate PR descriptions using AI on `parsec ship`
+    #[serde(default)]
+    pub auto_pr_description: bool,
 }
 
 impl Default for AiConfig {
@@ -382,6 +385,7 @@ impl Default for AiConfig {
             provider: AiProvider::default(),
             model: default_ai_model(),
             api_key: None,
+            auto_pr_description: false,
         }
     }
 }

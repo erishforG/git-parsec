@@ -148,6 +148,10 @@ pub enum Command {
         /// Path to PR body template file
         #[arg(long)]
         template: Option<String>,
+
+        /// Generate PR description using AI
+        #[arg(long)]
+        ai_description: bool,
     },
 
     /// Remove merged or stale worktrees
@@ -667,6 +671,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             reviewer,
             label,
             template,
+            ai_description,
         } => {
             if cli.dry_run {
                 eprintln!(
@@ -689,6 +694,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 reviewer,
                 label,
                 template,
+                ai_description,
                 output_mode,
             )
             .await
