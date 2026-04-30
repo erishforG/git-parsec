@@ -1,4 +1,4 @@
-//! AI provider abstraction for commit message generation.
+//! AI provider abstraction for commit message and PR description generation.
 //!
 //! Supports OpenAI-compatible and Anthropic APIs.
 
@@ -90,6 +90,62 @@ pub async fn generate_commit_message(
     // Clean up: strip surrounding quotes, trim
     let msg = raw.trim().trim_matches('"').trim().to_string();
     Ok(msg)
+}
+
+/// Generate a PR description from a diff using the configured AI provider.
+pub async fn generate_pr_description(
+    provider: &AiProvider,
+    model: &str,
+    api_key: &str,
+    diff: &str,
+    ticket: Option<&str>,
+    ticket_title: Option<&str>,
+) -> Result<String> {
+    let prompt = build_pr_prompt(diff, ticket, ticket_title);
+
+    let raw = match provider {
+        AiProvider::OpenAi => call_openai(model, api_key, &prompt).await?,
+        AiProvider::Anthropic => call_anthropic(model, api_key, &prompt).await?,
+    };
+
+    Ok(raw.trim().to_string())
+}
+
+fn build_pr_prompt(diff: &str, ticket: Option<&str>, ticket_title: Option<&str>) -> String {
+    let max_diff_len = 16_000;
+    let truncated = if diff.len() > max_diff_len {
+        format!(
+            "{}\n\n... (diff truncated, {} bytes total)",
+            &diff[..max_diff_len],
+            diff.len()
+        )
+    } else {
+        diff.to_string()
+    };
+
+    let mut prompt = String::from(
+        "Generate a concise pull request description in Markdown for the following changes. \
+         Return ONLY the description body, no title.\n\n",
+    );
+
+    if let Some(t) = ticket {
+        prompt.push_str(&format!("Ticket: {t}\n"));
+    }
+    if let Some(title) = ticket_title {
+        prompt.push_str(&format!("Ticket title: {title}\n"));
+    }
+
+    prompt.push_str("\nRules:\n");
+    prompt.push_str("- Start with a 1-2 sentence summary of what this PR does and why\n");
+    prompt.push_str("- Use a `## Changes` section with bullet points for key changes\n");
+    prompt.push_str("- Keep it concise (max 15 lines)\n");
+    prompt.push_str("- Do NOT include a title line — only the body\n");
+    prompt.push_str("- Do NOT wrap the output in markdown code fences\n\n");
+    prompt.push_str("Diff:\n```\n");
+    prompt.push_str(&truncated);
+    prompt.push_str("\n```");
+
+    prompt
 }
 
 fn build_prompt(diff: &str, ticket: Option<&str>, conventional: bool) -> String {

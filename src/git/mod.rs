@@ -276,6 +276,11 @@ pub fn get_merge_base(repo: &Path, a: &str, b: &str) -> Result<String> {
     run_output(repo, &["merge-base", a, b])
 }
 
+/// Get the full diff between two branches (base...head).
+pub fn diff_against(repo: &Path, base: &str, head: &str) -> Result<String> {
+    run_output(repo, &["diff", &format!("{base}...{head}")])
+}
+
 /// Force-delete a local branch.
 pub fn delete_branch(repo: &Path, branch: &str) -> Result<()> {
     run(repo, &["branch", "-D", branch])
