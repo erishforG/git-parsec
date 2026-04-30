@@ -1,6 +1,7 @@
 #[macro_use]
 mod errors;
 
+mod bitbucket;
 mod cli;
 mod config;
 mod conflict;
