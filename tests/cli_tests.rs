@@ -792,12 +792,7 @@ fn test_start_with_base_branch() {
 
     parsec()
         .args([
-            "start",
-            "BASE-001",
-            "--base",
-            "develop",
-            "--repo",
-            repo_path,
+            "start", "BASE-001", "--base", "develop", "--repo", repo_path,
         ])
         .assert()
         .success();
@@ -946,9 +941,7 @@ fn test_clean_orphans() {
     let state_path = repo.path().join(".parsec").join("state.json");
     let state_contents = std::fs::read_to_string(&state_path).unwrap();
     let state: serde_json::Value = serde_json::from_str(&state_contents).unwrap();
-    let wt_path = state["workspaces"]["ORPHAN-001"]["path"]
-        .as_str()
-        .unwrap();
+    let wt_path = state["workspaces"]["ORPHAN-001"]["path"].as_str().unwrap();
 
     // Remove the worktree directory and prune git worktree list.
     std::fs::remove_dir_all(wt_path).unwrap();
@@ -1055,8 +1048,8 @@ fn test_json_error_format() {
     assert!(!output.status.success());
 
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("JSON error output must be parseable");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("JSON error output must be parseable");
     assert_eq!(parsed["error"].as_bool().unwrap(), true);
     assert!(parsed.get("code").is_some());
     assert!(parsed.get("message").is_some());
