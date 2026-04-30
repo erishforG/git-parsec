@@ -209,8 +209,7 @@ pub async fn merge(
 
     // Detect forge: GitHub or Bitbucket
     let has_github = github::GitHubClient::new(&remote_url, &config)?.is_some();
-    let has_bitbucket =
-        !has_github && bitbucket::BitbucketClient::new(&remote_url)?.is_some();
+    let has_bitbucket = !has_github && bitbucket::BitbucketClient::new(&remote_url)?.is_some();
 
     if !has_github && !has_bitbucket {
         bail_code!(

@@ -15,6 +15,7 @@ use serde::Deserialize;
 
 /// Result of PR creation
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PrResult {
     pub url: String,
     pub id: u64,
@@ -38,6 +39,7 @@ pub struct MergeResult {
 
 /// A single pipeline step/result
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PipelineStatus {
     pub name: String,
     pub state: String,
@@ -80,6 +82,7 @@ struct ApiPrList {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ApiPipeline {
     uuid: Option<String>,
     state: Option<ApiPipelineState>,
@@ -87,22 +90,26 @@ struct ApiPipeline {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ApiPipelineState {
     name: Option<String>,
     result: Option<ApiPipelineResult>,
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ApiPipelineResult {
     name: Option<String>,
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ApiPipelineTarget {
     ref_name: Option<String>,
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct ApiPipelineList {
     values: Option<Vec<ApiPipeline>>,
 }
@@ -298,9 +305,7 @@ impl BitbucketClient {
         }
 
         let list: ApiPrList = response.json().await?;
-        Ok(list
-            .values
-            .and_then(|v| v.first().and_then(|pr| pr.id)))
+        Ok(list.values.and_then(|v| v.first().and_then(|pr| pr.id)))
     }
 
     /// Get PR status by ID.
@@ -371,6 +376,7 @@ impl BitbucketClient {
     }
 
     /// Get pipeline status for a branch.
+    #[allow(dead_code)]
     pub async fn get_pipelines(&self, branch: &str) -> Result<Vec<PipelineStatus>> {
         let url = format!(
             "{}/pipelines/?sort=-created_on&pagelen=5&target.ref_name={}",

@@ -2,10 +2,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::bitbucket;
 use crate::config::ParsecConfig;
 use crate::errors::ErrorCode;
 use crate::git;
-use crate::bitbucket;
 use crate::github;
 use crate::gitlab;
 use crate::output::{self, Mode};
@@ -227,7 +227,9 @@ pub async fn ship(
                 if let Ok(Some(existing_pr)) = bb.find_pr_by_branch(&result.branch).await {
                     let pr_url = format!(
                         "https://bitbucket.org/{}/{}/pull-requests/{}",
-                        bb.remote().workspace, bb.remote().repo_slug, existing_pr
+                        bb.remote().workspace,
+                        bb.remote().repo_slug,
+                        existing_pr
                     );
                     result.pr_url = Some(pr_url);
                 } else {
