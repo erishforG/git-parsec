@@ -110,6 +110,14 @@ Every command has `--json`. Errors emit structured codes (E001…E013). `parsec 
 
 > 27 commands total — see the [full command reference](https://erishforg.github.io/git-parsec/reference/) for every flag and example.
 
+Each PR body includes a stack navigation table:
+
+| | Ticket | Branch |
+|---|--------|--------|
+| ⬆ Parent | PROJ-1 | `feature/PROJ-1` |
+| **➡ Current** | **PROJ-2** | **`feature/PROJ-2`** |
+| ⬇ Child | PROJ-3 | `feature/PROJ-3` |
+
 ---
 
 ## Configuration (minimal example)
