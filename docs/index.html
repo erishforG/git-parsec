@@ -1960,6 +1960,66 @@
           </p>
           <div class="feature-code">$ parsec diff --stat</div>
         </div>
+
+        <!-- Feature: Bitbucket Cloud (v0.4) -->
+        <div class="feature-card featured reveal reveal-delay-1">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          </div>
+          <h3>Bitbucket Cloud + Pipelines</h3>
+          <p>
+            New in v0.4. Full PR lifecycle on Bitbucket Cloud — create, list, view, merge, comments — and Bitbucket Pipelines build status surfaced in <code>parsec ci</code> and <code>parsec pr-status</code> alongside GitHub Actions and GitLab CI.
+          </p>
+          <div class="feature-code">$ parsec ship CL-2208 &nbsp;&nbsp;<span style="color: var(--text-muted)"># auto-detects Bitbucket remote</span></div>
+        </div>
+
+        <!-- Feature: Compress (v0.4) -->
+        <div class="feature-card reveal reveal-delay-2">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </div>
+          <h3>Compress Branch History</h3>
+          <p>
+            New in v0.4. <code>parsec compress</code> squashes a branch's commits into one tidy commit before shipping, preserving co-author trailers. Optional <code>--message</code> for a custom commit subject.
+          </p>
+          <div class="feature-code">$ parsec compress -m "feat: add user authentication"</div>
+        </div>
+
+        <!-- Feature: Offline (v0.4) -->
+        <div class="feature-card reveal reveal-delay-3">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0119 12.55"/><path d="M5 12.55a10.94 10.94 0 015.17-2.39"/><path d="M10.71 5.05A16 16 0 0122.58 9"/><path d="M1.42 9a15.91 15.91 0 014.7-2.88"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+          </div>
+          <h3>Offline Mode</h3>
+          <p>
+            New in v0.4. Global <code>--offline</code> flag (and <code>[workspace].offline</code> config) skips all network operations — tracker lookups, PR creation, fetches — so parsec keeps working on a plane, in CI without secrets, or in air-gapped environments.
+          </p>
+          <div class="feature-code">$ parsec start CL-2208 --offline --title "Add login retry"</div>
+        </div>
+
+        <!-- Feature: Observability JSONL (v0.4) -->
+        <div class="feature-card featured reveal reveal-delay-1">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <h3>Observability — Execution IDs + JSONL</h3>
+          <p>
+            New in v0.4. Every command run gets an execution ID and per-step timing. <code>parsec log --export</code> emits JSONL — one line per run with <code>execution_id</code>, <code>op</code>, <code>ticket</code>, <code>steps</code>, and <code>duration_ms</code> — for tooling and AI agents to consume.
+          </p>
+          <div class="feature-code">$ parsec log --export | jq 'select(.duration_ms > 1000)'</div>
+        </div>
+
+        <!-- Feature: Config JSON Schema (v0.4) -->
+        <div class="feature-card reveal reveal-delay-2">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><polyline points="14 2 14 8 20 8"/><path d="M20 13v7a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h8z"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+          </div>
+          <h3>Config JSON Schema</h3>
+          <p>
+            New in v0.4. The <code>config.toml</code> JSON Schema is published to <a href="https://schemastore.org">schemastore.org</a> so VS Code, IntelliJ, and Helix auto-complete and validate every key. <code>parsec config schema</code> emits the schema for offline use.
+          </p>
+          <div class="feature-code">$ parsec config schema > parsec-schema.json</div>
+        </div>
       </div>
     </div>
   </section>

@@ -114,7 +114,15 @@ Removed 1 worktree(s):
 - **Release workflow** -- Merge, tag, and create GitHub Releases with `parsec release`
 - **PR reviewers and labels** -- Assign reviewers and labels on ship with `--reviewer`/`--label` or config defaults
 - **Stack submit** -- Ship an entire stack in topological order with `parsec stack --submit`
-- **Cross-platform** -- Tested on Linux, macOS, and Windows CI
+- **Stack navigation comments** -- Auto-posted "← prev / next →" comments on each PR in a stack
+- **PR template auto-fill** -- `parsec ship --template` populates the PR description from `.github/PULL_REQUEST_TEMPLATE.md`
+- **Compress branch history** -- `parsec compress` squashes a branch's commits into a single tidy commit before shipping
+- **Bitbucket Cloud** -- Full PR lifecycle (create, list, view, merge, comments) and Bitbucket Pipelines CI status
+- **Offline mode** -- Global `--offline` flag (and `[workspace].offline` config) skips all network operations (tracker, PR, fetch) so parsec keeps working without connectivity
+- **Observability** -- Every command run gets an execution ID with per-step timing; `parsec log --export` emits JSONL for tooling and AI agents to consume
+- **Config JSON Schema** -- `parsec config schema` outputs a JSON Schema (also published to schemastore.org) so editors auto-complete `config.toml`
+- **Draft-by-default** -- `[ship].draft = true` config or `--draft` flag opens PRs as drafts for WIP work
+- **Cross-platform** -- Tested on Linux, macOS, and Windows CI; UNC path handling on Windows
 
 ---
 
@@ -327,6 +335,7 @@ $ parsec log
 | [`parsec new-issue`](#parsec-new-issue) | Create a new issue (alias with extra options) |
 | [`parsec release`](#parsec-release-version) | Merge, tag, and create a GitHub Release |
 | [`parsec rename`](#parsec-rename-ticket---new-ticket-id) | Re-ticket a workspace to a different ticket ID |
+| [`parsec compress`](#parsec-compress-ticket--m-message) | Squash all branch commits into one |
 
 ---
 
@@ -628,6 +637,7 @@ parsec log [ticket] [-n, --last N]
 |--------|-------------|
 | `[ticket]` | Filter to a specific ticket |
 | `-n, --last N` | Show last N entries (default: 20) |
+| `--export` | Emit the log as JSONL (one JSON object per line). Each entry includes execution ID and per-step timing for observability/debugging |
 
 ```bash
 $ parsec log
@@ -645,6 +655,11 @@ $ parsec log PROJ-1234
 
 # Last 3 entries only
 $ parsec log --last 3
+
+# Export as JSONL (for tooling / AI agents)
+$ parsec log --export
+{"execution_id":"01HQ3D8R2K8...","op":"start","ticket":"PROJ-1234","steps":[{"name":"fetch_title","ms":214},{"name":"create_worktree","ms":98}],"started_at":"2026-04-15T09:14:01Z","duration_ms":312}
+{"execution_id":"01HQ3D9V7Z2...","op":"ship","ticket":"PROJ-1234","steps":[{"name":"push","ms":820},{"name":"create_pr","ms":1305},{"name":"cleanup","ms":42}],"started_at":"2026-04-15T14:02:18Z","duration_ms":2167}
 ```
 
 ---
@@ -1037,6 +1052,16 @@ $ parsec config completions zsh
 
 # Install man page
 $ sudo parsec config man
+
+# Output the JSON Schema for config.toml (also published to schemastore.org)
+$ parsec config schema > parsec-schema.json
+```
+
+The JSON Schema is published to **schemastore.org** so editors with schemastore integration (VS Code, IntelliJ, Helix) auto-complete and validate `~/.config/parsec/config.toml` and per-repo `.parsec.toml` automatically. To pin the schema locally instead, add to your config:
+
+```toml
+# ~/.config/parsec/config.toml
+#:schema https://json.schemastore.org/parsec.json
 ```
 
 ---
@@ -1186,6 +1211,33 @@ $ parsec rename PROJ-100 --new PROJ-200 --json
 
 ---
 
+### `parsec compress [ticket] [-m <message>]`
+
+Squash all of a branch's commits into a single tidy commit before shipping. The branch is reset to the merge-base with the base branch and the cumulative changes are re-committed as one. Co-author trailers from squashed commits are preserved.
+
+```
+parsec compress [ticket] [-m <message>]
+```
+
+| Option | Description |
+|--------|-------------|
+| `ticket` | Optional. Auto-detects the current worktree's ticket if omitted. |
+| `-m, --message <text>` | Custom commit message. Default: combines all squashed commit messages. |
+
+```bash
+# Compress the current worktree's branch
+$ parsec compress
+Compressed 7 commits into one on feature/PROJ-1234.
+
+# Compress a specific ticket with a custom message
+$ parsec compress PROJ-1234 -m "feat: add user authentication"
+
+# Combine with ship
+$ parsec compress && parsec ship
+```
+
+---
+
 ## Global Flags
 
 These flags work on every command:
@@ -1193,6 +1245,7 @@ These flags work on every command:
 | Flag | Description |
 |------|-------------|
 | `--dry-run` | Preview what a command would do without making changes |
+| `--offline` | Skip all network operations (tracker, PR, fetch). Also enabled by `[workspace].offline = true` in config |
 | `--json` | Machine-readable JSON output |
 | `-q, --quiet` | Suppress non-essential output |
 | `--repo <path>` | Target a different repository |
@@ -1280,6 +1333,9 @@ Config file: `~/.config/parsec/config.toml`
 layout = "sibling"
 base_dir = ".parsec/workspaces"
 branch_prefix = "feature/"
+# Skip all network operations (tracker, PR, fetch). Equivalent to passing
+# --offline on every command. Useful for air-gapped / flight-mode dev.
+offline = false
 
 [worktree]
 # Directories to share from the main repo into new worktrees so that
@@ -1293,7 +1349,7 @@ shared_cache = ["target", "node_modules", ".venv"]
 cache_strategy = "symlink"
 
 [tracker]
-# "jira" | "github" | "gitlab" | "none"
+# "jira" | "github" | "gitlab" | "bitbucket" | "none"
 provider = "jira"
 
 [tracker.jira]
@@ -1307,10 +1363,29 @@ base_url = "https://yourcompany.atlassian.net"
 base_url = "https://gitlab.com"
 # Auth: PARSEC_GITLAB_TOKEN env var
 
+[tracker.bitbucket]
+# workspace = "your-bitbucket-workspace"
+# Auth: PARSEC_BITBUCKET_TOKEN (or BITBUCKET_TOKEN) env var
+# api_base override: PARSEC_BITBUCKET_API_BASE env var
+
+[forge]
+# Auto-detected from the remote URL when omitted. Override here if multiple
+# forges are reachable (e.g., GitHub for PRs, Bitbucket Pipelines for CI).
+# provider = "github" | "gitlab" | "bitbucket"
+
 [ship]
 auto_pr = true        # Create PR/MR on ship
 auto_cleanup = true   # Remove worktree after ship
-draft = false         # Create PRs as drafts
+draft = false         # Open PRs as drafts by default
+# template = ".github/PULL_REQUEST_TEMPLATE.md"  # Auto-fill PR description
+# default_reviewers = ["alice", "bob"]            # Reviewers added on every ship
+# default_labels    = ["needs-review"]             # Labels added on every ship
+
+[observability]
+# Enable per-step timing in `parsec log --export` JSONL output.
+# Each command run gets a unique execution ID; useful for tooling and AI
+# agents to correlate parsec actions with downstream effects.
+enabled = true
 
 [hooks]
 # Commands to run in new worktrees after creation
@@ -1348,9 +1423,13 @@ pre_ship = ["cargo test", "cargo clippy"]
 | `GH_TOKEN` | Fallback GitHub token |
 | `PARSEC_GITLAB_TOKEN` | GitLab token for MR creation |
 | `GITLAB_TOKEN` | Fallback GitLab token |
+| `PARSEC_BITBUCKET_TOKEN` | Bitbucket Cloud app password / access token |
+| `BITBUCKET_TOKEN` | Fallback Bitbucket token |
+| `PARSEC_BITBUCKET_API_BASE` | Override Bitbucket API base URL (test/mock servers) |
 | `PARSEC_JIRA_PROJECT` | Default Jira project key for `board` |
 | `PARSEC_JIRA_BOARD_ID` | Default Jira board ID for `board` |
 | `PARSEC_JIRA_ASSIGNEE` | Default assignee filter for `board` |
+| `PARSEC_OFFLINE` | Set to `1` to force offline mode (same as `--offline`) |
 
 Token priority: `PARSEC_*_TOKEN` > platform-specific variables.
 
@@ -1390,11 +1469,12 @@ $ echo $?
 
 | Feature | parsec | GitButler | worktrunk | git worktree | git-town |
 |---------|--------|-----------|-----------|--------------|----------|
-| Ticket tracker integration | Jira + GitHub Issues | No | No | No | No |
+| Ticket tracker integration | Jira + GitHub + GitLab + Bitbucket | No | No | No | No |
 | Physical isolation | Yes (worktrees) | No (virtual branches) | Yes (worktrees) | Yes | No |
 | Conflict detection | Cross-worktree | N/A | No | No | No |
 | One-step ship (push+PR+clean) | Yes | No | No | No | Yes |
-| GitHub + GitLab | Both | Both | GitHub | No | GitHub, GitLab, Gitea, Bitbucket |
+| Forges | GitHub + GitLab + Bitbucket | Both | GitHub | No | GitHub, GitLab, Gitea, Bitbucket |
+| CI integrations | GitHub Actions + GitLab CI + Bitbucket Pipelines | No | No | No | No |
 | Operation history + undo | Yes | Yes | No | No | Yes (undo) |
 | JSON output | Yes | Yes | No | No | No |
 | CI monitoring | Yes (--watch) | No | No | No | No |
