@@ -1087,6 +1087,7 @@
           <li><a href="#ai-agents">AI Agent Workflows</a></li>
           <li><a href="#stacked-prs">Stacked PRs</a></li>
           <li><a href="#new-features">New Features</a></li>
+          <li><a href="#v04-features">What's New in v0.4</a></li>
         </ul>
       </div>
 
@@ -1428,7 +1429,7 @@
                 <tr>
                   <td><code>tracker.type</code></td>
                   <td>Issue tracker backend.</td>
-                  <td><code>"jira"</code> / <code>"github"</code> / <code>"gitlab"</code></td>
+                  <td><code>"jira"</code> / <code>"github"</code> / <code>"gitlab"</code> / <code>"bitbucket"</code></td>
                 </tr>
                 <tr>
                   <td><code>tracker.base_url</code></td>
@@ -1734,6 +1735,179 @@
               <p>Customize the release workflow in your config file with <code>[release]</code> section: set the target branch, tag prefix, and whether to include a changelog.</p>
             </div>
           </div>
+        </section>
+
+        <!-- ==============================
+             WHAT'S NEW IN v0.4
+             ============================== -->
+        <section class="guide-section reveal" id="v04-features">
+          <div class="section-heading">
+            <h2>What's New in v0.4</h2>
+            <a href="#v04-features" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            v0.4 broadens forge support to Bitbucket Cloud, adds workflow utilities (<code>compress</code>, <code>--template</code>, stack navigation comments), and introduces operational primitives — offline mode, observability JSONL, and a published config schema — designed for tooling and AI agents.
+          </p>
+
+          <h3>Bitbucket Cloud — full PR lifecycle</h3>
+          <p>
+            parsec now speaks Bitbucket Cloud's API: <code>parsec ship</code> opens PRs, <code>parsec pr-status</code> reports CI from Bitbucket Pipelines, <code>parsec ci</code> tails build status, and <code>parsec merge</code> merges from the terminal. Tracker integration uses the same <code>tracker.bitbucket</code> config block.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">Bitbucket setup</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Auth via env var</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">export</span> <span class="info">PARSEC_BITBUCKET_TOKEN=</span><span class="arg">"&lt;app-password&gt;"</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Configure in ~/.config/parsec/config.toml</span></span>
+<span class="terminal-line"><span class="info">[tracker]</span></span>
+<span class="terminal-line"><span class="info">provider = </span><span class="arg">"bitbucket"</span></span>
+<span class="terminal-line"><span class="info">[tracker.bitbucket]</span></span>
+<span class="terminal-line"><span class="info">workspace = </span><span class="arg">"my-team"</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">CL-2208</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">PR opened: bitbucket.org/my-team/repo/pull-requests/142</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Bitbucket Pipelines: BUILD #318 in_progress</span></span>
+            </div>
+          </div>
+
+          <h3>Compress branch history with <code>parsec compress</code></h3>
+          <p>
+            Squash a branch's commits into one tidy commit before shipping. Co-author trailers from squashed commits are preserved automatically.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec compress</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Squash all branch commits into one</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec compress</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Compressed 7 commits into one on feature/PROJ-123</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># With a custom message</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec compress</span> <span class="flag">-m</span> <span class="arg">"feat: add user authentication"</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Compose: tidy history then ship</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec compress</span> &amp;&amp; <span class="command">parsec ship</span></span>
+            </div>
+          </div>
+
+          <h3>Stack navigation comments</h3>
+          <p>
+            When you ship a stacked PR, parsec auto-posts <em>"← previous PR"</em> / <em>"next PR →"</em> navigation comments on every PR in the stack. Reviewers can walk the chain without leaving the PR view.
+          </p>
+
+          <h3>PR template auto-fill — <code>ship --template</code></h3>
+          <p>
+            Use the repository's <code>.github/PULL_REQUEST_TEMPLATE.md</code> (or the first match under <code>.github/PULL_REQUEST_TEMPLATE/</code>) as the PR description automatically. Combine with <code>ship.template</code> in <code>config.toml</code> to make it the default.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">ship --template</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">PROJ-123</span> <span class="flag">--template</span></span>
+<span class="terminal-line"><span class="info">Loaded .github/PULL_REQUEST_TEMPLATE.md (348 chars)</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">PR opened with template body</span></span>
+            </div>
+          </div>
+
+          <h3>Offline mode — <code>--offline</code> / <code>[workspace].offline</code></h3>
+          <p>
+            Skip all network operations: tracker lookups, PR creation, fetches. Use a global <code>--offline</code> flag, the <code>PARSEC_OFFLINE=1</code> env var, or set <code>offline = true</code> under <code>[workspace]</code> in <code>config.toml</code>. Per-command escapes (<code>--no-pr</code>, <code>--no-tracker</code>) remain available for finer control.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">offline mode</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Per-invocation</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">CL-2208</span> <span class="flag">--offline</span> <span class="flag">--title</span> <span class="arg">"Add login retry"</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Persistent — flight mode</span></span>
+<span class="terminal-line"><span class="info">[workspace]</span></span>
+<span class="terminal-line"><span class="info">offline = </span><span class="arg">true</span></span>
+            </div>
+          </div>
+
+          <h3>Observability — execution IDs + JSONL export</h3>
+          <p>
+            Every command run gets a unique execution ID and per-step timing. <code>parsec log --export</code> emits one JSON object per line for tooling and AI agents to consume. Combined with <code>--json</code> on individual commands, parsec is fully introspectable.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec log --export</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec log</span> <span class="flag">--export</span> | <span class="command">jq</span> <span class="arg">'select(.duration_ms &gt; 1000)'</span></span>
+<span class="terminal-line"><span class="info">{</span></span>
+<span class="terminal-line"><span class="info">  "execution_id": "01HQ3D9V7Z2...",</span></span>
+<span class="terminal-line"><span class="info">  "op": "ship",</span></span>
+<span class="terminal-line"><span class="info">  "ticket": "PROJ-123",</span></span>
+<span class="terminal-line"><span class="info">  "steps": [</span></span>
+<span class="terminal-line"><span class="info">    {"name":"push","ms":820},</span></span>
+<span class="terminal-line"><span class="info">    {"name":"create_pr","ms":1305},</span></span>
+<span class="terminal-line"><span class="info">    {"name":"cleanup","ms":42}</span></span>
+<span class="terminal-line"><span class="info">  ],</span></span>
+<span class="terminal-line"><span class="info">  "duration_ms": 2167</span></span>
+<span class="terminal-line"><span class="info">}</span></span>
+            </div>
+          </div>
+
+          <h3>Config JSON Schema — editor autocomplete</h3>
+          <p>
+            The schema for <code>config.toml</code> is published to <a href="https://schemastore.org">schemastore.org</a>, so VS Code, IntelliJ, Helix, and any editor with schemastore integration auto-complete and validate every key. <code>parsec config schema</code> emits the schema for offline use.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">config schema</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec config schema</span> > parsec-schema.json</span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Pin schema in your config for editor support</span></span>
+<span class="terminal-line"><span class="info">#:schema https://json.schemastore.org/parsec.json</span></span>
+            </div>
+          </div>
+
+          <h3>Worktree build cache sharing — <code>[worktree].shared_cache</code></h3>
+          <p>
+            New worktrees can reuse <code>target/</code>, <code>node_modules/</code>, <code>.venv/</code>, etc. from the main repo via symlink (default) or recursive copy. Eliminates cold-build cost on <code>parsec start</code> for any project with significant dependency caches.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">[worktree] config</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="info">[worktree]</span></span>
+<span class="terminal-line"><span class="info">shared_cache = </span><span class="arg">["target", "node_modules", ".venv"]</span></span>
+<span class="terminal-line"><span class="comment"># "symlink" (default) — fast, zero-disk; parallel build of same artifact may race</span></span>
+<span class="terminal-line"><span class="comment"># "copy"             — independent caches per worktree, no race risk, more disk</span></span>
+<span class="terminal-line"><span class="info">cache_strategy = </span><span class="arg">"symlink"</span></span>
+            </div>
+          </div>
+
+          <h3>Draft-by-default — <code>ship.draft</code></h3>
+          <p>
+            Set <code>[ship].draft = true</code> in <code>config.toml</code> to open every PR as a draft, or pass <code>--draft</code> per ship. Useful for iterative WIP review flows where you want CI feedback before requesting human review.
+          </p>
         </section>
 
       </div>
