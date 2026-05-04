@@ -1758,269 +1758,110 @@
       </div>
 
       <div class="features-grid">
-        <!-- Feature 1: Ticket Integration (Featured) -->
+        <!-- 1. Ticket-driven worktrees -->
         <div class="feature-card featured reveal reveal-delay-1">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
           </div>
-          <h3>Ticket Tracker Integration</h3>
+          <h3>Ticket-driven worktrees</h3>
           <p>
-            Connect to Jira or GitHub Issues. When you <code>parsec start PROJ-123</code>, the ticket title is
-            fetched automatically, branches are named consistently, and PR/MR descriptions reference the original issue.
-            Manual <code>--title</code> fallback for offline or unsupported trackers.
+            <code>parsec start PROJ-123</code> creates an isolated worktree, fetches the title from your tracker (Jira · GitHub Issues · GitLab Issues · Bitbucket), and names the branch consistently. <code>parsec adopt</code> and <code>--branch</code> bring existing branches under management. Sibling layout (<code>../repo.ticket/</code>) keeps directories clean and IDE-friendly.
           </p>
-          <div class="feature-code">$ parsec start PROJ-123 &nbsp;&nbsp;<span style="color: var(--text-muted)"># auto-fetches title from Jira</span></div>
+          <div class="feature-code">$ parsec start PROJ-123 &nbsp;&nbsp;<span style="color: var(--text-muted)"># worktree + tracker fetch + branch in one call</span></div>
         </div>
 
-        <!-- Feature 2: Sibling Layout -->
-        <div class="feature-card reveal reveal-delay-2">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-          </div>
-          <h3>Sibling Worktree Layout</h3>
-          <p>
-            Worktrees placed adjacent to your repo as <code>../repo.ticket/</code>. Clean, predictable, and compatible with your IDE.
-          </p>
-        </div>
-
-        <!-- Feature 3: One-step Ship -->
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-          </div>
-          <h3>One-step Shipping</h3>
-          <p>
-            <code>parsec ship</code> pushes your branch, creates a GitHub PR or GitLab MR with the ticket context, and cleans up the worktree. One command, done.
-          </p>
-        </div>
-
-        <!-- Feature 4: Conflict Detection -->
-        <div class="feature-card reveal reveal-delay-1">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          </div>
-          <h3>Cross-worktree Conflict Detection</h3>
-          <p>
-            Detect when multiple worktrees modify the same files before you merge. Catch conflicts early, not at review time.
-          </p>
-        </div>
-
-        <!-- Feature 5: Shell Integration & Completions -->
-        <div class="feature-card reveal reveal-delay-2">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-          </div>
-          <h3>Shell Integration & Completions</h3>
-          <p>
-            Auto-cd with <code>parsec switch</code>, tab-completions for zsh/bash/fish/powershell, and a man page — all built in.
-          </p>
-        </div>
-
-        <!-- Feature 6: Sync -->
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-          </div>
-          <h3>Branch Sync</h3>
-          <p>
-            Keep worktrees fresh with <code>parsec sync</code> — rebase or merge the latest base branch into one or all worktrees at once.
-          </p>
-        </div>
-
-        <!-- Feature 7: JSON Output (Featured) -->
-        <div class="feature-card featured reveal reveal-delay-1">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M16 18l2-2v-4l2-2-2-2V4l-2-2"/><path d="M8 6L6 8v4l-2 2 2 2v4l2 2"/></svg>
-          </div>
-          <h3>JSON Output for AI Agents</h3>
-          <p>
-            Every command supports <code>--json</code> for machine-readable output. Build automation pipelines,
-            integrate with AI coding agents, or script complex workflows. parsec is built to be both
-            human-friendly and agent-friendly.
-          </p>
-          <div class="feature-code">$ parsec list --json | jq '.[] | select(.commits > 0)'</div>
-        </div>
-
-        <!-- Feature 8: Adopt -->
-        <div class="feature-card reveal reveal-delay-2">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
-          </div>
-          <h3>Adopt Existing Branches</h3>
-          <p>
-            Already have a branch in flight? <code>parsec adopt</code> imports it into parsec management so you get full lifecycle tracking without starting over.
-          </p>
-          <div class="feature-code">$ parsec adopt PROJ-99 --branch fix/payment-timeout</div>
-        </div>
-
-        <!-- Feature: Attach to Existing Branch -->
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
-          </div>
-          <h3>Attach to Existing Branch</h3>
-          <p>
-            Need to work on a branch that already exists? <code>parsec start --branch</code> creates a managed worktree from any local or remote branch. Fetches remote-only branches automatically.
-          </p>
-          <div class="feature-code">$ parsec start CL-2208 --branch feature/CL-2208</div>
-        </div>
-
-        <!-- Feature 9: Operation History -->
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <h3>Operation History</h3>
-          <p>
-            Every parsec action is logged. Use <code>parsec log</code> to review your full operation history, filter by ticket, or inspect the last N operations at a glance.
-          </p>
-          <div class="feature-code">$ parsec log --last 5 &nbsp;&nbsp;<span style="color: var(--text-muted)"># or: parsec log PROJ-1234</span></div>
-        </div>
-
-        <!-- Feature 10: Undo -->
-        <div class="feature-card reveal reveal-delay-1">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/></svg>
-          </div>
-          <h3>Undo Last Operation</h3>
-          <p>
-            Made a mistake? <code>parsec undo</code> reverts the most recent operation. Use <code>--dry-run</code> to preview exactly what will be rolled back before committing.
-          </p>
-          <div class="feature-code">$ parsec undo --dry-run</div>
-        </div>
-
-        <!-- Feature 11: Open in Browser -->
-        <div class="feature-card reveal reveal-delay-2">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          </div>
-          <h3>Open in Browser</h3>
-          <p>
-            <code>parsec open</code> launches the PR or ticket page in your browser. Works with GitHub, GitLab, and Jira.
-          </p>
-          <div class="feature-code">$ parsec open PROJ-1234</div>
-        </div>
-
-        <!-- Feature 12: PR Status -->
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          </div>
-          <h3>PR Status Dashboard</h3>
-          <p>
-            <code>parsec pr-status</code> shows CI checks, review approvals, and merge state for all shipped PRs in one color-coded table.
-          </p>
-          <div class="feature-code">$ parsec pr-status PROJ-1234</div>
-        </div>
-
-        <!-- Feature: Stacked PRs -->
-        <div class="feature-card featured reveal reveal-delay-1">
+        <!-- 2. Stacked PRs -->
+        <div class="feature-card featured reveal reveal-delay-2">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/></svg>
           </div>
-          <h3>Stacked PRs</h3>
+          <h3>Stacked PRs done right</h3>
           <p>
-            Create dependent PR chains with <code>--on</code>. <code>parsec stack</code> shows the dependency graph and <code>--sync</code> rebases the entire chain.
+            Chain workspaces with <code>parsec start CHILD --on PARENT</code>. <code>parsec stack --submit</code> opens every PR in the stack in topological order. Auto-posted <em>"← prev / next →"</em> navigation comments let reviewers walk the chain without leaving the PR view. <code>--sync</code> rebases the whole chain when the base moves.
           </p>
-          <div class="feature-code">$ parsec start PROJ-2 --on PROJ-1</div>
+          <div class="feature-code">$ parsec stack --submit &nbsp;&nbsp;<span style="color: var(--text-muted)"># root first, with nav comments</span></div>
         </div>
 
-        <!-- Feature 13: CI Dashboard -->
-        <div class="feature-card reveal reveal-delay-1">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <h3>CI Pipeline Dashboard</h3>
-          <p>
-            <code>parsec ci</code> shows individual check runs, durations, and overall status. Use <code>--watch</code> to poll until completion.
-          </p>
-          <div class="feature-code">$ parsec ci --watch</div>
-        </div>
-
-        <!-- Feature 14: Merge from Terminal -->
-        <div class="feature-card reveal reveal-delay-2">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/><path d="M9 18l6-6-6-6" transform="translate(6,0)"/></svg>
-          </div>
-          <h3>Merge from Terminal</h3>
-          <p>
-            <code>parsec merge</code> merges PRs directly from your terminal. Waits for CI to pass, supports squash and rebase, and cleans up automatically.
-          </p>
-          <div class="feature-code">$ parsec merge PROJ-1234</div>
-        </div>
-
-        <!-- Feature 15: Worktree Diff -->
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
-          </div>
-          <h3>Worktree Diff</h3>
-          <p>
-            <code>parsec diff</code> shows changes in any worktree compared to its base branch. Supports <code>--stat</code> and <code>--name-only</code> views.
-          </p>
-          <div class="feature-code">$ parsec diff --stat</div>
-        </div>
-
-        <!-- Feature: Bitbucket Cloud (v0.4) -->
-        <div class="feature-card featured reveal reveal-delay-1">
+        <!-- 3. Multi-forge -->
+        <div class="feature-card featured reveal reveal-delay-3">
           <div class="feature-icon">
             <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           </div>
-          <h3>Bitbucket Cloud + Pipelines</h3>
+          <h3>Multi-forge, multi-CI</h3>
           <p>
-            New in v0.4. Full PR lifecycle on Bitbucket Cloud — create, list, view, merge, comments — and Bitbucket Pipelines build status surfaced in <code>parsec ci</code> and <code>parsec pr-status</code> alongside GitHub Actions and GitLab CI.
+            Full PR lifecycle on <strong>GitHub</strong>, <strong>GitLab</strong>, and <strong>Bitbucket Cloud</strong>. CI status from <strong>Actions</strong>, <strong>GitLab CI</strong>, and <strong>Bitbucket Pipelines</strong> — all surfaced through the same <code>parsec ci</code> and <code>parsec pr-status</code> commands. Auto-detected from the remote URL.
           </p>
-          <div class="feature-code">$ parsec ship CL-2208 &nbsp;&nbsp;<span style="color: var(--text-muted)"># auto-detects Bitbucket remote</span></div>
+          <div class="feature-code">$ parsec ci --watch &nbsp;&nbsp;<span style="color: var(--text-muted)"># works the same on any forge</span></div>
         </div>
 
-        <!-- Feature: Compress (v0.4) -->
-        <div class="feature-card reveal reveal-delay-2">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-          </div>
-          <h3>Compress Branch History</h3>
-          <p>
-            New in v0.4. <code>parsec compress</code> squashes a branch's commits into one tidy commit before shipping, preserving co-author trailers. Optional <code>--message</code> for a custom commit subject.
-          </p>
-          <div class="feature-code">$ parsec compress -m "feat: add user authentication"</div>
-        </div>
-
-        <!-- Feature: Offline (v0.4) -->
-        <div class="feature-card reveal reveal-delay-3">
-          <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0119 12.55"/><path d="M5 12.55a10.94 10.94 0 015.17-2.39"/><path d="M10.71 5.05A16 16 0 0122.58 9"/><path d="M1.42 9a15.91 15.91 0 014.7-2.88"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
-          </div>
-          <h3>Offline Mode</h3>
-          <p>
-            New in v0.4. Global <code>--offline</code> flag (and <code>[workspace].offline</code> config) skips all network operations — tracker lookups, PR creation, fetches — so parsec keeps working on a plane, in CI without secrets, or in air-gapped environments.
-          </p>
-          <div class="feature-code">$ parsec start CL-2208 --offline --title "Add login retry"</div>
-        </div>
-
-        <!-- Feature: Observability JSONL (v0.4) -->
+        <!-- 4. One-step ship + lifecycle -->
         <div class="feature-card featured reveal reveal-delay-1">
           <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </div>
-          <h3>Observability — Execution IDs + JSONL</h3>
+          <h3>One-step ship + lifecycle</h3>
           <p>
-            New in v0.4. Every command run gets an execution ID and per-step timing. <code>parsec log --export</code> emits JSONL — one line per run with <code>execution_id</code>, <code>op</code>, <code>ticket</code>, <code>steps</code>, and <code>duration_ms</code> — for tooling and AI agents to consume.
+            <code>parsec ship</code> pushes, opens the PR, and removes the worktree. <code>parsec merge</code> waits for CI, merges, and cleans up. <code>parsec clean</code> sweeps already-merged branches. <code>parsec conflicts</code> flags cross-worktree file overlap before push. <code>parsec undo</code> reverses the last operation. Every mutating command supports <code>--dry-run</code>.
+          </p>
+          <div class="feature-code">$ parsec ship PROJ-1234 &nbsp;&nbsp;<span style="color: var(--text-muted)"># push + PR + cleanup, one command</span></div>
+        </div>
+
+        <!-- 5. Agent-friendly -->
+        <div class="feature-card featured reveal reveal-delay-2">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24"><path d="M16 18l2-2v-4l2-2-2-2V4l-2-2"/><path d="M8 6L6 8v4l-2 2 2 2v4l2 2"/></svg>
+          </div>
+          <h3>Built for agents</h3>
+          <p>
+            <code>--json</code> on every command. Structured error codes (E001–E013) for programmatic handling. <code>parsec log --export</code> emits JSONL with execution IDs and per-step timing. <code>--offline</code> and headless modes for CI / air-gapped environments. The config JSON Schema is published to <a href="https://schemastore.org">schemastore.org</a> for editor autocomplete.
           </p>
           <div class="feature-code">$ parsec log --export | jq 'select(.duration_ms > 1000)'</div>
         </div>
 
-        <!-- Feature: Config JSON Schema (v0.4) -->
-        <div class="feature-card reveal reveal-delay-2">
+        <!-- 6. Build cache + ergonomics -->
+        <div class="feature-card featured reveal reveal-delay-3">
           <div class="feature-icon">
-            <svg viewBox="0 0 24 24"><polyline points="14 2 14 8 20 8"/><path d="M20 13v7a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2h8z"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
           </div>
-          <h3>Config JSON Schema</h3>
+          <h3>Build cache + ergonomics</h3>
           <p>
-            New in v0.4. The <code>config.toml</code> JSON Schema is published to <a href="https://schemastore.org">schemastore.org</a> so VS Code, IntelliJ, and Helix auto-complete and validate every key. <code>parsec config schema</code> emits the schema for offline use.
+            <code>[worktree].shared_cache</code> shares <code>target/</code>, <code>node_modules/</code>, <code>.venv/</code> from the main repo to new worktrees via symlink (default) or copy — eliminates cold-build cost on <code>parsec start</code>. Shell integration auto-cd's, tab completions ship for zsh / bash / fish / powershell, <code>parsec doctor</code> validates your setup.
           </p>
-          <div class="feature-code">$ parsec config schema > parsec-schema.json</div>
+          <div class="feature-code">shared_cache = ["target", "node_modules", ".venv"]</div>
         </div>
       </div>
+
+      <!-- More features (collapsed) -->
+      <details class="more-features reveal" style="margin-top: 48px; padding: 24px 28px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px;">
+        <summary style="cursor: pointer; font-weight: 600; font-size: 16px; color: var(--text-primary); list-style: none;">
+          <span style="display: inline-flex; align-items: center; gap: 8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="transition: transform .2s;"><polyline points="9 18 15 12 9 6"/></svg>
+            More features
+            <span style="color: var(--text-muted); font-weight: 400;">— 16 additional capabilities</span>
+          </span>
+        </summary>
+        <div style="margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px 32px; color: var(--text-secondary); font-size: 14px; line-height: 1.7;">
+          <div><strong>Branch sync</strong> — <code>parsec sync</code> rebases or merges the latest base branch into one or all worktrees.</div>
+          <div><strong>Operation history</strong> — <code>parsec log</code> shows every action with timestamps; filter by ticket or last N.</div>
+          <div><strong>Undo</strong> — <code>parsec undo</code> reverses the last start / ship / clean. Use <code>--dry-run</code> to preview.</div>
+          <div><strong>Open in browser</strong> — <code>parsec open</code> launches the PR or ticket page (GitHub / GitLab / Jira / Bitbucket).</div>
+          <div><strong>Worktree diff</strong> — <code>parsec diff</code> compares any worktree to its base branch (<code>--stat</code>, <code>--name-only</code>).</div>
+          <div><strong>Compress branch</strong> — <code>parsec compress</code> squashes commits into one tidy commit before shipping.</div>
+          <div><strong>PR template auto-fill</strong> — <code>ship --template</code> reads <code>.github/PULL_REQUEST_TEMPLATE.md</code>.</div>
+          <div><strong>Reviewers + labels</strong> — <code>ship --reviewer</code> / <code>--label</code> at PR creation time, or set defaults in config.</div>
+          <div><strong>Draft-by-default</strong> — <code>[ship].draft = true</code> opens every PR as a draft for WIP review.</div>
+          <div><strong>Pre-ship hooks</strong> — run <code>cargo test</code>, <code>npm run lint</code>, etc. before <code>ship</code> via <code>[hooks].pre_ship</code>.</div>
+          <div><strong>Sprint board</strong> — <code>parsec board</code> renders the active Jira sprint as a Kanban board in the terminal.</div>
+          <div><strong>Issue creation</strong> — <code>parsec create</code> / <code>new-issue</code> opens tickets in your tracker; <code>--start</code> immediately creates a worktree.</div>
+          <div><strong>Release workflow</strong> — <code>parsec release</code> merges develop → main, tags, and creates a GitHub Release.</div>
+          <div><strong>Policy guard</strong> — <code>[policy]</code> blocks ships to protected branches and restricts allowed targets.</div>
+          <div><strong>Headless mode</strong> — <code>--yes</code> and TTY auto-detection skip prompts in CI / agent environments.</div>
+          <div><strong>Cross-platform</strong> — Linux / macOS / Windows. Windows UNC path handling via the <code>dunce</code> crate.</div>
+        </div>
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 14px; color: var(--text-muted);">
+          See the <a href="/git-parsec/reference/" style="color: var(--accent);">full command reference</a> for every flag and example, or read the <a href="/git-parsec/guide/" style="color: var(--accent);">getting started guide</a>.
+        </div>
+      </details>
     </div>
   </section>
 
