@@ -77,6 +77,9 @@ pub fn gitlab_token() -> Option<String> {
 
 pub const PARSEC_BITBUCKET_TOKEN: &str = "PARSEC_BITBUCKET_TOKEN";
 pub const BITBUCKET_TOKEN: &str = "BITBUCKET_TOKEN";
+/// Override Bitbucket Cloud API base URL. Useful for tests (mock servers) and
+/// future Bitbucket Server / Data Center support.
+pub const PARSEC_BITBUCKET_API_BASE: &str = "PARSEC_BITBUCKET_API_BASE";
 
 /// Resolve Bitbucket token. Priority: PARSEC_BITBUCKET_TOKEN > BITBUCKET_TOKEN
 pub fn bitbucket_token() -> Option<String> {
@@ -88,6 +91,14 @@ pub fn bitbucket_token() -> Option<String> {
         }
     }
     None
+}
+
+/// Bitbucket API base URL override (no trailing slash). Returns None when unset.
+pub fn bitbucket_api_base() -> Option<String> {
+    std::env::var(PARSEC_BITBUCKET_API_BASE)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|v| v.trim_end_matches('/').to_string())
 }
 
 // ---------------------------------------------------------------------------
