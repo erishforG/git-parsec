@@ -3,36 +3,52 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>git-parsec — Full-lifecycle worktree management</title>
-  <meta name="description" content="From ticket to PR in one command. git-parsec manages the full lifecycle of git worktrees tied to issue tickets with Jira and GitHub Issues integration.">
-  <meta name="keywords" content="git, worktree, CLI, Rust, Jira, GitHub Issues, GitLab, parallel development, AI agents, developer tools, git-parsec, parsec">
+  <title>git-parsec — From ticket to PR. One command. | Git worktree lifecycle manager</title>
+  <meta name="description" content="From ticket to PR in one command. git-parsec manages git worktree lifecycles with Jira, GitHub Issues, GitLab, and Bitbucket integration. Stacked PRs, multi-forge, observability JSONL.">
+  <meta name="keywords" content="git, worktree, CLI, Rust, Jira, GitHub, GitLab, Bitbucket, stacked PR, parallel development, AI agents, developer tools, git-parsec, parsec, ticket to PR, AI coding agent">
   <meta name="author" content="erishforG">
+  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://erishforg.github.io/git-parsec/">
-  <meta property="og:title" content="git-parsec — From ticket to PR in one command">
-  <meta property="og:description" content="Full-lifecycle git worktree manager with Jira & GitHub Issues integration. Create isolated workspaces, detect conflicts, ship with one command.">
+  <meta property="og:title" content="git-parsec — From ticket to PR. One command.">
+  <meta property="og:description" content="Git worktree lifecycle manager with Jira, GitHub, GitLab & Bitbucket integration. Stacked PRs, multi-forge CI, observability JSONL — built for parallel developers and AI coding agents.">
   <meta property="og:site_name" content="git-parsec">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="https://erishforg.github.io/git-parsec/demo.gif">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="git-parsec terminal demo — parsec start, list, ship">
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="git-parsec — From ticket to PR in one command">
-  <meta name="twitter:description" content="Full-lifecycle git worktree manager with Jira & GitHub Issues integration. Create isolated workspaces, detect conflicts, ship with one command.">
+  <meta name="twitter:title" content="git-parsec — From ticket to PR. One command.">
+  <meta name="twitter:description" content="Git worktree lifecycle manager with Jira, GitHub, GitLab & Bitbucket. Stacked PRs, multi-forge CI, observability JSONL.">
+  <meta name="twitter:image" content="https://erishforg.github.io/git-parsec/demo.gif">
+  <meta name="twitter:image:alt" content="git-parsec terminal demo">
   <!-- Canonical -->
   <link rel="canonical" href="https://erishforg.github.io/git-parsec/">
   <meta name="theme-color" content="#0a0e1a">
+  <!-- AEO: emerging llms.txt standard for LLM crawlers -->
+  <link rel="alternate" type="text/plain" href="/git-parsec/llms.txt" title="LLM-friendly summary">
+  <link rel="alternate" type="text/plain" href="/git-parsec/llms-full.txt" title="LLM-friendly full text">
   <!-- Schema.org Structured Data -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "git-parsec",
-    "alternateName": "parsec",
+    "alternateName": ["parsec", "git parsec"],
     "applicationCategory": "DeveloperApplication",
+    "applicationSubCategory": "VersionControlSystem",
     "operatingSystem": "macOS, Linux, Windows",
-    "description": "Git worktree lifecycle manager for parallel AI agent workflows. Create isolated workspaces from ticket IDs (Jira, GitHub Issues, GitLab), work in parallel without lock conflicts, ship with one command (push + PR + cleanup). Supports CI monitoring, stacked PRs, conflict detection, and operation history with undo.",
+    "description": "Git worktree lifecycle manager. Create isolated workspaces from ticket IDs (Jira, GitHub Issues, GitLab, Bitbucket), work in parallel without index.lock conflicts, ship with one command (push + PR + cleanup). Multi-forge support (GitHub, GitLab, Bitbucket Cloud), stacked PRs with auto-posted navigation comments, multi-CI status (Actions, GitLab CI, Bitbucket Pipelines), observability via JSONL, headless and offline modes for CI and AI agents.",
     "url": "https://erishforg.github.io/git-parsec/",
     "downloadUrl": "https://github.com/erishforG/git-parsec/releases",
-    "softwareVersion": "0.3.3",
+    "softwareVersion": "0.4.0",
+    "datePublished": "2026-05-04",
+    "softwareRequirements": "git >= 2.30, Rust toolchain (cargo install) or pre-built binary",
+    "releaseNotes": "https://github.com/erishforG/git-parsec/blob/main/CHANGELOG.md",
+    "screenshot": "https://erishforg.github.io/git-parsec/demo.gif",
     "author": {
       "@type": "Person",
       "name": "erishforG",
@@ -41,12 +57,66 @@
     "codeRepository": "https://github.com/erishforG/git-parsec",
     "programmingLanguage": "Rust",
     "license": "https://opensource.org/licenses/MIT",
-    "keywords": ["git", "worktree", "CLI", "Jira", "GitHub Issues", "GitLab", "parallel development", "AI agents", "developer tools", "pull request", "CI/CD", "stacked PRs", "git worktree manager"],
+    "keywords": ["git", "worktree", "CLI", "Jira", "GitHub Issues", "GitLab", "Bitbucket", "Bitbucket Cloud", "Bitbucket Pipelines", "parallel development", "AI agents", "AI coding agent", "developer tools", "pull request", "CI/CD", "stacked PRs", "git worktree manager", "ticket to PR", "observability", "JSONL"],
     "offers": {
       "@type": "Offer",
       "price": "0",
       "priceCurrency": "USD"
     }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    "name": "Ship a feature with git-parsec — from ticket to merged PR",
+    "description": "End-to-end flow for taking a tracker ticket (Jira, GitHub Issues, GitLab, Bitbucket) all the way to a merged PR using git-parsec.",
+    "totalTime": "PT60S",
+    "tool": [
+      { "@type": "HowToTool", "name": "git-parsec CLI" },
+      { "@type": "HowToTool", "name": "git" }
+    ],
+    "step": [
+      {
+        "@type": "HowToStep",
+        "position": 1,
+        "name": "Start a workspace from a ticket",
+        "text": "Run `parsec start PROJ-1234`. parsec creates an isolated git worktree, fetches the ticket title from Jira/GitHub Issues/GitLab/Bitbucket, and names the branch consistently."
+      },
+      {
+        "@type": "HowToStep",
+        "position": 2,
+        "name": "Switch into the workspace",
+        "text": "Run `parsec switch PROJ-1234` (with shell integration installed, this auto-cd's into the worktree directory)."
+      },
+      {
+        "@type": "HowToStep",
+        "position": 3,
+        "name": "Make commits the normal way",
+        "text": "Use git as usual. Multiple workspaces never collide on .git/index.lock because each worktree has its own index."
+      },
+      {
+        "@type": "HowToStep",
+        "position": 4,
+        "name": "Ship — push, open PR, clean up",
+        "text": "Run `parsec ship PROJ-1234`. parsec pushes the branch, opens a PR or MR on the matching forge, and removes the worktree."
+      },
+      {
+        "@type": "HowToStep",
+        "position": 5,
+        "name": "Watch CI and merge",
+        "text": "Run `parsec ci PROJ-1234 --watch` to tail CI status, then `parsec merge PROJ-1234` to merge from the terminal once green."
+      }
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://erishforg.github.io/git-parsec/" }
+    ]
   }
   </script>
   <script type="application/ld+json">
@@ -132,6 +202,62 @@
         "acceptedAnswer": {
           "@type": "Answer",
           "text": "When using --json mode, parsec returns structured error codes (E001 through E013) with specific exit codes for programmatic handling. For example, E001 means no token configured (exit 2), E002 means CI failing (exit 4), E003 means conflicts detected (exit 3). This enables AI agents and scripts to handle errors precisely."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does parsec support Bitbucket Cloud?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, since v0.4. parsec speaks Bitbucket Cloud's API for the full PR lifecycle (create, list, view, merge, comments). CI status from Bitbucket Pipelines is surfaced through `parsec ci` and `parsec pr-status`, exactly the same shape as GitHub Actions and GitLab CI. Authenticate via PARSEC_BITBUCKET_TOKEN or BITBUCKET_TOKEN env var; configure tracker.bitbucket in config.toml with your workspace name."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I run parsec offline (without network access)?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Use the global --offline flag, set PARSEC_OFFLINE=1, or set [workspace].offline = true in ~/.config/parsec/config.toml. Offline mode skips all network operations: tracker title lookups, PR/MR creation, and remote fetches. Per-command flags --no-pr and --no-tracker offer finer control. Useful for air-gapped environments, CI without secrets, and flight-mode development."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I export parsec's operation log for tooling or AI agents?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Run `parsec log --export` to emit JSONL — one JSON object per line. Each entry contains an execution_id, op (start/ship/clean/etc.), ticket, steps array with per-step name and ms duration, started_at timestamp, and total duration_ms. Pipe through jq to filter (e.g., `parsec log --export | jq 'select(.duration_ms > 1000)'`) or ingest directly in observability pipelines."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I squash my branch commits before shipping?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Run `parsec compress` (added in v0.4) to squash all commits on the current branch into one tidy commit. Co-author trailers from squashed commits are preserved automatically. Pass `--message` for a custom commit message, otherwise messages are concatenated. Common pattern: `parsec compress && parsec ship`."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I get editor autocomplete for parsec's config.toml?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "parsec's config schema is published to schemastore.org as parsec.json. Editors with schemastore integration (VS Code, IntelliJ, Helix) automatically validate and autocomplete ~/.config/parsec/config.toml and per-repo .parsec.toml. To pin the schema explicitly, add `#:schema https://json.schemastore.org/parsec.json` at the top of your config. Run `parsec config schema` to emit the schema for offline use."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What forges and CI systems does parsec support?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Forges: GitHub (github.com and GitHub Enterprise), GitLab (gitlab.com and self-hosted), and Bitbucket Cloud — with full PR lifecycle (create, list, view, merge, comments) on each. CI integrations: GitHub Actions, GitLab CI, and Bitbucket Pipelines. parsec ci and parsec pr-status work the same shape on every forge — auto-detected from the git remote URL."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does parsec speed up cold starts on large repos?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. The [worktree].shared_cache config lets new worktrees reuse target/, node_modules/, .venv/, etc. from the main repo via symlink (default, zero-disk overhead) or recursive copy (independent caches per worktree). Eliminates cold-build cost on `parsec start` for any project with significant dependency caches."
         }
       }
     ]

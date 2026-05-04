@@ -3,16 +3,64 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Guide — git-parsec</title>
-  <meta name="description" content="Getting started guide for git-parsec. Installation, shell integration, quick start workflow, tracker configuration, and AI agent workflows.">
-  <meta name="keywords" content="git-parsec, parsec, guide, getting started, installation, shell integration, Jira, AI agents">
+  <title>Getting Started Guide — git-parsec | Install, configure, ship in 5 minutes</title>
+  <meta name="description" content="Install git-parsec in 30 seconds, configure Jira / GitHub / GitLab / Bitbucket in 2 minutes, and ship your first PR in 5. Step-by-step recipes for stacked PRs, offline mode, observability, and build cache sharing.">
+  <meta name="keywords" content="git-parsec, parsec, guide, getting started, installation, shell integration, Jira, GitHub Issues, GitLab, Bitbucket, stacked PRs, AI agents, offline mode, observability">
   <meta name="author" content="erishforG">
-  <meta property="og:type" content="website">
+  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+  <meta property="og:type" content="article">
   <meta property="og:url" content="https://erishforg.github.io/git-parsec/guide/">
-  <meta property="og:title" content="Guide — git-parsec">
-  <meta property="og:description" content="Getting started guide for git-parsec CLI.">
+  <meta property="og:title" content="Getting Started Guide — git-parsec">
+  <meta property="og:description" content="Install, configure, and ship your first PR with git-parsec. Recipes for stacked PRs, Bitbucket, offline mode, observability, and build cache.">
+  <meta property="og:site_name" content="git-parsec">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="https://erishforg.github.io/git-parsec/demo.gif">
+  <meta property="og:image:alt" content="git-parsec terminal demo">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Getting Started Guide — git-parsec">
+  <meta name="twitter:description" content="Install, configure, and ship your first PR with git-parsec.">
+  <meta name="twitter:image" content="https://erishforg.github.io/git-parsec/demo.gif">
   <meta name="theme-color" content="#0a0e1a">
   <link rel="canonical" href="https://erishforg.github.io/git-parsec/guide/">
+  <link rel="alternate" type="text/plain" href="/git-parsec/llms.txt" title="LLM-friendly summary">
+  <link rel="alternate" type="text/plain" href="/git-parsec/llms-full.txt" title="LLM-friendly full text">
+  <!-- Schema.org Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Getting Started with git-parsec",
+    "description": "Install git-parsec, configure your tracker (Jira / GitHub Issues / GitLab / Bitbucket), and ship your first PR in five minutes. Includes recipes for stacked PRs, Bitbucket Cloud setup, offline mode, observability JSONL, config schema autocomplete, and worktree build cache.",
+    "url": "https://erishforg.github.io/git-parsec/guide/",
+    "image": "https://erishforg.github.io/git-parsec/demo.gif",
+    "author": { "@type": "Person", "name": "erishforG", "url": "https://github.com/erishforG" },
+    "publisher": { "@type": "Person", "name": "erishforG" },
+    "datePublished": "2026-04-22",
+    "dateModified": "2026-05-04",
+    "inLanguage": "en",
+    "isPartOf": {
+      "@type": "WebSite",
+      "name": "git-parsec",
+      "url": "https://erishforg.github.io/git-parsec/"
+    },
+    "about": {
+      "@type": "SoftwareApplication",
+      "name": "git-parsec",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS, Linux, Windows"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://erishforg.github.io/git-parsec/" },
+      { "@type": "ListItem", "position": 2, "name": "Guide", "item": "https://erishforg.github.io/git-parsec/guide/" }
+    ]
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1019,33 +1067,6 @@
     }
     .version-banner a:hover { color: var(--accent-cyan); }
   </style>
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="git-parsec Guide — Installation and Quick Start">
-  <meta name="twitter:description" content="Get started with git-parsec: installation, configuration, and your first ticket-to-PR workflow.">
-  <script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  "itemListElement": [
-    {"@type": "ListItem", "position": 1, "name": "git-parsec", "item": "https://erishforg.github.io/git-parsec/"},
-    {"@type": "ListItem", "position": 2, "name": "Guide", "item": "https://erishforg.github.io/git-parsec/guide/"}
-  ]
-}
-</script>
-  <script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "HowTo",
-  "name": "How to install and use git-parsec",
-  "description": "Install git-parsec and create your first ticket-driven worktree in under 2 minutes.",
-  "step": [
-    {"@type": "HowToStep", "name": "Install parsec", "text": "Run cargo install git-parsec, or download a pre-built binary from GitHub Releases."},
-    {"@type": "HowToStep", "name": "Configure your tracker", "text": "Run parsec config init to set up Jira, GitHub Issues, or GitLab integration."},
-    {"@type": "HowToStep", "name": "Start a workspace", "text": "Run parsec start TICKET-ID to create an isolated worktree for your ticket."},
-    {"@type": "HowToStep", "name": "Ship your work", "text": "Run parsec ship TICKET-ID to push, create a PR, and clean up in one step."}
-  ]
-}
-</script>
 </head>
 <body>
 
