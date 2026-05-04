@@ -1,0 +1,1987 @@
+<!DOCTYPE html>
+<html lang="en" data-doc-version="0.4.0">
+<head>
+  <meta charset="UTF-8">
+  <meta name="robots" content="noindex, follow">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Started Guide — git-parsec | Install, configure, ship in 5 minutes</title>
+  <meta name="description" content="Install git-parsec in 30 seconds, configure Jira / GitHub / GitLab / Bitbucket in 2 minutes, and ship your first PR in 5. Step-by-step recipes for stacked PRs, offline mode, observability, and build cache sharing.">
+  <meta name="keywords" content="git-parsec, parsec, guide, getting started, installation, shell integration, Jira, GitHub Issues, GitLab, Bitbucket, stacked PRs, AI agents, offline mode, observability">
+  <meta name="author" content="erishforG">
+  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://erishforg.github.io/git-parsec/guide/">
+  <meta property="og:title" content="Getting Started Guide — git-parsec">
+  <meta property="og:description" content="Install, configure, and ship your first PR with git-parsec. Recipes for stacked PRs, Bitbucket, offline mode, observability, and build cache.">
+  <meta property="og:site_name" content="git-parsec">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="https://erishforg.github.io/git-parsec/demo.gif">
+  <meta property="og:image:alt" content="git-parsec terminal demo">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Getting Started Guide — git-parsec">
+  <meta name="twitter:description" content="Install, configure, and ship your first PR with git-parsec.">
+  <meta name="twitter:image" content="https://erishforg.github.io/git-parsec/demo.gif">
+  <meta name="theme-color" content="#0a0e1a">
+  <link rel="canonical" href="https://erishforg.github.io/git-parsec/guide/">
+  <link rel="alternate" type="text/plain" href="/git-parsec/llms.txt" title="LLM-friendly summary">
+  <link rel="alternate" type="text/plain" href="/git-parsec/llms-full.txt" title="LLM-friendly full text">
+  <!-- Schema.org Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Getting Started with git-parsec",
+    "description": "Install git-parsec, configure your tracker (Jira / GitHub Issues / GitLab / Bitbucket), and ship your first PR in five minutes. Includes recipes for stacked PRs, Bitbucket Cloud setup, offline mode, observability JSONL, config schema autocomplete, and worktree build cache.",
+    "url": "https://erishforg.github.io/git-parsec/guide/",
+    "image": "https://erishforg.github.io/git-parsec/demo.gif",
+    "author": { "@type": "Person", "name": "erishforG", "url": "https://github.com/erishforG" },
+    "publisher": { "@type": "Person", "name": "erishforG" },
+    "datePublished": "2026-04-22",
+    "dateModified": "2026-05-04",
+    "inLanguage": "en",
+    "isPartOf": {
+      "@type": "WebSite",
+      "name": "git-parsec",
+      "url": "https://erishforg.github.io/git-parsec/"
+    },
+    "about": {
+      "@type": "SoftwareApplication",
+      "name": "git-parsec",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS, Linux, Windows"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://erishforg.github.io/git-parsec/" },
+      { "@type": "ListItem", "position": 2, "name": "Guide", "item": "https://erishforg.github.io/git-parsec/guide/" }
+    ]
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* ================================================
+       RESET & BASE
+       ================================================ */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-deep: #060a14;
+      --bg-base: #0a0e1a;
+      --bg-raised: #0f1424;
+      --bg-card: #111828;
+      --bg-card-hover: #151d30;
+
+      --accent-cyan: #4FC3F7;
+      --accent-blue: #2196F3;
+      --accent-teal: #26C6DA;
+      --accent-electric: #40E0D0;
+      --accent-purple: #7C4DFF;
+      --accent-glow: rgba(79, 195, 247, 0.15);
+      --accent-glow-strong: rgba(79, 195, 247, 0.3);
+
+      --text-primary: #e8edf5;
+      --text-secondary: #8892a4;
+      --text-muted: #5a6577;
+      --text-code: #b4c7e7;
+
+      --border-subtle: rgba(79, 195, 247, 0.08);
+      --border-accent: rgba(79, 195, 247, 0.2);
+
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+
+      --font-display: 'Outfit', sans-serif;
+      --font-body: 'Source Sans 3', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+
+      --sidebar-width: 260px;
+      --nav-height: 65px;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ================================================
+       STARFIELD BACKGROUND
+       ================================================ */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background:
+        radial-gradient(1.5px 1.5px at 20% 30%, rgba(79, 195, 247, 0.4) 50%, transparent 50%),
+        radial-gradient(1px 1px at 40% 70%, rgba(255, 255, 255, 0.3) 50%, transparent 50%),
+        radial-gradient(1.2px 1.2px at 60% 20%, rgba(38, 198, 218, 0.35) 50%, transparent 50%),
+        radial-gradient(1px 1px at 80% 50%, rgba(255, 255, 255, 0.25) 50%, transparent 50%),
+        radial-gradient(1.3px 1.3px at 10% 80%, rgba(79, 195, 247, 0.3) 50%, transparent 50%),
+        radial-gradient(0.8px 0.8px at 70% 85%, rgba(255, 255, 255, 0.2) 50%, transparent 50%),
+        radial-gradient(1px 1px at 90% 15%, rgba(64, 224, 208, 0.3) 50%, transparent 50%),
+        radial-gradient(1.1px 1.1px at 35% 45%, rgba(255, 255, 255, 0.15) 50%, transparent 50%),
+        radial-gradient(0.9px 0.9px at 55% 65%, rgba(79, 195, 247, 0.2) 50%, transparent 50%),
+        radial-gradient(1px 1px at 85% 35%, rgba(255, 255, 255, 0.2) 50%, transparent 50%),
+        radial-gradient(1.4px 1.4px at 15% 55%, rgba(38, 198, 218, 0.25) 50%, transparent 50%),
+        radial-gradient(0.7px 0.7px at 45% 90%, rgba(255, 255, 255, 0.15) 50%, transparent 50%),
+        radial-gradient(1px 1px at 75% 10%, rgba(79, 195, 247, 0.25) 50%, transparent 50%),
+        radial-gradient(0.9px 0.9px at 25% 75%, rgba(255, 255, 255, 0.18) 50%, transparent 50%),
+        radial-gradient(1.2px 1.2px at 95% 60%, rgba(64, 224, 208, 0.2) 50%, transparent 50%),
+        radial-gradient(0.8px 0.8px at 5% 40%, rgba(255, 255, 255, 0.12) 50%, transparent 50%),
+        radial-gradient(1px 1px at 50% 5%, rgba(79, 195, 247, 0.3) 50%, transparent 50%),
+        radial-gradient(1.1px 1.1px at 65% 50%, rgba(255, 255, 255, 0.1) 50%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+      animation: starDrift 120s linear infinite;
+    }
+
+    @keyframes starDrift {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-30px); }
+    }
+
+    /* ================================================
+       NAV
+       ================================================ */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 16px 0;
+      background: rgba(6, 10, 20, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border-subtle);
+      height: var(--nav-height);
+    }
+
+    .nav-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text-primary);
+    }
+
+    .nav-brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-teal));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--bg-deep);
+      font-family: var(--font-mono);
+    }
+
+    .nav-brand span {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--accent-cyan); }
+    .nav-links a.active { color: var(--accent-cyan); }
+
+    .nav-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 20px;
+      background: transparent;
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-sm);
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.25s;
+    }
+
+    .nav-cta:hover {
+      background: var(--accent-glow);
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 20px rgba(79, 195, 247, 0.15);
+    }
+
+    .nav-cta svg { width: 16px; height: 16px; }
+
+    /* ================================================
+       DOCS LAYOUT
+       ================================================ */
+    .docs-layout {
+      display: flex;
+      min-height: 100vh;
+      padding-top: var(--nav-height);
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ================================================
+       SIDEBAR
+       ================================================ */
+    .sidebar {
+      width: var(--sidebar-width);
+      flex-shrink: 0;
+      position: fixed;
+      top: var(--nav-height);
+      left: 0;
+      bottom: 0;
+      overflow-y: auto;
+      background: var(--bg-card);
+      border-right: 1px solid var(--border-subtle);
+      padding: 32px 0 48px;
+      z-index: 10;
+    }
+
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-track { background: transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--bg-raised); border-radius: 2px; }
+
+    .sidebar-header {
+      padding: 0 20px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 16px;
+    }
+
+    .sidebar-title {
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+    }
+
+    .sidebar-section { margin-bottom: 8px; }
+
+    .sidebar-category {
+      padding: 8px 20px 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-top: 16px;
+    }
+
+    .sidebar-nav { list-style: none; }
+
+    .sidebar-nav li a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 20px;
+      font-family: var(--font-body);
+      font-size: 14px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: all 0.15s;
+      border-left: 2px solid transparent;
+    }
+
+    .sidebar-nav li a:hover {
+      color: var(--text-primary);
+      background: rgba(79, 195, 247, 0.04);
+      border-left-color: var(--border-accent);
+    }
+
+    .sidebar-nav li a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-glow);
+      border-left-color: var(--accent-cyan);
+    }
+
+    /* Also link to reference page */
+    .sidebar-also {
+      margin-top: 32px;
+      padding: 16px 20px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .sidebar-also-label {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .sidebar-also a {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--accent-cyan);
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+
+    .sidebar-also a:hover { opacity: 0.8; }
+
+    /* ================================================
+       MAIN CONTENT
+       ================================================ */
+    .docs-main {
+      flex: 1;
+      margin-left: var(--sidebar-width);
+      min-width: 0;
+    }
+
+    .docs-content {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 56px 48px 120px;
+    }
+
+    /* Page header */
+    .page-header {
+      margin-bottom: 64px;
+      padding-bottom: 40px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .page-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent-cyan);
+      margin-bottom: 16px;
+    }
+
+    .page-label::before {
+      content: '';
+      width: 20px;
+      height: 1px;
+      background: var(--accent-cyan);
+    }
+
+    .page-title {
+      font-family: var(--font-display);
+      font-size: clamp(32px, 4vw, 48px);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+
+    .page-title .gradient-text {
+      background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-teal) 40%, var(--accent-electric) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .page-desc {
+      font-size: 17px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      max-width: 600px;
+    }
+
+    /* ================================================
+       GUIDE SECTIONS
+       ================================================ */
+    .guide-section {
+      margin-bottom: 80px;
+      scroll-margin-top: calc(var(--nav-height) + 24px);
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .section-heading h2 {
+      font-family: var(--font-display);
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: var(--text-primary);
+    }
+
+    .section-anchor {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 18px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .section-heading:hover .section-anchor { opacity: 1; }
+
+    .guide-section p {
+      font-size: 16px;
+      color: var(--text-secondary);
+      line-height: 1.75;
+      margin-bottom: 20px;
+    }
+
+    .guide-section h3 {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin: 32px 0 12px;
+      letter-spacing: -0.01em;
+    }
+
+    /* inline code */
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+      color: var(--text-code);
+      background: rgba(79, 195, 247, 0.07);
+      border: 1px solid rgba(79, 195, 247, 0.12);
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+
+    /* Terminal blocks */
+    .terminal-wrap {
+      margin: 20px 0;
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow:
+        0 4px 6px rgba(0, 0, 0, 0.3),
+        0 12px 32px rgba(0, 0, 0, 0.35),
+        0 0 0 1px rgba(79, 195, 247, 0.04);
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--bg-raised);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .terminal-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot:nth-child(1) { background: #ff5f57; }
+    .terminal-dot:nth-child(2) { background: #febc2e; }
+    .terminal-dot:nth-child(3) { background: #28c840; }
+
+    .terminal-title-label {
+      flex: 1;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-right: 30px;
+    }
+
+    .terminal-body {
+      padding: 20px 24px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.8;
+      overflow-x: auto;
+    }
+
+    .terminal-body .comment { color: var(--text-muted); }
+    .terminal-body .prompt { color: var(--accent-cyan); }
+    .terminal-body .command { color: var(--text-primary); }
+    .terminal-body .flag { color: var(--accent-purple); }
+    .terminal-body .success { color: #28c840; }
+    .terminal-body .info { color: var(--text-secondary); }
+    .terminal-body .link { color: var(--accent-teal); }
+    .terminal-body .arg { color: #ffb74d; }
+    .terminal-body .output { color: var(--text-secondary); }
+
+    .terminal-line {
+      display: block;
+      white-space: pre;
+    }
+
+    /* Callout boxes */
+    .callout {
+      display: flex;
+      gap: 16px;
+      padding: 20px 24px;
+      border-radius: var(--radius-md);
+      margin: 24px 0;
+    }
+
+    .callout-info {
+      background: var(--accent-glow);
+      border: 1px solid var(--border-accent);
+    }
+
+    .callout-warn {
+      background: rgba(255, 183, 77, 0.06);
+      border: 1px solid rgba(255, 183, 77, 0.2);
+    }
+
+    .callout-tip {
+      background: rgba(40, 200, 64, 0.05);
+      border: 1px solid rgba(40, 200, 64, 0.2);
+    }
+
+    .callout-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+      line-height: 1.5;
+    }
+
+    .callout-body {
+      flex: 1;
+    }
+
+    .callout-title {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .callout-info .callout-title { color: var(--accent-cyan); }
+    .callout-warn .callout-title { color: #ffb74d; }
+    .callout-tip .callout-title { color: #28c840; }
+
+    .callout p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 0;
+    }
+
+    /* Step list */
+    .step-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      margin: 24px 0;
+    }
+
+    .step-item {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--accent-glow);
+      border: 1px solid var(--border-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin-top: 2px;
+    }
+
+    .step-content h4 {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .step-content p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 0;
+    }
+
+    /* Config table */
+    .config-table-wrap {
+      margin: 20px 0;
+      overflow-x: auto;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .config-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .config-table thead th {
+      padding: 12px 16px;
+      text-align: left;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      background: var(--bg-raised);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .config-table tbody td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      vertical-align: top;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .config-table tbody tr:last-child td { border-bottom: none; }
+    .config-table tbody tr:hover td { background: rgba(79, 195, 247, 0.02); }
+
+    .config-table td:first-child {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text-code);
+      white-space: nowrap;
+    }
+
+    /* Tracker cards */
+    .tracker-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin: 24px 0;
+    }
+
+    .tracker-card {
+      padding: 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .tracker-card:hover {
+      border-color: var(--border-accent);
+      box-shadow: 0 0 20px rgba(79, 195, 247, 0.06);
+    }
+
+    .tracker-card h4 {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .tracker-card p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+
+    .tracker-card .tracker-type {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      background: var(--accent-glow);
+      border: 1px solid var(--border-accent);
+      border-radius: 100px;
+      color: var(--accent-cyan);
+    }
+
+    /* Workflow flow diagram */
+    .workflow-flow {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin: 28px 0;
+      overflow-x: auto;
+      padding: 4px 0;
+    }
+
+    .flow-step {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .flow-box {
+      padding: 12px 18px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-md);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--accent-cyan);
+      white-space: nowrap;
+    }
+
+    .flow-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .flow-arrow {
+      flex-shrink: 0;
+      color: var(--text-muted);
+      font-size: 18px;
+      margin: 0 4px;
+      padding-bottom: 20px;
+    }
+
+    /* Agent card grid */
+    .agent-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin: 24px 0;
+    }
+
+    .agent-card {
+      padding: 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      transition: border-color 0.3s;
+    }
+
+    .agent-card:hover { border-color: var(--border-accent); }
+
+    .agent-card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .agent-card-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: var(--accent-glow);
+      border: 1px solid var(--border-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .agent-card h4 {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .agent-card p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 0;
+    }
+
+    /* Stacked PR diagram */
+    .stack-diagram {
+      background: var(--bg-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      margin: 20px 0;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 2;
+    }
+
+    .stack-diagram .branch-main { color: var(--accent-teal); }
+    .stack-diagram .branch-feat { color: var(--accent-cyan); }
+    .stack-diagram .branch-pr { color: #28c840; }
+    .stack-diagram .branch-arrow { color: var(--text-muted); }
+
+    /* ================================================
+       FOOTER
+       ================================================ */
+    .docs-footer {
+      position: relative;
+      z-index: 1;
+      padding: 32px 0;
+      border-top: 1px solid var(--border-subtle);
+      margin-left: var(--sidebar-width);
+    }
+
+    .footer-inner {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .footer-brand {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 20px;
+      list-style: none;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      transition: color 0.2s;
+    }
+
+    .footer-links a:hover { color: var(--accent-cyan); }
+
+    .footer-right {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* ================================================
+       RESPONSIVE
+       ================================================ */
+    @media (max-width: 900px) {
+      :root { --sidebar-width: 0px; }
+
+      .sidebar {
+        position: static;
+        width: 100%;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border-subtle);
+        overflow-x: auto;
+        overflow-y: hidden;
+        white-space: nowrap;
+        padding: 12px 0;
+        display: flex;
+        flex-direction: row;
+      }
+
+      .sidebar-header { display: none; }
+      .sidebar-section { display: inline-flex; flex-direction: row; margin-bottom: 0; }
+      .sidebar-category { display: none; }
+      .sidebar-nav { display: inline-flex; flex-direction: row; }
+      .sidebar-also { display: none; }
+
+      .sidebar-nav li a {
+        border-left: none;
+        border-bottom: 2px solid transparent;
+        padding: 8px 14px;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+
+      .sidebar-nav li a.active {
+        border-left: none;
+        border-bottom-color: var(--accent-cyan);
+      }
+
+      .docs-layout { flex-direction: column; }
+      .docs-main { margin-left: 0; }
+      .docs-content { padding: 32px 20px 80px; }
+      .docs-footer { margin-left: 0; }
+
+      .footer-inner {
+        padding: 0 20px;
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+      }
+
+      .footer-left { flex-direction: column; gap: 12px; }
+      .tracker-grid { grid-template-columns: 1fr; }
+      .agent-grid { grid-template-columns: 1fr; }
+      .workflow-flow { gap: 0; }
+    }
+
+    @media (max-width: 480px) {
+      .nav-links { display: none; }
+      .terminal-body { font-size: 11px; padding: 14px 16px; }
+    }
+
+    /* ================================================
+       SCROLLBAR
+       ================================================ */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-deep); }
+    ::-webkit-scrollbar-thumb { background: var(--bg-card); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--bg-card-hover); }
+
+    ::selection {
+      background: rgba(79, 195, 247, 0.25);
+      color: var(--text-primary);
+    }
+
+    /* Reveal */
+    .reveal {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    /* ================================================
+       VERSION SWITCHER
+       ================================================ */
+    .version-switcher {
+      position: relative;
+      margin-left: 12px;
+    }
+    .version-btn {
+      background: var(--bg-raised);
+      color: var(--accent-cyan);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-sm);
+      padding: 4px 10px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .version-btn:hover { background: var(--bg-card); }
+    .version-arrow { font-size: 0.7rem; }
+    .version-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      background: var(--bg-raised);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-sm);
+      min-width: 160px;
+      z-index: 1000;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .version-dropdown.open { display: block; }
+    .version-dropdown a {
+      display: block;
+      padding: 8px 14px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      transition: background 0.15s, color 0.15s;
+    }
+    .version-dropdown a:hover {
+      background: var(--bg-card);
+      color: var(--text-primary);
+    }
+    .version-dropdown a.active {
+      color: var(--accent-cyan);
+      background: var(--accent-glow);
+    }
+    .version-banner {
+      background: rgba(255, 193, 7, 0.12);
+      border-bottom: 1px solid rgba(255, 193, 7, 0.3);
+      color: #ffd54f;
+      text-align: center;
+      padding: 8px 16px;
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10000;
+    }
+    .version-banner a {
+      color: #fff;
+      text-decoration: underline;
+      margin-left: 4px;
+    }
+    .version-banner a:hover { color: var(--accent-cyan); }
+  </style>
+</head>
+<body>
+
+  <!-- ============ NAV ============ -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/git-parsec/v/0.4.0/" class="nav-brand">
+        <div class="nav-brand-icon">P</div>
+        <span>git-parsec</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="/git-parsec/v/0.4.0/#features">Features</a></li>
+        <li><a href="/git-parsec/v/0.4.0/#comparison">Compare</a></li>
+        <li><a href="/git-parsec/v/0.4.0/#quickstart">Quick Start</a></li>
+        <li><a href="/git-parsec/v/0.4.0/reference/" class="active">Docs</a></li>
+        <li><a href="/git-parsec/v/0.4.0/#install">Install</a></li>
+      </ul>
+      <a href="https://github.com/erishforG/git-parsec" class="nav-cta" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <div class="docs-layout">
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">Guide</div>
+      </div>
+
+      <div class="sidebar-section">
+        <ul class="sidebar-nav">
+          <li><a href="#installation">Installation</a></li>
+          <li><a href="#shell-integration">Shell Integration</a></li>
+          <li><a href="#quick-start">Quick Start Workflow</a></li>
+          <li><a href="#tracker-config">Tracker Configuration</a></li>
+          <li><a href="#ai-agents">AI Agent Workflows</a></li>
+          <li><a href="#stacked-prs">Stacked PRs</a></li>
+          <li><a href="#new-features">New Features</a></li>
+          <li><a href="#recipes">Recipes &amp; Examples</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-also">
+        <div class="sidebar-also-label">Also see</div>
+        <a href="/git-parsec/v/0.4.0/reference/">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Command Reference
+        </a>
+      </div>
+    </aside>
+
+    <!-- ============ MAIN CONTENT ============ -->
+    <main class="docs-main">
+      <div class="docs-content">
+
+        <!-- Page Header -->
+        <div class="page-header reveal">
+          <div class="page-label">Documentation</div>
+          <h1 class="page-title">Getting <span class="gradient-text">Started</span></h1>
+          <p class="page-desc">
+            Everything you need to go from zero to shipping PRs with parsec. Installation, configuration, and key workflows explained.
+          </p>
+        </div>
+
+        <!-- ==============================
+             INSTALLATION
+             ============================== -->
+        <section class="guide-section reveal" id="installation">
+          <div class="section-heading">
+            <h2>Installation</h2>
+            <a href="#installation" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            parsec is a single Rust binary with no runtime dependencies. Install via <code>cargo</code>, or build from source.
+          </p>
+
+          <h3>Via cargo (recommended)</h3>
+          <p>
+            The fastest path. Requires <a href="https://rustup.rs" style="color: var(--accent-cyan);">Rust and cargo</a> to be installed.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">install via cargo</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">cargo install</span> <span class="arg">git-parsec</span></span>
+<span class="terminal-line"><span class="info">  Compiling git-parsec v0.2.4</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Installed ~/.cargo/bin/parsec</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Verify installation</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec</span> <span class="flag">--version</span></span>
+<span class="terminal-line"><span class="info">  parsec 0.3.3</span></span>
+            </div>
+          </div>
+
+          <h3>Build from source</h3>
+          <p>
+            Clone the repository and build with <code>cargo build --release</code>. The compiled binary is at <code>./target/release/parsec</code>.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">build from source</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">git clone</span> <span class="link">https://github.com/erishforG/git-parsec.git</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">cd</span> <span class="arg">git-parsec</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">cargo build</span> <span class="flag">--release</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Binary at ./target/release/parsec</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Move to a directory on your $PATH</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">cp</span> <span class="arg">./target/release/parsec</span> <span class="arg">/usr/local/bin/</span></span>
+            </div>
+          </div>
+
+          <h3>Shell completions</h3>
+          <p>
+            Generate tab completions for your shell. Completions cover all commands and flags.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">shell completions</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># zsh — add to fpath</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec config completions</span> <span class="arg">zsh</span> > ~/.zsh/completions/_parsec</span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># bash</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec config completions</span> <span class="arg">bash</span> > ~/.local/share/bash-completion/completions/parsec</span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># fish</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec config completions</span> <span class="arg">fish</span> > ~/.config/fish/completions/parsec.fish</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==============================
+             SHELL INTEGRATION
+             ============================== -->
+        <section class="guide-section reveal" id="shell-integration">
+          <div class="section-heading">
+            <h2>Shell Integration</h2>
+            <a href="#shell-integration" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            Shell integration is the single most impactful quality-of-life improvement parsec offers. It hooks into your shell to enable seamless directory switching and automatic working-directory recovery.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">enable shell integration</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Add to ~/.zshrc (or ~/.bashrc for bash)</span></span>
+<span class="terminal-line"><span class="command">eval</span> "$(<span class="command">parsec init</span> <span class="arg">zsh</span>)"</span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Reload your shell</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">source</span> <span class="arg">~/.zshrc</span></span>
+            </div>
+          </div>
+
+          <h3>What shell integration does</h3>
+
+          <ol class="step-list">
+            <li class="step-item">
+              <div class="step-num">1</div>
+              <div class="step-content">
+                <h4>Auto-cd on switch</h4>
+                <p>When you run <code>parsec switch TICKET</code>, your shell automatically changes directory into the worktree. Without integration, parsec can only print the path — your shell script would need to call <code>cd $(parsec switch TICKET)</code> manually.</p>
+              </div>
+            </li>
+            <li class="step-item">
+              <div class="step-num">2</div>
+              <div class="step-content">
+                <h4>CWD recovery after merge/clean</h4>
+                <p>When parsec removes a worktree you're currently inside (e.g. after <code>parsec merge</code>), your shell would normally be stranded in a deleted directory. Shell integration detects this and automatically moves you back to the main repository root.</p>
+              </div>
+            </li>
+          </ol>
+
+          <div class="callout callout-tip">
+            <div class="callout-icon">&#10003;</div>
+            <div class="callout-body">
+              <div class="callout-title">Recommended for all users</div>
+              <p>Shell integration has no downsides and makes the switch/merge workflow significantly smoother. Add the <code>eval</code> line to your rc file during first-time setup.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==============================
+             QUICK START WORKFLOW
+             ============================== -->
+        <section class="guide-section reveal" id="quick-start">
+          <div class="section-heading">
+            <h2>Quick Start Workflow</h2>
+            <a href="#quick-start" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            The core parsec lifecycle follows a simple loop: <strong>start &rarr; code &rarr; ship &rarr; merge &rarr; clean</strong>. Each step is one command.
+          </p>
+
+          <div class="workflow-flow">
+            <div class="flow-step">
+              <div class="flow-box">start</div>
+              <div class="flow-label">create workspace</div>
+            </div>
+            <div class="flow-arrow">&#8594;</div>
+            <div class="flow-step">
+              <div class="flow-box">code</div>
+              <div class="flow-label">work &amp; commit</div>
+            </div>
+            <div class="flow-arrow">&#8594;</div>
+            <div class="flow-step">
+              <div class="flow-box">ship</div>
+              <div class="flow-label">push + open PR</div>
+            </div>
+            <div class="flow-arrow">&#8594;</div>
+            <div class="flow-step">
+              <div class="flow-box">merge</div>
+              <div class="flow-label">merge PR</div>
+            </div>
+            <div class="flow-arrow">&#8594;</div>
+            <div class="flow-step">
+              <div class="flow-box">clean</div>
+              <div class="flow-label">remove worktrees</div>
+            </div>
+          </div>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">full lifecycle demo</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># 1. Create an isolated workspace from a Jira ticket</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">PROJ-123</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created worktree for PROJ-123</span></span>
+<span class="terminal-line"><span class="info">  Branch: </span><span class="link">feature/PROJ-123</span></span>
+<span class="terminal-line"><span class="info">  Path:   ../myrepo.PROJ-123</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># 2. Switch into the worktree (auto-cd with shell integration)</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec switch</span> <span class="arg">PROJ-123</span></span>
+<span class="terminal-line"><span class="comment"># shell: → cd ../myrepo.PROJ-123</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># 3. Do your work, commit as usual</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">git add</span> <span class="arg">.</span> <span class="command">&amp;&amp; git commit</span> <span class="arg">-m "feat: auth flow"</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># 4. Check for conflicts with parallel work</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec conflicts</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">No conflicts across 3 worktrees</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># 5. Ship: push + open PR + clean worktree</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">PROJ-123</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Pushed feature/PROJ-123 (3 commits)</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">PR #42 created: </span><span class="link">github.com/org/myrepo/pull/42</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Worktree cleaned up</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># 6. After review — merge and clean up remote branch</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec merge</span> <span class="arg">PROJ-123</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">PR #42 merged into main</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># 7. Tidy up any remaining worktrees</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec clean</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Removed 1 merged worktree</span></span>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <div class="callout-icon">&#9432;</div>
+            <div class="callout-body">
+              <div class="callout-title">First-time setup</div>
+              <p>Before running <code>parsec start</code> for the first time, run <code>parsec config init</code> to configure your issue tracker and GitHub token. See <a href="#tracker-config" style="color: var(--accent-cyan);">Tracker Configuration</a> below.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==============================
+             TRACKER CONFIGURATION
+             ============================== -->
+        <section class="guide-section reveal" id="tracker-config">
+          <div class="section-heading">
+            <h2>Tracker Configuration</h2>
+            <a href="#tracker-config" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            parsec integrates with three issue trackers. Run <code>parsec config init</code> for an interactive setup wizard, or edit <code>~/.config/parsec/config.toml</code> directly.
+          </p>
+
+          <div class="tracker-grid">
+            <div class="tracker-card">
+              <h4>Jira</h4>
+              <p>Connect to Jira Cloud or Jira Server. parsec fetches ticket titles, statuses, and assignees automatically.</p>
+              <span class="tracker-type">Cloud &amp; Server</span>
+            </div>
+            <div class="tracker-card">
+              <h4>GitHub Issues</h4>
+              <p>Works out of the box when your remote is GitHub. Uses the same token as your GitHub API access.</p>
+              <span class="tracker-type">github.com</span>
+            </div>
+            <div class="tracker-card">
+              <h4>GitLab</h4>
+              <p>Connects to GitLab.com or self-hosted GitLab instances via personal access token.</p>
+              <span class="tracker-type">Cloud &amp; Self-hosted</span>
+            </div>
+          </div>
+
+          <h3>Jira setup</h3>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec config init — Jira</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec config init</span></span>
+<span class="terminal-line"><span class="info">  ? Tracker type:      </span><span class="arg">jira</span></span>
+<span class="terminal-line"><span class="info">  ? Jira base URL:     </span><span class="arg">https://myorg.atlassian.net</span></span>
+<span class="terminal-line"><span class="info">  ? Jira email:        </span><span class="arg">you@company.com</span></span>
+<span class="terminal-line"><span class="info">  ? Jira API token:    </span><span class="arg">***</span></span>
+<span class="terminal-line"><span class="info">  ? GitHub token:      </span><span class="arg">ghp_***</span></span>
+<span class="terminal-line"><span class="info">  ? Default branch:    </span><span class="arg">main</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Config saved to ~/.config/parsec/config.toml</span></span>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <div class="callout-icon">&#9432;</div>
+            <div class="callout-body">
+              <div class="callout-title">Jira API token</div>
+              <p>Generate a Jira API token at <a href="https://id.atlassian.com/manage-profile/security/api-tokens" style="color: var(--accent-cyan);">id.atlassian.com/manage-profile/security/api-tokens</a>. parsec uses it for read-only ticket lookups; it never writes to Jira.</p>
+            </div>
+          </div>
+
+          <h3>GitHub Issues setup</h3>
+          <p>
+            When your repo remote is GitHub, parsec automatically uses GitHub Issues as the tracker. Provide a personal access token with <code>repo</code> scope.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec config init — GitHub Issues</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec config init</span></span>
+<span class="terminal-line"><span class="info">  ? Tracker type:      </span><span class="arg">github</span></span>
+<span class="terminal-line"><span class="info">  ? GitHub token:      </span><span class="arg">ghp_***</span></span>
+<span class="terminal-line"><span class="info">  ? Default branch:    </span><span class="arg">main</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Config saved</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Ticket IDs are GitHub issue numbers</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">42</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created worktree for issue #42: Fix pagination bug</span></span>
+            </div>
+          </div>
+
+          <h3>Config file reference</h3>
+          <p>
+            The config file lives at <code>~/.config/parsec/config.toml</code>. You can edit it directly.
+          </p>
+
+          <div class="config-table-wrap">
+            <table class="config-table">
+              <thead>
+                <tr><th>Key</th><th>Description</th><th>Example</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>tracker.type</code></td>
+                  <td>Issue tracker backend.</td>
+                  <td><code>"jira"</code> / <code>"github"</code> / <code>"gitlab"</code> / <code>"bitbucket"</code></td>
+                </tr>
+                <tr>
+                  <td><code>tracker.base_url</code></td>
+                  <td>Base URL for Jira/GitLab self-hosted.</td>
+                  <td><code>"https://myorg.atlassian.net"</code></td>
+                </tr>
+                <tr>
+                  <td><code>tracker.token</code></td>
+                  <td>API token for the tracker.</td>
+                  <td>Jira API token or GitLab PAT</td>
+                </tr>
+                <tr>
+                  <td><code>github.token</code></td>
+                  <td>GitHub personal access token (for PR creation).</td>
+                  <td><code>"ghp_..."</code></td>
+                </tr>
+                <tr>
+                  <td><code>git.default_branch</code></td>
+                  <td>Default base branch for new worktrees.</td>
+                  <td><code>"main"</code> / <code>"develop"</code></td>
+                </tr>
+                <tr>
+                  <td><code>git.worktree_prefix</code></td>
+                  <td>Directory prefix for new worktrees.</td>
+                  <td><code>".."</code> (sibling dirs)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout callout-warn">
+            <div class="callout-icon">!</div>
+            <div class="callout-body">
+              <div class="callout-title">No tracker configured</div>
+              <p>parsec still works without a tracker configured. Use <code>--title "My description"</code> with <code>parsec start</code> to provide a description manually. Ticket IDs become local labels only.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==============================
+             AI AGENT WORKFLOWS
+             ============================== -->
+        <section class="guide-section reveal" id="ai-agents">
+          <div class="section-heading">
+            <h2>AI Agent Workflows</h2>
+            <a href="#ai-agents" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            parsec was built from day one for parallel AI agent execution. Each worktree is an isolated git environment — agents can run <code>git add</code>, <code>git commit</code>, and <code>git push</code> simultaneously without <code>index.lock</code> collisions.
+          </p>
+
+          <div class="agent-grid">
+            <div class="agent-card">
+              <div class="agent-card-header">
+                <div class="agent-card-icon">&#128274;</div>
+                <h4>Zero index.lock conflicts</h4>
+              </div>
+              <p>Each worktree has its own <code>.git/index</code>. Parallel agents never contend on the same file. No retries, no wasted tokens.</p>
+            </div>
+            <div class="agent-card">
+              <div class="agent-card-header">
+                <div class="agent-card-icon">&#128200;</div>
+                <h4>JSON output for scripting</h4>
+              </div>
+              <p>Every command supports <code>--json</code> for machine-readable output. Poll <code>pr-status</code>, check <code>ci</code>, trigger <code>merge</code> — all scriptable.</p>
+            </div>
+            <div class="agent-card">
+              <div class="agent-card-header">
+                <div class="agent-card-icon">&#128269;</div>
+                <h4>Conflict detection</h4>
+              </div>
+              <p><code>parsec conflicts</code> surfaces which files are modified by multiple agents before any PR is opened — catch issues early.</p>
+            </div>
+            <div class="agent-card">
+              <div class="agent-card-header">
+                <div class="agent-card-icon">&#128196;</div>
+                <h4>Operation history &amp; undo</h4>
+              </div>
+              <p><code>parsec log</code> shows every action. <code>parsec undo</code> rolls back the last step — useful when an agent ships prematurely.</p>
+            </div>
+          </div>
+
+          <h3>Running multiple agents in parallel</h3>
+          <p>
+            Each agent gets its own worktree. Launch them concurrently from a coordinator script — parsec handles isolation so agents never need to coordinate on git state.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parallel agent launch script</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment">#!/bin/bash</span></span>
+<span class="terminal-line"><span class="comment"># Each ticket becomes an isolated, independent workspace</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="command">parsec start</span> <span class="arg">PROJ-120</span> <span class="flag">--quiet</span> &amp;</span>
+<span class="terminal-line"><span class="command">parsec start</span> <span class="arg">PROJ-121</span> <span class="flag">--quiet</span> &amp;</span>
+<span class="terminal-line"><span class="command">parsec start</span> <span class="arg">PROJ-122</span> <span class="flag">--quiet</span> &amp;</span>
+<span class="terminal-line"><span class="command">wait</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Agent 1 works in ./myrepo.PROJ-120</span></span>
+<span class="terminal-line"><span class="comment"># Agent 2 works in ./myrepo.PROJ-121  ← no conflicts</span></span>
+<span class="terminal-line"><span class="comment"># Agent 3 works in ./myrepo.PROJ-122</span></span>
+            </div>
+          </div>
+
+          <h3>JSON output for automation</h3>
+          <p>
+            Use <code>--json</code> on any command to get structured output suitable for piping into <code>jq</code> or a coordinator agent.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">JSON output examples</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Check if PR is mergeable</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec pr-status</span> <span class="arg">PROJ-120</span> <span class="flag">--json</span> | <span class="command">jq</span> <span class="arg">'.mergeable'</span></span>
+<span class="terminal-line"><span class="info">  true</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Wait for CI then merge</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ci</span> <span class="arg">PROJ-120</span> <span class="flag">--watch</span> <span class="flag">--json</span></span>
+<span class="terminal-line"><span class="comment"># polls until complete, exits 0 on success</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec merge</span> <span class="arg">PROJ-120</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># List all worktrees as JSON</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec list</span> <span class="flag">--json</span> | <span class="command">jq</span> <span class="arg">'.[].ticket'</span></span>
+<span class="terminal-line"><span class="info">  "PROJ-120"</span></span>
+<span class="terminal-line"><span class="info">  "PROJ-121"</span></span>
+<span class="terminal-line"><span class="info">  "PROJ-122"</span></span>
+            </div>
+          </div>
+
+          <div class="callout callout-tip">
+            <div class="callout-icon">&#10003;</div>
+            <div class="callout-body">
+              <div class="callout-title">Agent best practices</div>
+              <p>Run <code>parsec conflicts</code> before any agent calls <code>parsec ship</code>. This surfaces file-level overlaps between parallel workstreams before they become merge conflicts.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==============================
+             STACKED PRs
+             ============================== -->
+        <section class="guide-section reveal" id="stacked-prs">
+          <div class="section-heading">
+            <h2>Stacked PRs</h2>
+            <a href="#stacked-prs" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            Stacked PRs let you build a chain of dependent changes — each PR targets the previous ticket's branch rather than <code>main</code>. This is useful when a feature spans multiple tickets, or when you want incremental review of a large change.
+          </p>
+
+          <h3>Creating a stack with <code>--on</code></h3>
+          <p>
+            Pass <code>--on &lt;TICKET&gt;</code> to <code>parsec start</code> to create a worktree whose base is another ticket's branch.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">stacked PR workflow</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Base ticket — targets main</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">PROJ-100</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created worktree, base: </span><span class="link">main</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Second ticket — stacks on PROJ-100</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">PROJ-101</span> <span class="flag">--on</span> <span class="arg">PROJ-100</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created worktree, base: </span><span class="link">feature/PROJ-100</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Third in the chain</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">PROJ-102</span> <span class="flag">--on</span> <span class="arg">PROJ-101</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created worktree, base: </span><span class="link">feature/PROJ-101</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Visualize the stack</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec stack</span></span>
+<span class="terminal-line"><span class="info">  main</span></span>
+<span class="terminal-line"><span class="info">  └── </span><span class="link">feature/PROJ-100</span><span class="info">  PR #10 open</span></span>
+<span class="terminal-line"><span class="info">      └── </span><span class="link">feature/PROJ-101</span><span class="info">  PR #11 open</span></span>
+<span class="terminal-line"><span class="info">          └── </span><span class="link">feature/PROJ-102</span><span class="info">  PR #12 open</span></span>
+            </div>
+          </div>
+
+          <h3>After merging a stacked PR</h3>
+          <p>
+            When the base PR in a stack is merged, the child PR's target becomes stale — it still points to the merged branch. Use <code>parsec stack --sync</code> to automatically re-target all stacked PRs to their correct new bases.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec stack --sync</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># PROJ-100 was merged to main</span></span>
+<span class="terminal-line"><span class="comment"># Now re-target PROJ-101 to main</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec stack</span> <span class="flag">--sync</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">PR #11 retargeted: </span><span class="link">feature/PROJ-100</span><span class="info"> → </span><span class="link">main</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Stack synchronized</span></span>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <div class="callout-icon">&#9432;</div>
+            <div class="callout-body">
+              <div class="callout-title">Merge order matters</div>
+              <p>Always merge stacked PRs from the bottom of the stack upward — merge the base first, then <code>parsec stack --sync</code>, then merge the next PR. Skipping <code>--sync</code> results in child PRs targeting already-merged branches.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="guide-section reveal" id="new-features">
+          <div class="section-heading">
+            <h2>New Features</h2>
+            <a href="#new-features" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            Recent additions to parsec that extend the workflow beyond worktree management into issue creation, release automation, and customizable hooks.
+          </p>
+
+          <h3>Issue creation with <code>parsec create</code></h3>
+          <p>
+            Create issues directly from the terminal without leaving your workflow. Works with GitHub Issues and Jira. Use <code>--start</code> to immediately begin work on the new issue.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec create</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Create a GitHub issue</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec create</span> <span class="flag">--title</span> <span class="arg">"Fix login redirect"</span> <span class="flag">--label</span> <span class="arg">"bug"</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created #145: Fix login redirect</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Create and start working immediately</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec create</span> <span class="flag">--title</span> <span class="arg">"Add caching layer"</span> <span class="flag">--start</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created #146: Add caching layer</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created workspace at </span><span class="link">~/myrepo.146</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># For Jira with issue type</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec new-issue</span> <span class="flag">--title</span> <span class="arg">"API caching"</span> <span class="flag">--issue-type</span> <span class="arg">Story</span> <span class="flag">--project</span> <span class="arg">CL</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Created CL-42: API caching</span></span>
+            </div>
+          </div>
+
+          <h3>Release workflow with <code>parsec release</code></h3>
+          <p>
+            Automate the entire release process: merge develop to main, create a version tag, and publish a GitHub Release with auto-generated changelog — all in one command.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec release</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.3.3</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Merged develop → main</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Tagged </span><span class="link">v0.3.3</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">GitHub Release: </span><span class="link">github.com/org/repo/releases/tag/v0.3.3</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Always preview first with --dry-run</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec release</span> <span class="arg">0.4.0</span> <span class="flag">--dry-run</span></span>
+<span class="terminal-line"><span class="info">Would merge develop → main</span></span>
+<span class="terminal-line"><span class="info">Would tag v0.4.0</span></span>
+            </div>
+          </div>
+
+          <h3>Pre-ship hooks</h3>
+          <p>
+            Define commands that run automatically before <code>parsec ship</code> pushes your branch. Great for ensuring tests pass and linting is clean before creating a PR.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">config.toml</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># ~/.config/parsec/config.toml</span></span>
+<span class="terminal-line"><span class="info">[hooks]</span></span>
+<span class="terminal-line"><span class="info">post_create = ["npm install"]</span></span>
+<span class="terminal-line"><span class="info">pre_ship = ["cargo test", "cargo clippy"]</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Skip hooks when needed</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">PROJ-123</span> <span class="flag">--skip-hooks</span></span>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <div class="callout-icon">&#9432;</div>
+            <div class="callout-body">
+              <div class="callout-title">Release configuration</div>
+              <p>Customize the release workflow in your config file with <code>[release]</code> section: set the target branch, tag prefix, and whether to include a changelog.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==============================
+             WHAT'S NEW IN v0.4
+             ============================== -->
+        <section class="guide-section reveal" id="recipes">
+          <div class="section-heading">
+            <h2>Recipes &amp; Examples</h2>
+            <a href="#recipes" class="section-anchor">#</a>
+          </div>
+
+          <p>
+            End-to-end examples for the workflow patterns parsec is built around — Bitbucket Cloud setup, history compression, stacked PR navigation, PR templates, offline / headless mode, observability via JSONL, editor autocomplete via the JSON Schema, and worktree build cache sharing. Each recipe is self-contained — copy the snippets and adapt to your repo.
+          </p>
+
+          <h3>Bitbucket Cloud — full PR lifecycle</h3>
+          <p>
+            parsec now speaks Bitbucket Cloud's API: <code>parsec ship</code> opens PRs, <code>parsec pr-status</code> reports CI from Bitbucket Pipelines, <code>parsec ci</code> tails build status, and <code>parsec merge</code> merges from the terminal. Tracker integration uses the same <code>tracker.bitbucket</code> config block.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">Bitbucket setup</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Auth via env var</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">export</span> <span class="info">PARSEC_BITBUCKET_TOKEN=</span><span class="arg">"&lt;app-password&gt;"</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Configure in ~/.config/parsec/config.toml</span></span>
+<span class="terminal-line"><span class="info">[tracker]</span></span>
+<span class="terminal-line"><span class="info">provider = </span><span class="arg">"bitbucket"</span></span>
+<span class="terminal-line"><span class="info">[tracker.bitbucket]</span></span>
+<span class="terminal-line"><span class="info">workspace = </span><span class="arg">"my-team"</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">CL-2208</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">PR opened: bitbucket.org/my-team/repo/pull-requests/142</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Bitbucket Pipelines: BUILD #318 in_progress</span></span>
+            </div>
+          </div>
+
+          <h3>Compress branch history with <code>parsec compress</code></h3>
+          <p>
+            Squash a branch's commits into one tidy commit before shipping. Co-author trailers from squashed commits are preserved automatically.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec compress</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Squash all branch commits into one</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec compress</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">Compressed 7 commits into one on feature/PROJ-123</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># With a custom message</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec compress</span> <span class="flag">-m</span> <span class="arg">"feat: add user authentication"</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Compose: tidy history then ship</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec compress</span> &amp;&amp; <span class="command">parsec ship</span></span>
+            </div>
+          </div>
+
+          <h3>Stack navigation comments</h3>
+          <p>
+            When you ship a stacked PR, parsec auto-posts <em>"← previous PR"</em> / <em>"next PR →"</em> navigation comments on every PR in the stack. Reviewers can walk the chain without leaving the PR view.
+          </p>
+
+          <h3>PR template auto-fill — <code>ship --template</code></h3>
+          <p>
+            Use the repository's <code>.github/PULL_REQUEST_TEMPLATE.md</code> (or the first match under <code>.github/PULL_REQUEST_TEMPLATE/</code>) as the PR description automatically. Combine with <code>ship.template</code> in <code>config.toml</code> to make it the default.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">ship --template</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec ship</span> <span class="arg">PROJ-123</span> <span class="flag">--template</span></span>
+<span class="terminal-line"><span class="info">Loaded .github/PULL_REQUEST_TEMPLATE.md (348 chars)</span></span>
+<span class="terminal-line"><span class="success">✓</span> <span class="info">PR opened with template body</span></span>
+            </div>
+          </div>
+
+          <h3>Offline mode — <code>--offline</code> / <code>[workspace].offline</code></h3>
+          <p>
+            Skip all network operations: tracker lookups, PR creation, fetches. Use a global <code>--offline</code> flag, the <code>PARSEC_OFFLINE=1</code> env var, or set <code>offline = true</code> under <code>[workspace]</code> in <code>config.toml</code>. Per-command escapes (<code>--no-pr</code>, <code>--no-tracker</code>) remain available for finer control.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">offline mode</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="comment"># Per-invocation</span></span>
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec start</span> <span class="arg">CL-2208</span> <span class="flag">--offline</span> <span class="flag">--title</span> <span class="arg">"Add login retry"</span></span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Persistent — flight mode</span></span>
+<span class="terminal-line"><span class="info">[workspace]</span></span>
+<span class="terminal-line"><span class="info">offline = </span><span class="arg">true</span></span>
+            </div>
+          </div>
+
+          <h3>Observability — execution IDs + JSONL export</h3>
+          <p>
+            Every command run gets a unique execution ID and per-step timing. <code>parsec log --export</code> emits one JSON object per line for tooling and AI agents to consume. Combined with <code>--json</code> on individual commands, parsec is fully introspectable.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">parsec log --export</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec log</span> <span class="flag">--export</span> | <span class="command">jq</span> <span class="arg">'select(.duration_ms &gt; 1000)'</span></span>
+<span class="terminal-line"><span class="info">{</span></span>
+<span class="terminal-line"><span class="info">  "execution_id": "01HQ3D9V7Z2...",</span></span>
+<span class="terminal-line"><span class="info">  "op": "ship",</span></span>
+<span class="terminal-line"><span class="info">  "ticket": "PROJ-123",</span></span>
+<span class="terminal-line"><span class="info">  "steps": [</span></span>
+<span class="terminal-line"><span class="info">    {"name":"push","ms":820},</span></span>
+<span class="terminal-line"><span class="info">    {"name":"create_pr","ms":1305},</span></span>
+<span class="terminal-line"><span class="info">    {"name":"cleanup","ms":42}</span></span>
+<span class="terminal-line"><span class="info">  ],</span></span>
+<span class="terminal-line"><span class="info">  "duration_ms": 2167</span></span>
+<span class="terminal-line"><span class="info">}</span></span>
+            </div>
+          </div>
+
+          <h3>Config JSON Schema — editor autocomplete</h3>
+          <p>
+            The schema for <code>config.toml</code> is published to <a href="https://schemastore.org">schemastore.org</a>, so VS Code, IntelliJ, Helix, and any editor with schemastore integration auto-complete and validate every key. <code>parsec config schema</code> emits the schema for offline use.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">config schema</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="prompt">$</span> <span class="command">parsec config schema</span> > parsec-schema.json</span>
+<span class="terminal-line">&nbsp;</span>
+<span class="terminal-line"><span class="comment"># Pin schema in your config for editor support</span></span>
+<span class="terminal-line"><span class="info">#:schema https://json.schemastore.org/parsec.json</span></span>
+            </div>
+          </div>
+
+          <h3>Worktree build cache sharing — <code>[worktree].shared_cache</code></h3>
+          <p>
+            New worktrees can reuse <code>target/</code>, <code>node_modules/</code>, <code>.venv/</code>, etc. from the main repo via symlink (default) or recursive copy. Eliminates cold-build cost on <code>parsec start</code> for any project with significant dependency caches.
+          </p>
+
+          <div class="terminal-wrap">
+            <div class="terminal-bar">
+              <div class="terminal-dot"></div><div class="terminal-dot"></div><div class="terminal-dot"></div>
+              <span class="terminal-title-label">[worktree] config</span>
+            </div>
+            <div class="terminal-body">
+<span class="terminal-line"><span class="info">[worktree]</span></span>
+<span class="terminal-line"><span class="info">shared_cache = </span><span class="arg">["target", "node_modules", ".venv"]</span></span>
+<span class="terminal-line"><span class="comment"># "symlink" (default) — fast, zero-disk; parallel build of same artifact may race</span></span>
+<span class="terminal-line"><span class="comment"># "copy"             — independent caches per worktree, no race risk, more disk</span></span>
+<span class="terminal-line"><span class="info">cache_strategy = </span><span class="arg">"symlink"</span></span>
+            </div>
+          </div>
+
+          <h3>Draft-by-default — <code>ship.draft</code></h3>
+          <p>
+            Set <code>[ship].draft = true</code> in <code>config.toml</code> to open every PR as a draft, or pass <code>--draft</code> per ship. Useful for iterative WIP review flows where you want CI feedback before requesting human review.
+          </p>
+        </section>
+
+      </div>
+      <!-- end docs-content -->
+    </main>
+  </div>
+  <!-- end docs-layout -->
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="docs-footer">
+    <div class="footer-inner">
+      <div class="footer-left">
+        <span class="footer-brand">git-parsec</span>
+        <ul class="footer-links">
+          <li><a href="https://github.com/erishforG/git-parsec" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://github.com/erishforG/git-parsec/issues" target="_blank" rel="noopener">Issues</a></li>
+          <li><a href="https://github.com/erishforG/git-parsec/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
+          <li><a href="/git-parsec/v/0.4.0/reference/">Command Reference</a></li>
+        </ul>
+      </div>
+      <div class="footer-right">Built with Rust. Designed for velocity.</div>
+    </div>
+  </footer>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Scroll reveal
+      const reveals = document.querySelectorAll('.reveal');
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+      }, { threshold: 0.05, rootMargin: '0px 0px -20px 0px' });
+      reveals.forEach(el => observer.observe(el));
+
+      // Active sidebar link
+      const sections = document.querySelectorAll('.guide-section[id]');
+      const sidebarLinks = document.querySelectorAll('.sidebar-nav a');
+
+      const markActive = (id) => {
+        sidebarLinks.forEach(a => {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+        });
+      };
+
+      const scrollObserver = new IntersectionObserver((entries) => {
+        entries.forEach(e => {
+          if (e.isIntersecting) markActive(e.target.id);
+        });
+      }, { threshold: 0, rootMargin: '-65px 0px -65% 0px' });
+
+      sections.forEach(el => scrollObserver.observe(el));
+    });
+  </script>
+  <script src="/git-parsec/version-switcher.js"></script>
+</body>
+</html>
