@@ -1,3 +1,4 @@
+mod cache_share;
 mod lifecycle;
 mod manager;
 

@@ -1281,6 +1281,17 @@ layout = "sibling"
 base_dir = ".parsec/workspaces"
 branch_prefix = "feature/"
 
+[worktree]
+# Directories to share from the main repo into new worktrees so that
+# `parsec start` doesn't trigger a cold rebuild. Default is empty (no sharing).
+shared_cache = ["target", "node_modules", ".venv"]
+# "symlink" (default): fast, zero-disk overhead. All worktrees and the main
+#                      repo share one cache — running parallel builds of the
+#                      same artifact may race.
+# "copy":    full copy at start time. Each worktree gets an independent cache,
+#            no race risk, but uses more disk and the initial copy takes time.
+cache_strategy = "symlink"
+
 [tracker]
 # "jira" | "github" | "gitlab" | "none"
 provider = "jira"
