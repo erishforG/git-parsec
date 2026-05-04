@@ -1028,6 +1028,145 @@ fn test_start_with_existing_branch() {
 }
 
 // ---------------------------------------------------------------------------
+// shared_cache (issue #207)
+// ---------------------------------------------------------------------------
+
+/// Build a custom config dir containing a config.toml with the given body and
+/// return its path. Caller must keep the TempDir alive.
+fn write_config_toml(body: &str) -> TempDir {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("config.toml"), body).unwrap();
+    dir
+}
+
+#[test]
+fn test_shared_cache_symlink_creates_link() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    // Pre-populate a `target/` directory in the main repo with a build artifact.
+    std::fs::create_dir_all(repo_path.join("target")).unwrap();
+    std::fs::write(repo_path.join("target").join("artifact.txt"), "pre-built").unwrap();
+
+    let config_dir = write_config_toml(
+        r#"
+[worktree]
+shared_cache = ["target"]
+cache_strategy = "symlink"
+"#,
+    );
+
+    let mut cmd = Command::cargo_bin("parsec").unwrap();
+    cmd.env("PARSEC_CONFIG_DIR", config_dir.path())
+        .args(["start", "CACHE-1", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Worktree path follows sibling layout: <parent>/<repo_name>.CACHE-1
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+    let wt_path = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.CACHE-1", repo_name));
+    let dest = wt_path.join("target");
+
+    assert!(dest.exists(), "worktree should have shared target/");
+    let meta = std::fs::symlink_metadata(&dest).unwrap();
+    assert!(
+        meta.file_type().is_symlink(),
+        "symlink strategy must produce a symlink, got: {:?}",
+        meta.file_type()
+    );
+    let contents = std::fs::read_to_string(dest.join("artifact.txt")).unwrap();
+    assert_eq!(contents, "pre-built");
+}
+
+#[test]
+fn test_shared_cache_copy_creates_real_dir() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    std::fs::create_dir_all(repo_path.join("target").join("nested")).unwrap();
+    std::fs::write(repo_path.join("target").join("a.txt"), "alpha").unwrap();
+    std::fs::write(
+        repo_path.join("target").join("nested").join("b.txt"),
+        "beta",
+    )
+    .unwrap();
+
+    let config_dir = write_config_toml(
+        r#"
+[worktree]
+shared_cache = ["target"]
+cache_strategy = "copy"
+"#,
+    );
+
+    let mut cmd = Command::cargo_bin("parsec").unwrap();
+    cmd.env("PARSEC_CONFIG_DIR", config_dir.path())
+        .args(["start", "CACHE-2", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+    let wt_path = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.CACHE-2", repo_name));
+    let dest = wt_path.join("target");
+
+    assert!(dest.exists());
+    let meta = std::fs::symlink_metadata(&dest).unwrap();
+    assert!(
+        !meta.file_type().is_symlink(),
+        "copy strategy must NOT produce a symlink"
+    );
+    assert!(meta.is_dir());
+    assert_eq!(
+        std::fs::read_to_string(dest.join("a.txt")).unwrap(),
+        "alpha"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest.join("nested").join("b.txt")).unwrap(),
+        "beta"
+    );
+}
+
+#[test]
+fn test_shared_cache_missing_entry_skipped() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    // Don't pre-create `.venv` in the main repo.
+    let config_dir = write_config_toml(
+        r#"
+[worktree]
+shared_cache = [".venv"]
+cache_strategy = "symlink"
+"#,
+    );
+
+    let mut cmd = Command::cargo_bin("parsec").unwrap();
+    cmd.env("PARSEC_CONFIG_DIR", config_dir.path())
+        .args(["start", "CACHE-3", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+    let wt_path = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.CACHE-3", repo_name));
+
+    // Worktree was created (start succeeded), but `.venv` was simply skipped.
+    assert!(wt_path.exists(), "worktree should still be created");
+    assert!(
+        !wt_path.join(".venv").exists(),
+        "missing source should NOT be linked into worktree"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // JSON error format
 // ---------------------------------------------------------------------------
 
@@ -1050,7 +1189,7 @@ fn test_json_error_format() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("JSON error output must be parseable");
-    assert_eq!(parsed["error"].as_bool().unwrap(), true);
+    assert!(parsed["error"].as_bool().unwrap());
     assert!(parsed.get("code").is_some());
     assert!(parsed.get("message").is_some());
 }
