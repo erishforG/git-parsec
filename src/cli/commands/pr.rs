@@ -168,7 +168,23 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
     } else if let Some(bb) = bitbucket::BitbucketClient::new(&remote_url)? {
         for (ticket_id, pr_id, _url) in &all_entries {
             let bb_status = bb.get_pr_status(*pr_id).await?;
-            // Map to github::PrStatus for output compatibility
+
+            // Resolve CI from Bitbucket Pipelines for the PR's source branch.
+            // Any failure (no token scope, pipelines disabled, network) falls
+            // back to "unknown" rather than failing the whole pr-status call.
+            let ci_status = match bb.get_pr_source_branch(*pr_id).await {
+                Ok(Some(branch)) => match bb.get_latest_pipeline_for_branch(&branch).await {
+                    Ok(pipeline) => bitbucket::pipeline_status_to_ci_string(pipeline.as_ref()),
+                    Err(_) => "unknown".to_string(),
+                },
+                _ => "unknown".to_string(),
+            };
+
+            let review_status = match bb.get_pr_participants(*pr_id).await {
+                Ok(participants) => bitbucket::participants_to_review_status(&participants),
+                Err(_) => "unknown".to_string(),
+            };
+
             statuses.push((
                 ticket_id.clone(),
                 github::PrStatus {
@@ -176,8 +192,8 @@ pub async fn pr_status(repo: &Path, ticket: Option<&str>, mode: Mode) -> Result<
                     title: bb_status.title,
                     state: bb_status.state.to_lowercase(),
                     mergeable: None,
-                    ci_status: "unknown".to_string(),
-                    review_status: "unknown".to_string(),
+                    ci_status,
+                    review_status,
                     url: bb_status.url,
                 },
             ));
