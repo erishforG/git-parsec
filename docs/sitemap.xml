@@ -31,6 +31,24 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://erishforg.github.io/git-parsec/v/0.4.0/</loc>
+    <lastmod>2026-05-04</lastmod>
+    <changefreq>never</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/v/0.4.0/guide/</loc>
+    <lastmod>2026-05-04</lastmod>
+    <changefreq>never</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/v/0.4.0/reference/</loc>
+    <lastmod>2026-05-04</lastmod>
+    <changefreq>never</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
     <loc>https://erishforg.github.io/git-parsec/v/0.3.3/</loc>
     <lastmod>2026-04-23</lastmod>
     <changefreq>never</changefreq>
