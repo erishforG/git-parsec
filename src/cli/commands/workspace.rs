@@ -21,6 +21,7 @@ pub async fn start(
     hook: Option<String>,
     mode: Mode,
 ) -> Result<()> {
+    crate::execlog::set_ticket(ticket);
     let mut config = ParsecConfig::load()?;
     let repo_root = git::get_repo_root(repo)?;
     config.resolve_for_repo(&repo_root);

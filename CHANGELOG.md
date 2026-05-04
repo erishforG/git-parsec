@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.4.0] - 2026-05-04
+
+### Added
+- **Bitbucket Cloud forge** — full PR lifecycle support (create, list, view,
+  merge, comments). New tracker/forge entries `bitbucket` selectable via
+  `parsec config` and `[forge]` settings (#240).
+- **Bitbucket Pipelines CI integration** — `parsec ci` and `pr-status`
+  commands now report Bitbucket Pipelines build state alongside GitHub
+  Actions and GitLab CI (#279).
+- **`parsec compress` command** — squash a stack of related commits into a
+  single tidy commit before shipping, preserving co-author trailers (#236).
+- **`parsec ship --template`** — auto-populate the PR description from a
+  repository's `.github/PULL_REQUEST_TEMPLATE.md` (or first match under
+  `.github/PULL_REQUEST_TEMPLATE/`) (#233).
+- **`ship --reviewer` and `--label`** — attach reviewers and labels at PR
+  creation time (#261).
+- **Stack `--submit`** — open all PRs in a stack in one command (#261).
+- **Stack navigation comments** — auto-posted "← prev / next →" comments on
+  every PR in a stack so reviewers can walk the chain (#234).
+- **`ship.draft` config + `--draft` flag** — open PRs as drafts by default
+  when working in throwaway / WIP branches (#238).
+- **`[worktree]` shared build cache** — `shared_cache` and `cache_strategy`
+  settings let new worktrees reuse `target/`, `node_modules/`, `.venv/`, etc.
+  from the main repo via symlink (default) or recursive copy, eliminating
+  cold-build cost on `parsec start` (#207).
+- **Offline mode toggle** — `[behavior].offline` config and per-command
+  `--no-pr` / `--no-tracker` flags so parsec can operate without forge or
+  tracker connectivity (#237).
+- **Observability lite** — every command run now has an execution ID and
+  step timing; opt in to JSONL export via `[observability]` settings for
+  tooling/agents to consume (#166).
+- **Config JSON Schema + `parsec schema`** — schema published to
+  schemastore.org so editors auto-complete `parsec.toml`. The new
+  `parsec schema` subcommand emits the schema on demand (#239).
+- **Windows CI coverage** — full test matrix on Windows runners (#257).
+- 11 new integration tests across forge adapters and worktree paths (#278).
+
+### Changed
+- README and reference docs updated to cover ship `--reviewer` / `--label`,
+  stack `--submit`, Bitbucket adapter, offline flags, build cache config,
+  and `parsec compress` (#265).
+
+### Fixed
+- Windows UNC path issue (`\\?\` prefix) breaking worktree operations on
+  Windows hosts — resolved via the `dunce` crate (#263).
+
+### CI
+- Trigger CI on `release/**` branches in addition to feature branches and
+  develop, so release-prep work is exercised before merge (#277).
+
 ## [0.3.3] - 2026-04-22
 
 ### Added

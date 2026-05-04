@@ -1,6 +1,6 @@
 [package]
 name = "git-parsec"
-version = "0.3.3"
+version = "0.4.0"
 edition = "2021"
 authors = ["erishforG"]
 description = "Git worktree lifecycle manager — ticket to PR in one command. Parallel AI agent workflows with Jira & GitHub Issues integration."
@@ -34,8 +34,10 @@ tokio = { version = "1", features = ["full"] }
 clap_mangen = "0.3"
 clap_complete = "4"
 dunce = "1"
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+mockito = "1"

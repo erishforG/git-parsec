@@ -245,3 +245,9 @@ pub async fn config_completions(shell: clap_complete::Shell) -> Result<()> {
     clap_complete::generate(shell, &mut cmd, "parsec", &mut std::io::stdout());
     Ok(())
 }
+
+pub async fn config_schema() -> Result<()> {
+    let schema = include_str!("../../../schema/parsec-config.schema.json");
+    println!("{}", schema);
+    Ok(())
+}

@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::bitbucket;
 use crate::config::ParsecConfig;
 use crate::errors::ErrorCode;
 use crate::git;
@@ -22,8 +23,11 @@ pub async fn ship(
     skip_hooks: bool,
     reviewers: Vec<String>,
     labels: Vec<String>,
+    template: Option<String>,
     mode: Mode,
 ) -> Result<()> {
+    crate::execlog::set_ticket(ticket);
+
     let mut config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
     config.resolve_for_repo(manager.repo_root());
@@ -77,6 +81,7 @@ pub async fn ship(
     // Phase 1: Push only (don't clean up yet)
     // Idempotency: if workspace is already gone (cleaned up after a prior ship),
     // treat push as a no-op — the branch is already on the remote.
+    let push_start = std::time::Instant::now();
     let mut result = match manager.ship_push(ticket) {
         Ok(r) => r,
         Err(e) => {
@@ -111,6 +116,8 @@ pub async fn ship(
         }
     };
 
+    crate::execlog::record_step("push", "ok", push_start.elapsed().as_millis() as u64, None);
+
     // Resolve base branch: --base CLI > config default_base > worktree's base_branch
     if let Some(base) = base_override {
         result.base_branch = base;
@@ -133,8 +140,9 @@ pub async fn ship(
     }
 
     // Phase 2: Create PR/MR (async)
+    let pr_start = std::time::Instant::now();
     let mut pr_failed = false;
-    if !no_pr && config.ship.auto_pr {
+    if !no_pr && config.ship.auto_pr && !crate::env::is_offline() {
         let (ticket_title, ticket_url) =
             match tracker::fetch_ticket(&config, ticket, Some(manager.repo_root())).await {
                 Ok(Some(t)) => (Some(t.title), t.url),
@@ -155,11 +163,18 @@ pub async fn ship(
         // Gather stack context for PR body (#234)
         let stack_info = gather_stack_info(&manager, ticket);
 
+        // Resolve PR template (#233)
+        let template_content = resolve_template(
+            manager.repo_root(),
+            template.as_deref().or(config.ship.template.as_deref()),
+        );
+
         let pr_body = build_pr_body(
             &result.ticket,
             effective_title,
             ticket_url.as_deref(),
             stack_info.as_ref(),
+            template_content.as_deref(),
         );
 
         let remote_url = git::get_remote_url(manager.repo_root());
@@ -207,8 +222,38 @@ pub async fn ship(
                         }
                     }
                 }
+            } else if let Some(bb) = bitbucket::BitbucketClient::new(remote_url)? {
+                // No GitHub token — try Bitbucket
+                if let Ok(Some(existing_pr)) = bb.find_pr_by_branch(&result.branch).await {
+                    let pr_url = format!(
+                        "https://bitbucket.org/{}/{}/pull-requests/{}",
+                        bb.remote().workspace,
+                        bb.remote().repo_slug,
+                        existing_pr
+                    );
+                    result.pr_url = Some(pr_url);
+                } else {
+                    match bb
+                        .create_pr(
+                            &result.branch,
+                            &result.base_branch,
+                            &pr_title,
+                            &pr_body,
+                            draft || config.ship.draft,
+                        )
+                        .await
+                    {
+                        Ok(pr) => {
+                            result.pr_url = Some(pr.url);
+                        }
+                        Err(e) => {
+                            eprintln!("error: Bitbucket PR creation failed: {e}");
+                            pr_failed = true;
+                        }
+                    }
+                }
             } else {
-                // No GitHub token — try GitLab
+                // No GitHub/Bitbucket token — try GitLab
                 match gitlab::create_mr(
                     remote_url,
                     &result.branch,
@@ -225,7 +270,7 @@ pub async fn ship(
                     Ok(None) => {
                         eprintln!(
                             "note: PR/MR creation skipped — no token found.\n      \
-                             Set PARSEC_GITHUB_TOKEN or PARSEC_GITLAB_TOKEN to enable."
+                             Set PARSEC_GITHUB_TOKEN, PARSEC_BITBUCKET_TOKEN, or PARSEC_GITLAB_TOKEN to enable."
                         );
                         pr_failed = true;
                     }
@@ -238,8 +283,15 @@ pub async fn ship(
         }
     }
 
+    crate::execlog::record_step(
+        "create_pr",
+        if pr_failed { "error" } else { "ok" },
+        pr_start.elapsed().as_millis() as u64,
+        result.pr_url.clone(),
+    );
+
     // Auto-comment PR link on the ticket if configured
-    if config.tracker.comment_on_ship {
+    if config.tracker.comment_on_ship && !crate::env::is_offline() {
         if let Some(ref pr_url) = result.pr_url {
             let comment_body = format!("PR opened: {}", pr_url);
             if let Err(e) =
@@ -357,6 +409,7 @@ fn build_pr_body(
     title: Option<&str>,
     ticket_url: Option<&str>,
     stack_info: Option<&StackPrInfo>,
+    template_content: Option<&str>,
 ) -> String {
     let mut body = String::new();
 
@@ -391,7 +444,46 @@ fn build_pr_body(
         body.push('\n');
     }
 
+    // Include PR template content (#233)
+    if let Some(tmpl) = template_content {
+        body.push_str("---\n\n");
+        body.push_str(tmpl);
+        body.push('\n');
+    }
+
     body.push_str(&format!("Shipped via `parsec ship {ticket}`\n"));
 
     body
+}
+
+/// Resolve PR template content from explicit path or auto-detection.
+fn resolve_template(repo_root: &Path, explicit_path: Option<&str>) -> Option<String> {
+    if let Some(path) = explicit_path {
+        let full_path = if std::path::Path::new(path).is_absolute() {
+            std::path::PathBuf::from(path)
+        } else {
+            repo_root.join(path)
+        };
+        return std::fs::read_to_string(&full_path).ok();
+    }
+
+    // Auto-detect common template locations
+    let candidates = [
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/pull_request_template.md",
+        "PULL_REQUEST_TEMPLATE.md",
+        "pull_request_template.md",
+        "docs/PULL_REQUEST_TEMPLATE.md",
+    ];
+
+    for candidate in &candidates {
+        let path = repo_root.join(candidate);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if !content.trim().is_empty() {
+                return Some(content);
+            }
+        }
+    }
+
+    None
 }

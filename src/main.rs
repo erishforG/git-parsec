@@ -1,10 +1,12 @@
 #[macro_use]
 mod errors;
 
+mod bitbucket;
 mod cli;
 mod config;
 mod conflict;
 mod env;
+mod execlog;
 mod git;
 mod github;
 mod gitlab;

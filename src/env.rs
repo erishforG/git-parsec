@@ -70,3 +70,46 @@ pub fn gitlab_token() -> Option<String> {
     }
     None
 }
+
+// ---------------------------------------------------------------------------
+// Bitbucket
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_BITBUCKET_TOKEN: &str = "PARSEC_BITBUCKET_TOKEN";
+pub const BITBUCKET_TOKEN: &str = "BITBUCKET_TOKEN";
+/// Override Bitbucket Cloud API base URL. Useful for tests (mock servers) and
+/// future Bitbucket Server / Data Center support.
+pub const PARSEC_BITBUCKET_API_BASE: &str = "PARSEC_BITBUCKET_API_BASE";
+
+/// Resolve Bitbucket token. Priority: PARSEC_BITBUCKET_TOKEN > BITBUCKET_TOKEN
+pub fn bitbucket_token() -> Option<String> {
+    for var in [PARSEC_BITBUCKET_TOKEN, BITBUCKET_TOKEN] {
+        if let Ok(token) = std::env::var(var) {
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+    }
+    None
+}
+
+/// Bitbucket API base URL override (no trailing slash). Returns None when unset.
+pub fn bitbucket_api_base() -> Option<String> {
+    std::env::var(PARSEC_BITBUCKET_API_BASE)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|v| v.trim_end_matches('/').to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Offline mode
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_OFFLINE: &str = "PARSEC_OFFLINE";
+
+/// Check if offline mode is active (via --offline flag or PARSEC_OFFLINE env var).
+pub fn is_offline() -> bool {
+    std::env::var(PARSEC_OFFLINE)
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false)
+}

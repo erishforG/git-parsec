@@ -131,6 +131,15 @@ impl WorktreeManager {
             .save(&self.repo_root)
             .context("failed to save parsec state")?;
 
+        // Share build-cache directories from the main repo into the new worktree.
+        // Failures are logged but never propagated — the worktree itself succeeded.
+        super::cache_share::share_cache(
+            &self.repo_root,
+            &worktree_path,
+            &self.config.worktree.shared_cache,
+            self.config.worktree.cache_strategy,
+        );
+
         // Run post-create hooks
         if !self.config.hooks.post_create.is_empty() {
             let skip_prompt = std::env::var("PARSEC_YES")

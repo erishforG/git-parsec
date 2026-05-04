@@ -33,6 +33,10 @@ pub struct Cli {
     /// Preview what would happen without making changes
     #[arg(long, global = true)]
     pub dry_run: bool,
+
+    /// Skip all network operations (tracker, PR, fetch)
+    #[arg(long, global = true)]
+    pub offline: bool,
 }
 
 #[derive(Subcommand)]
@@ -140,6 +144,10 @@ pub enum Command {
         /// Add labels to the PR (can be specified multiple times)
         #[arg(long, short = 'l')]
         label: Vec<String>,
+
+        /// Path to PR body template file
+        #[arg(long)]
+        template: Option<String>,
     },
 
     /// Remove merged or stale worktrees
@@ -308,6 +316,10 @@ pub enum Command {
         /// Show last N entries (default: 20)
         #[arg(long, short = 'n', default_value = "20")]
         last: usize,
+
+        /// Export execution log as JSONL (for observability/debugging)
+        #[arg(long)]
+        export: bool,
     },
 
     /// Undo the last parsec operation
@@ -466,6 +478,20 @@ pub enum Command {
         start: bool,
     },
 
+    /// Squash all branch commits into one
+    ///
+    /// Resets the branch to the merge-base with the base branch and
+    /// re-commits all changes as a single commit. Use --message to
+    /// set a custom commit message.
+    Compress {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Custom commit message (default: combines all squashed messages)
+        #[arg(long, short)]
+        message: Option<String>,
+    },
+
     /// Rename a workspace to a different ticket ID
     ///
     /// Changes the ticket ID, renames the branch, and moves the worktree directory.
@@ -514,6 +540,11 @@ pub enum ConfigAction {
         /// Shell type (zsh, bash, fish, elvish, powershell)
         shell: clap_complete::Shell,
     },
+    /// Output JSON Schema for config.toml
+    ///
+    /// Prints the JSON Schema for parsec's configuration format.
+    /// Useful for IDE autocomplete and validation.
+    Schema,
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -526,7 +557,51 @@ pub async fn run(cli: Cli) -> Result<()> {
         output::Mode::Human
     };
 
-    match cli.command {
+    // Propagate offline mode via env var so all subsystems can check it
+    let offline = cli.offline
+        || crate::config::ParsecConfig::load()
+            .map(|c| c.workspace.offline)
+            .unwrap_or(false);
+    if offline {
+        std::env::set_var("PARSEC_OFFLINE", "1");
+    }
+
+    // Observability: extract command name and set up execution tracking
+    let cmd_name = match &cli.command {
+        Command::Start { .. } => "start",
+        Command::List { .. } => "list",
+        Command::Status { .. } => "status",
+        Command::Ticket { .. } => "ticket",
+        Command::Ship { .. } => "ship",
+        Command::Clean { .. } => "clean",
+        Command::Conflicts => "conflicts",
+        Command::PrStatus { .. } => "pr-status",
+        Command::Merge { .. } => "merge",
+        Command::Ci { .. } => "ci",
+        Command::Diff { .. } => "diff",
+        Command::Switch { .. } => "switch",
+        Command::Sync { .. } => "sync",
+        Command::Open { .. } => "open",
+        Command::Adopt { .. } => "adopt",
+        Command::Log { .. } => "log",
+        Command::Undo { .. } => "undo",
+        Command::Inbox { .. } => "inbox",
+        Command::Board { .. } => "board",
+        Command::Stack { .. } => "stack",
+        Command::Root => "root",
+        Command::Init { .. } => "init",
+        Command::Config { .. } => "config",
+        Command::Doctor { .. } => "doctor",
+        Command::Release { .. } => "release",
+        Command::Create { .. } => "create",
+        Command::Rename { .. } => "rename",
+        Command::Compress { .. } => "compress",
+    };
+    let exec_id = crate::execlog::new_execution_id();
+    let exec_started_at = chrono::Utc::now();
+    let exec_start = std::time::Instant::now();
+
+    let result = match cli.command {
         Command::Start {
             ticket,
             base,
@@ -571,6 +646,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             skip_hooks,
             reviewer,
             label,
+            template,
         } => {
             if cli.dry_run {
                 eprintln!(
@@ -592,6 +668,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 skip_hooks,
                 reviewer,
                 label,
+                template,
                 output_mode,
             )
             .await
@@ -698,8 +775,16 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Switch { ticket } => {
             commands::switch(&repo_path, ticket.as_deref(), output_mode).await
         }
-        Command::Log { ticket, last } => {
-            commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
+        Command::Log {
+            ticket,
+            last,
+            export,
+        } => {
+            if export {
+                commands::log_export(&repo_path).await
+            } else {
+                commands::log(&repo_path, ticket.as_deref(), last, output_mode).await
+            }
         }
         Command::Undo { dry_run } => commands::undo(&repo_path, dry_run, output_mode).await,
         Command::Inbox { pick } => commands::inbox(&repo_path, pick, output_mode).await,
@@ -736,6 +821,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             ConfigAction::Shell { shell } => commands::config_shell(&shell, output_mode).await,
             ConfigAction::Man { dir } => commands::config_man(&dir).await,
             ConfigAction::Completions { shell } => commands::config_completions(shell).await,
+            ConfigAction::Schema => commands::config_schema().await,
         },
         Command::Doctor { ai } => {
             if ai {
@@ -793,5 +879,36 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
             commands::rename(&repo_path, &old_ticket, &new_ticket, output_mode).await
         }
+        Command::Compress { ticket, message } => {
+            commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
+        }
+    };
+
+    // Record execution entry (best-effort, never fail the command)
+    let duration = exec_start.elapsed();
+    let steps = crate::execlog::take_steps();
+    let ticket = crate::execlog::take_ticket();
+    let entry = crate::execlog::ExecEntry {
+        execution_id: exec_id,
+        command: cmd_name.to_string(),
+        ticket,
+        started_at: exec_started_at,
+        finished_at: chrono::Utc::now(),
+        duration_ms: duration.as_millis() as u64,
+        status: if result.is_ok() {
+            "ok".to_string()
+        } else {
+            "error".to_string()
+        },
+        error: result.as_ref().err().map(|e| format!("{e:#}")),
+        steps,
+    };
+    // Use repo_path for logging; skip if .parsec dir can't be resolved
+    if let Ok(root) = crate::git::get_main_repo_root(&repo_path)
+        .or_else(|_| crate::git::get_repo_root(&repo_path))
+    {
+        let _ = crate::execlog::append(&root, &entry);
     }
+
+    result
 }
