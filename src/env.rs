@@ -148,12 +148,22 @@ pub fn is_offline() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    /// Process-wide mutex to serialize env-touching tests. cargo test runs
+    /// tests in parallel by default, so any test that mutates env vars must
+    /// hold this lock — otherwise sibling tests racing through `set_var` /
+    /// `remove_var` clobber each other (Windows CI hit this with priority_order
+    /// reading PARSEC=p but seeing GH=h because another test cleared PARSEC
+    /// mid-assertion).
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     /// Helper: snapshot/clear env vars affecting github_token, then restore.
-    /// std::env::set_var/remove_var is unsafe in Rust 2024; test isolation is
-    /// per-process. Tests in this module assume serial execution (default for
-    /// `cargo test` with `--test-threads=1` not required, but env vars are
-    /// shared so we save+restore.
+    /// std::env::set_var/remove_var is unsafe in Rust 2024. Tests holding
+    /// `env_lock()` only run serially, so the snapshot+restore is sufficient.
     struct EnvGuard {
         orig: Vec<(&'static str, Option<String>)>,
     }
@@ -191,11 +201,12 @@ mod tests {
         }
     }
 
-    /// 우선순위 + 빈값 fallback 4 시나리오를 한 함수에서 sequential 검사.
-    /// (env vars 는 process-wide 라 cargo test 병렬 실행 시 race. 단일 테스트로 합쳐
-    /// EnvGuard 의 새로 만들기·복원 루틴 안에서 안전하게 순서 검사.)
+    /// 우선순위 + 빈값 fallback + 모두 미설정 시나리오를 한 함수에서 sequential 검사.
+    /// `env_lock()` 으로 process-wide 직렬화 (cargo test 병렬 실행 환경에서 sibling
+    /// 테스트가 env 를 클로버하지 않도록). Windows CI 에서 race 발견 (#289).
     #[test]
-    fn github_token_priority_order() {
+    fn github_token_priority_order_and_fallback() {
+        let _guard = env_lock().lock().unwrap_or_else(|p| p.into_inner());
         // 1. PARSEC_GITHUB_TOKEN 우선
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
@@ -228,23 +239,19 @@ mod tests {
             assert_eq!(github_token().as_deref(), Some("g"));
             drop(g);
         }
-    }
-
-    #[test]
-    fn github_token_returns_none_when_all_missing_and_gh_fails() {
-        // 환경상 `gh` binary 가 없거나 인증 안돼있으면 None. CI/test env 에서 이게 일반.
-        let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
-        // gh binary 가 PATH 에 있고 로그인까지 돼있으면 본 테스트는 Some 을 반환할 수
-        // 있음. CI 에서는 로그인 X 가 일반이라 None 기대. local dev 에서는 Some 가능.
-        // 따라서 None OR gh 환경에서 정상 token 모두 허용.
-        match github_token() {
-            None => {}
-            Some(t) => assert!(
-                !t.is_empty(),
-                "if gh auth token is available, it must not be empty"
-            ),
+        // 5. 모두 미설정 + gh 실패 → None. CI 환경 (gh 로그인 X) 이 일반.
+        //    local dev 에서 gh auth login 돼있으면 Some(token) 도 허용 (smoke).
+        {
+            let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
+            match github_token() {
+                None => {}
+                Some(t) => assert!(
+                    !t.is_empty(),
+                    "if gh auth token is available, it must not be empty"
+                ),
+            }
+            drop(g);
         }
-        drop(g);
     }
 
     #[test]
