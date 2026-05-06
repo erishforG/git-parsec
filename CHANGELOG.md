@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **v0.5 milestone opened** — see Roadmap in README. Themes: smartlog · TUI
+  dashboard · speculative merge · `parsec test` · AI PR descriptions.
+
+### Fixed
+- `parsec ship` falls back to `gh auth token` when `PARSEC_GITHUB_TOKEN` /
+  `GITHUB_TOKEN` / `GH_TOKEN` env vars are absent — parity with `parsec
+  doctor` and the tracker layer (#281). The fallback is restricted to
+  GitHub hosts so Bitbucket / GitLab remotes are unaffected.
+
 ## [0.4.0] - 2026-05-04
 
 ### Added
