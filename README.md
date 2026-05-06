@@ -29,6 +29,21 @@ That's the whole loop. Plain `git worktree` doesn't track state, doesn't talk to
 
 ---
 
+## Roadmap
+
+> **Vision**: parsec = AI agents + human devs both — worktree-native git CLI.
+
+| Milestone | Status | Theme |
+|---|---|---|
+| **v0.4.0** | ✅ Released (2026-05-04) | Multi-forge + multi-tracker foundation (GitHub / GitLab / Bitbucket; Jira / Linear) |
+| **v0.5** — _The visualization release_ | 🚧 Next | smartlog · TUI dashboard · speculative merge · `parsec test` · AI PR descriptions |
+| **v1.0** — _AI-Native Standard_ | 🔜 | MCP server signature — Claude / Cursor / Copilot invoke parsec as a first-class tool |
+| **v2.0+** — _Ecosystem Hub_ | 🔮 | Plugins · VS Code extension · Linear-native tracker · org-scale workflows |
+
+Open issues for v0.5 are tracked under the [`v0.5` milestone](https://github.com/erishforG/git-parsec/milestone/3).
+
+---
+
 ## Install
 
 ```bash
