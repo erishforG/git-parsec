@@ -501,6 +501,17 @@ pub enum Command {
         /// New ticket identifier
         new_ticket: String,
     },
+
+    /// Visualize active worktrees as a commit DAG (alias: sl)
+    ///
+    /// Lists every active worktree, the commits it adds on top of its base
+    /// branch, and (in later releases) PR/CI/review state. Issue #245.
+    #[command(alias = "sl")]
+    Smartlog {
+        /// Maximum commits per worktree (default: 10)
+        #[arg(long, short)]
+        depth: Option<usize>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -596,6 +607,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Create { .. } => "create",
         Command::Rename { .. } => "rename",
         Command::Compress { .. } => "compress",
+        Command::Smartlog { .. } => "smartlog",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -882,6 +894,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Compress { ticket, message } => {
             commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
         }
+        Command::Smartlog { depth } => commands::smartlog(&repo_path, depth, output_mode).await,
     };
 
     // Record execution entry (best-effort, never fail the command)
