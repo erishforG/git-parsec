@@ -120,12 +120,20 @@ impl ParsecError {
     }
 
     /// Attach a `caused by` line — the upstream cause in plain language.
+    ///
+    /// Phase 1 of #303 ships the builder; call sites are migrated in
+    /// follow-up PRs (cli/commands/, worktree/). dead_code allow matches
+    /// the pattern used elsewhere in this module (e.g., `ErrorCode`).
+    #[allow(dead_code)]
     pub fn with_caused_by(mut self, cause: impl Into<String>) -> Self {
         self.caused_by = Some(cause.into());
         self
     }
 
     /// Attach a `help` line — the next action the user should take.
+    ///
+    /// See [`Self::with_caused_by`] for the dead_code rationale.
+    #[allow(dead_code)]
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
         self
@@ -152,7 +160,10 @@ pub struct JsonError {
 /// chain. Falls back to `E999` for untyped errors.
 ///
 /// Kept for backward compat with existing callers (returns just the code +
-/// message). New code should prefer [`extract_full`].
+/// message). New code should prefer [`extract_full`]. dead_code allow
+/// because main.rs migrated to extract_full as part of #303 and no other
+/// caller exists yet.
+#[allow(dead_code)]
 pub fn extract_code(err: &anyhow::Error) -> (ErrorCode, &str) {
     if let Some(pe) = err.downcast_ref::<ParsecError>() {
         (pe.code, &pe.message)
