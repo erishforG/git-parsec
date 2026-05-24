@@ -165,6 +165,20 @@ pub fn get_current_branch(repo: &Path) -> Result<String> {
     run_output(repo, &["rev-parse", "--abbrev-ref", "HEAD"])
 }
 
+/// Return all local branch names (no `refs/heads/` prefix, no leading `*`).
+pub fn list_local_branches(repo: &Path) -> Result<Vec<String>> {
+    let out = run_output(
+        repo,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+    )?;
+    Ok(out
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
 /// Create a new worktree at `path` on a new branch `branch` based on `base`.
 pub fn worktree_add(repo: &Path, path: &Path, branch: &str, base: &str) -> Result<()> {
     let path_str = path

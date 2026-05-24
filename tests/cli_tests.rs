@@ -1167,6 +1167,87 @@ cache_strategy = "symlink"
 }
 
 // ---------------------------------------------------------------------------
+// __complete (hidden dynamic-completion helper, #291)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_complete_is_hidden_from_help() {
+    let assertion = parsec().arg("--help").assert().success();
+    let stdout = String::from_utf8(assertion.get_output().stdout.clone()).unwrap();
+    assert!(
+        !stdout.contains("__complete"),
+        "__complete should be hidden from --help, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_complete_branches_lists_local_branches() {
+    let repo = setup_repo();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Add a second local branch on top of the default main.
+    StdCommand::new("git")
+        .args(["branch", "feature/x"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    let assertion = parsec()
+        .args(["__complete", "branches", "--repo", repo_path])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assertion.get_output().stdout.clone()).unwrap();
+
+    assert!(stdout.contains("main"), "expected 'main', got:\n{stdout}");
+    assert!(
+        stdout.contains("feature/x"),
+        "expected 'feature/x', got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_complete_worktrees_lists_tickets() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "COMP-001", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let assertion = parsec()
+        .args(["__complete", "worktrees", "--repo", repo_path])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assertion.get_output().stdout.clone()).unwrap();
+
+    assert!(
+        stdout.contains("COMP-001"),
+        "expected 'COMP-001', got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_complete_outside_git_repo_is_silent_success() {
+    // Empty temp dir, no git repo — completion must not error or print noise.
+    let dir = TempDir::new().unwrap();
+    let assertion = parsec()
+        .args([
+            "__complete",
+            "branches",
+            "--repo",
+            dir.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assertion.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.trim().is_empty(),
+        "expected empty stdout outside repo, got:\n{stdout}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // JSON error format
 // ---------------------------------------------------------------------------
 

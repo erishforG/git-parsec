@@ -512,6 +512,25 @@ pub enum Command {
         #[arg(long, short)]
         depth: Option<usize>,
     },
+
+    /// Internal: emit dynamic completion candidates (issue #291).
+    ///
+    /// Used by shell completion scripts to enumerate worktrees / branches /
+    /// tickets at completion time. Not intended for direct user invocation.
+    #[command(name = "__complete", hide = true)]
+    Complete {
+        #[command(subcommand)]
+        kind: CompleteKind,
+    },
+}
+
+/// Candidate sets the dynamic completion subcommand can emit.
+#[derive(Subcommand)]
+pub enum CompleteKind {
+    /// Print active worktree ticket identifiers, one per line.
+    Worktrees,
+    /// Print local branch names, one per line.
+    Branches,
 }
 
 #[derive(Subcommand)]
@@ -608,6 +627,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Rename { .. } => "rename",
         Command::Compress { .. } => "compress",
         Command::Smartlog { .. } => "smartlog",
+        Command::Complete { .. } => "__complete",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -895,6 +915,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
         }
         Command::Smartlog { depth } => commands::smartlog(&repo_path, depth, output_mode).await,
+        Command::Complete { kind } => commands::complete(&repo_path, kind).await,
     };
 
     // Record execution entry (best-effort, never fail the command)
