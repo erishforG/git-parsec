@@ -1193,3 +1193,169 @@ fn test_json_error_format() {
     assert!(parsed.get("code").is_some());
     assert!(parsed.get("message").is_some());
 }
+
+// ---------------------------------------------------------------------------
+// compress command (issue #314)
+// ---------------------------------------------------------------------------
+
+/// When the worktree has only the initial "start" commit (0 commits above
+/// merge-base), compress must report "Nothing to compress" and exit 0.
+#[test]
+fn test_compress_nothing_to_do() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Create a workspace
+    parsec()
+        .args(["start", "COMP-1", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // compress: single commit (merge-base == HEAD), nothing to squash
+    parsec()
+        .args(["compress", "COMP-1", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Nothing to compress"));
+}
+
+/// When the worktree has 2+ commits above merge-base, compress squashes them
+/// into one and reports the count.
+#[test]
+fn test_compress_squashes_commits() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    // Start a workspace
+    parsec()
+        .args(["start", "COMP-2", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Locate the sibling worktree directory
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+    let wt_path = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.COMP-2", repo_name));
+
+    // Make two distinct commits in the worktree
+    std::fs::write(wt_path.join("a.txt"), "alpha").unwrap();
+    StdCommand::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "first change"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+
+    std::fs::write(wt_path.join("b.txt"), "beta").unwrap();
+    StdCommand::new("git")
+        .args(["add", "b.txt"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "second change"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+
+    // compress should squash both commits and report "Compressed 2 commits"
+    parsec()
+        .args(["compress", "COMP-2", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Compressed 2 commits"));
+
+    // Verify only 1 commit now sits above merge-base
+    let merge_base = StdCommand::new("git")
+        .args(["merge-base", "HEAD", "main"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    let merge_base_sha = String::from_utf8(merge_base.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
+
+    let count_out = StdCommand::new("git")
+        .args(["rev-list", "--count", &format!("{}..HEAD", merge_base_sha)])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    let count: u64 = String::from_utf8(count_out.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        count, 1,
+        "compress should leave exactly 1 commit above merge-base"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// config schema command (issue #314)
+// ---------------------------------------------------------------------------
+
+/// `parsec config schema` must exit 0 and emit well-formed JSON.
+#[test]
+fn test_config_schema_outputs_json() {
+    let repo = setup_repo();
+
+    let output = parsec()
+        .args(["config", "schema", "--repo", repo.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "config schema should exit 0");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("config schema output must be valid JSON");
+
+    // JSON Schema documents must have a $schema or type/properties field
+    assert!(
+        parsed.get("$schema").is_some()
+            || parsed.get("type").is_some()
+            || parsed.get("properties").is_some(),
+        "output does not look like a JSON Schema document"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// history log --export command (issue #314)
+// ---------------------------------------------------------------------------
+
+/// `parsec log --export` in a repo with no prior parsec operations should exit
+/// 0. When the execlog is empty it writes a message to stderr and nothing to
+/// stdout (or exits successfully with empty stdout).
+#[test]
+fn test_history_log_export_empty() {
+    let repo = setup_repo();
+
+    let output = parsec()
+        .args(["log", "--export", "--repo", repo.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    // Should not fail
+    assert!(
+        output.status.success(),
+        "log --export should succeed even when log is empty"
+    );
+
+    // Either stdout is empty OR stderr mentions the empty state
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stdout.is_empty() || stderr.contains("No execution log"),
+        "expected empty stdout or informational stderr, got stdout={:?} stderr={:?}",
+        stdout,
+        stderr
+    );
+}
