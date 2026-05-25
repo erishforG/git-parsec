@@ -10,12 +10,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **v0.5 milestone opened** — see Roadmap in README. Themes: smartlog · TUI
   dashboard · speculative merge · `parsec test` · AI PR descriptions.
+- **`parsec smartlog` (alias `sl`)** — visualize active worktrees as a commit
+  DAG. ASCII tree groups worktrees by base branch and shows commits since
+  merge-base; `--json` output for tooling. PR/CI overlay reserved for a
+  follow-up (#245, #305).
+- **`parsec __complete` shell-completion helper** — hidden `__complete
+  <worktrees|branches>` subcommand emits newline-separated completion
+  candidates. Enables dynamic worktree/branch tab-completion in zsh, bash,
+  and fish without bundling shell-specific generators (#291, #312).
 
 ### Fixed
 - `parsec ship` falls back to `gh auth token` when `PARSEC_GITHUB_TOKEN` /
   `GITHUB_TOKEN` / `GH_TOKEN` env vars are absent — parity with `parsec
   doctor` and the tracker layer (#281). The fallback is restricted to
   GitHub hosts so Bitbucket / GitLab remotes are unaffected.
+
+### Changed
+- **Error messages standardized to 3-line format** — every user-facing error
+  now follows `error: <summary> / caused by: <root cause> / help: <action>`
+  so error output is consistent and actionable (#303, #306).
+
+### CI
+- Windows VS2026 (Visual Studio 2026 runner) pre-validation job added to the
+  test matrix, catching MSVC toolchain regressions before release (#307, #311).
 
 ## [0.4.0] - 2026-05-04
 
