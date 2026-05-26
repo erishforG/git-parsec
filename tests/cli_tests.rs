@@ -1440,3 +1440,157 @@ fn test_history_log_export_empty() {
         stderr
     );
 }
+
+// ---------------------------------------------------------------------------
+// parsec smartlog / sl (issue #245, #305)
+// ---------------------------------------------------------------------------
+
+/// `parsec smartlog` in a repo with no active worktrees should exit 0 and
+/// print the "No active worktrees" placeholder message.
+#[test]
+fn test_smartlog_empty_repo() {
+    let repo = setup_repo();
+
+    parsec()
+        .args(["smartlog", "--repo", repo.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No active worktrees"));
+}
+
+/// `parsec sl` (alias) must behave identically to `parsec smartlog`.
+#[test]
+fn test_sl_alias_works_like_smartlog() {
+    let repo = setup_repo();
+
+    let smartlog_out = parsec()
+        .args(["smartlog", "--repo", repo.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let sl_out = parsec()
+        .args(["sl", "--repo", repo.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(smartlog_out.status.success(), "smartlog should succeed");
+    assert!(sl_out.status.success(), "sl alias should succeed");
+    assert_eq!(
+        smartlog_out.stdout, sl_out.stdout,
+        "`sl` and `smartlog` must produce identical output"
+    );
+}
+
+/// `parsec smartlog --json` in an empty repo must return a valid, empty JSON
+/// array and exit 0.
+#[test]
+fn test_smartlog_json_empty_is_array() {
+    let repo = setup_repo();
+
+    let output = parsec()
+        .args([
+            "smartlog",
+            "--json",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "smartlog --json should exit 0");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("smartlog --json must emit valid JSON");
+    assert!(
+        parsed.is_array(),
+        "smartlog --json should emit a JSON array, got: {parsed}"
+    );
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        0,
+        "empty repo → empty array"
+    );
+}
+
+/// After creating a workspace, `parsec smartlog` should display the ticket
+/// name, branch, and base branch in the ASCII tree.
+#[test]
+fn test_smartlog_shows_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "SL-1", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["smartlog", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.contains("SL-1"),
+        "smartlog should show ticket 'SL-1', got:\n{stdout}"
+    );
+    // The ASCII tree marks base branch with "○ <base> (base)"
+    assert!(
+        stdout.contains("(base)"),
+        "smartlog should show a base-branch marker, got:\n{stdout}"
+    );
+}
+
+/// `parsec smartlog --json` with one active worktree must return a JSON array
+/// containing exactly one object with expected fields.
+#[test]
+fn test_smartlog_json_one_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "SL-2", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["smartlog", "--json", "--repo", repo_path])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "smartlog --json should exit 0");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("must be valid JSON");
+
+    let arr = parsed.as_array().expect("must be a JSON array");
+    assert_eq!(arr.len(), 1, "expected exactly 1 worktree entry");
+
+    let entry = &arr[0];
+    assert_eq!(
+        entry["ticket"].as_str().unwrap(),
+        "SL-2",
+        "ticket field mismatch"
+    );
+    assert!(
+        entry.get("branch").is_some(),
+        "entry must have a 'branch' field"
+    );
+    assert!(
+        entry.get("base_branch").is_some(),
+        "entry must have a 'base_branch' field"
+    );
+    assert!(
+        entry.get("commits").is_some(),
+        "entry must have a 'commits' field"
+    );
+    // PR / CI overlay fields must NOT appear when unset (skip_serializing_if)
+    assert!(
+        entry.get("pr").is_none(),
+        "unset 'pr' field must be omitted from JSON"
+    );
+    assert!(
+        entry.get("ci").is_none(),
+        "unset 'ci' field must be omitted from JSON"
+    );
+}
