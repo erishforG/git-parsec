@@ -1,3 +1,17 @@
+//! `parsec ci` — forge-agnostic CI status for shipped PRs.
+//!
+//! Queries GitHub Actions check runs or Bitbucket Pipelines for PRs that were
+//! created by `parsec ship`.  The forge backend is selected automatically from
+//! the `origin` remote URL; GitHub takes priority when both tokens are set.
+//!
+//! ## Commands
+//! - **`parsec ci [ticket…]`** — print the current CI status for one or more
+//!   tickets.
+//! - **`parsec ci --all`** — check every ticket that has a shipped PR in the
+//!   oplog.
+//! - **`parsec ci --watch`** — poll every 5 s and redraw the terminal until all
+//!   checks reach a terminal state (human mode only).
+
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -16,6 +30,20 @@ enum Forge {
     Bitbucket(bitbucket::BitbucketClient),
 }
 
+/// Show CI check status for one or more worktrees' shipped PRs.
+///
+/// # Resolution order
+/// 1. `--all` → every `Ship` oplog entry.
+/// 2. `tickets` (non-empty) → look up the most recent `Ship` entry per ticket,
+///    falling back to a live PR search by branch name.
+/// 3. Neither → auto-detect from `cwd`.
+///
+/// # Watch mode
+/// When `watch = true` (and `mode == Human`) the terminal is cleared every 5 s
+/// and CI statuses are redrawn until all checks reach a terminal state.
+/// Watch mode is silently disabled for JSON output to allow piping.
+///
+/// Exits with [`ErrorCode::E002`] when any check is in a failing state.
 pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
@@ -193,6 +221,10 @@ pub async fn ci(repo: &Path, tickets: &[&str], watch: bool, all: bool, mode: Mod
 
 /// Fetch the latest pipeline for the PR's source branch and shape it into the
 /// same `CiStatus` struct GitHub emits, so the renderer stays forge-agnostic.
+///
+/// Returns an empty [`CiStatus`] (overall = `"no checks"`) when the PR's
+/// source branch cannot be resolved — matching the behaviour of GitHub's
+/// "no checks" path rather than propagating an error.
 async fn fetch_bitbucket_ci(
     bb: &bitbucket::BitbucketClient,
     pr_id: u64,
