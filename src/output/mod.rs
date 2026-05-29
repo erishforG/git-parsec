@@ -43,6 +43,20 @@ pub struct DoctorCheck {
     pub fix: Option<String>,
 }
 
+/// One health record per worktree, produced by `parsec health`.
+pub struct HealthRecord {
+    /// Ticket identifier for the worktree.
+    pub ticket: String,
+    /// Number of uncommitted files (staged + unstaged).
+    pub uncommitted: usize,
+    /// Days since the last commit, or `None` when the history is unreadable.
+    pub stale_days: Option<i64>,
+    /// Threshold above which the worktree is considered stale.
+    pub stale_threshold_days: i64,
+    /// Whether a `.git/index.lock` file exists (hung git process indicator).
+    pub has_lock: bool,
+}
+
 /// Generate a dispatch function that routes to json:: and human:: based on Mode.
 ///
 /// Standard form (both Json and Human):
@@ -117,6 +131,7 @@ dispatch_output!(print_ticket, ticket: &TrackerTicket);
 dispatch_output!(print_comment, ticket_id: &str);
 dispatch_output!(print_inbox, tickets: &[InboxTicket]);
 dispatch_output!(print_doctor, checks: &[DoctorCheck]);
+dispatch_output!(print_health, records: &[HealthRecord]);
 dispatch_output!(
     print_list_full,
     infos: &[WorkspaceFullInfo],

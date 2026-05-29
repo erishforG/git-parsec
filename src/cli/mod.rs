@@ -428,6 +428,15 @@ pub enum Command {
         ai: bool,
     },
 
+    /// Check all active worktrees for common issues
+    ///
+    /// Scans every parsec-managed worktree for three lightweight health
+    /// indicators: lingering index.lock files (hung git process), uncommitted
+    /// changes, and stale branches (no commits in 7+ days).
+    ///
+    /// Phase 1 — CI-status overlay is reserved for a follow-up (#299).
+    Health,
+
     /// Create a release: merge to release branch, tag, and create GitHub Release
     ///
     /// Merges the current develop branch into the release branch (default: main),
@@ -622,6 +631,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Init { .. } => "init",
         Command::Config { .. } => "config",
         Command::Doctor { .. } => "doctor",
+        Command::Health => "health",
         Command::Release { .. } => "release",
         Command::Create { .. } => "create",
         Command::Rename { .. } => "rename",
@@ -862,6 +872,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::doctor(&repo_path, output_mode).await
             }
         }
+        Command::Health => commands::health(&repo_path, output_mode).await,
         Command::Release {
             version,
             from,

@@ -351,3 +351,37 @@ pub fn print_rename(old_ticket: &str, new_ticket: &str, workspace: &crate::workt
     });
     println!("{}", value);
 }
+
+pub fn print_health(records: &[super::HealthRecord]) {
+    let items: Vec<serde_json::Value> = records
+        .iter()
+        .map(|r| {
+            let stale = r
+                .stale_days
+                .map(|d| d > r.stale_threshold_days)
+                .unwrap_or(false);
+            json!({
+                "ticket": r.ticket,
+                "has_lock": r.has_lock,
+                "uncommitted": r.uncommitted,
+                "stale_days": r.stale_days,
+                "stale": stale,
+            })
+        })
+        .collect();
+    let all_healthy = records.iter().all(|r| {
+        !r.has_lock
+            && r.uncommitted == 0
+            && !r
+                .stale_days
+                .map(|d| d > r.stale_threshold_days)
+                .unwrap_or(false)
+    });
+    println!(
+        "{}",
+        json!({
+            "worktrees": items,
+            "all_healthy": all_healthy,
+        })
+    );
+}
