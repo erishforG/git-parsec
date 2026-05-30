@@ -1722,9 +1722,8 @@ fn test_health_json_one_worktree() {
     );
 
     // A fresh worktree must NOT have a lock file
-    assert_eq!(
-        entry["has_lock"].as_bool().unwrap(),
-        false,
+    assert!(
+        !entry["has_lock"].as_bool().unwrap(),
         "fresh worktree must not have index.lock"
     );
 

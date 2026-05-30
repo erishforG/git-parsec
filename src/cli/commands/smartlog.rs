@@ -1,23 +1,30 @@
 //! `parsec smartlog` (alias `sl`) — visualize active worktrees as a commit DAG.
 //!
-//! Issue #245 — Phase 1 (skeleton):
+//! Issue #245
+//!
+//! Phase 1 (PR #305 skeleton):
 //! - Collect every active worktree via [`WorktreeManager`]
 //! - Read each worktree's commits since its base branch (`base..branch`)
 //! - Render as ASCII tree, or emit JSON
 //!
-//! PR/CI/review overlay is intentionally **out of scope** for this PR;
-//! [`SmartlogNode::pr`] / [`SmartlogNode::ci`] fields are placeholders that
-//! later PRs will populate (e.g., GitHub PR state, CI run state, review state).
+//! Phase 2 (this PR — PR/CI overlay):
+//! - For each worktree, look up the GitHub PR by branch name and attach a
+//!   compact overlay ([`SmartlogPrOverlay`]) describing the PR number, state,
+//!   CI status and review status.
+//! - Overlay is best-effort: missing token / no PR / network errors all
+//!   degrade gracefully to "no overlay" without failing the command.
+//! - Users can opt out with `--no-overlay` for a fully offline run.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::ParsecConfig;
 use crate::git;
+use crate::github::GitHubClient;
 use crate::output::Mode;
 use crate::worktree::WorktreeManager;
 
@@ -33,12 +40,32 @@ pub struct SmartlogNode {
     pub base_branch: String,
     pub worktree_path: PathBuf,
     pub commits: Vec<CommitSummary>,
-    /// PR overlay — populated by a later PR (see #245 follow-up).
+    /// PR overlay — populated by Phase 2 when a matching GitHub PR is found.
+    /// Omitted from JSON entirely when no PR was attached (skip_serializing_if).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pr: Option<serde_json::Value>,
-    /// CI overlay — populated by a later PR (see #245 follow-up).
+    pub pr: Option<SmartlogPrOverlay>,
+    /// CI overlay — reserved for a follow-up that emits per-check detail
+    /// (Phase 2 folds the CI summary into [`SmartlogPrOverlay::ci_status`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ci: Option<serde_json::Value>,
+}
+
+/// Compact PR/CI summary attached to a smartlog row.
+///
+/// Subset of [`crate::github::PrStatus`] kept intentionally small: only the
+/// fields that fit on the one-line ticket row in the ASCII renderer, plus the
+/// browse URL so JSON consumers can click through. CI detail (per-check) is
+/// out of scope here — `parsec ci` already prints that view.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SmartlogPrOverlay {
+    pub number: u64,
+    /// `open` / `closed` / `merged` / `draft` / `unknown`.
+    pub state: String,
+    /// `success` / `failure` / `pending` / `unknown`.
+    pub ci_status: String,
+    /// `approved` / `changes_requested` / `pending` / `no reviews`.
+    pub review_status: String,
+    pub url: String,
 }
 
 /// Single commit in a worktree's diff against its base.
@@ -51,7 +78,12 @@ pub struct CommitSummary {
 }
 
 /// Entry point for the `smartlog` subcommand.
-pub async fn smartlog(repo: &Path, depth: Option<usize>, mode: Mode) -> Result<()> {
+pub async fn smartlog(
+    repo: &Path,
+    depth: Option<usize>,
+    no_overlay: bool,
+    mode: Mode,
+) -> Result<()> {
     let depth = depth.unwrap_or(DEFAULT_DEPTH);
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
@@ -75,6 +107,10 @@ pub async fn smartlog(repo: &Path, depth: Option<usize>, mode: Mode) -> Result<(
         });
     }
 
+    if !no_overlay {
+        attach_pr_overlay(repo, &config, &mut nodes).await;
+    }
+
     match mode {
         Mode::Json => {
             println!("{}", serde_json::to_string_pretty(&nodes)?);
@@ -84,6 +120,58 @@ pub async fn smartlog(repo: &Path, depth: Option<usize>, mode: Mode) -> Result<(
         }
     }
     Ok(())
+}
+
+/// Look up each node's PR via GitHub and populate `node.pr`.
+///
+/// Best-effort: no token, unknown remote host, or any HTTP failure all
+/// degrade to "no overlay" silently (the operator can re-run with
+/// `parsec pr status` for a full error report). Network errors are logged to
+/// stderr at info-level via `eprintln!` so a flaky run doesn't look like a
+/// silent bug, but they never fail the whole command.
+async fn attach_pr_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [SmartlogNode]) {
+    if nodes.is_empty() {
+        return;
+    }
+    let remote_url = match git::run_output(repo, &["remote", "get-url", "origin"]) {
+        Ok(url) => url.trim().to_string(),
+        Err(_) => return, // no origin → nothing to overlay
+    };
+    let client = match GitHubClient::new(&remote_url, config) {
+        Ok(Some(c)) => c,
+        // Either non-GitHub remote, no token, or a parse error — all of which
+        // mean "skip overlay" rather than fail.
+        _ => return,
+    };
+
+    for node in nodes.iter_mut() {
+        match fetch_overlay(&client, &node.branch).await {
+            Ok(Some(overlay)) => node.pr = Some(overlay),
+            Ok(None) => {} // no open PR for this branch
+            Err(e) => {
+                eprintln!(
+                    "smartlog: GitHub overlay failed for {} ({}): {}",
+                    node.ticket, node.branch, e
+                );
+            }
+        }
+    }
+}
+
+/// Resolve a single branch to a [`SmartlogPrOverlay`], or `None` if no open PR.
+async fn fetch_overlay(client: &GitHubClient, branch: &str) -> Result<Option<SmartlogPrOverlay>> {
+    let pr_num = match client.find_pr_by_branch(branch).await? {
+        Some(n) => n,
+        None => return Ok(None),
+    };
+    let status = client.get_pr_status(pr_num).await?;
+    Ok(Some(SmartlogPrOverlay {
+        number: status.number,
+        state: status.state,
+        ci_status: status.ci_status,
+        review_status: status.review_status,
+        url: status.url,
+    }))
 }
 
 /// Read commits in `base..branch` from a worktree, capped at `depth`.
@@ -104,6 +192,42 @@ fn collect_commits(
         &["log", &range, "--pretty=format:%h\t%s\t%an\t%aI", &limit],
     )?;
     Ok(raw.lines().filter_map(parse_commit_line).collect())
+}
+
+/// Format a one-line PR/CI summary for the ASCII tree.
+///
+/// Glyphs match `parsec pr status` / `parsec ci` conventions so users see the
+/// same vocabulary across commands:
+/// - state: `open` → `●`, `merged`/`closed` → `✓`, `draft` → `○`, other → `?`
+/// - CI: `success` → `✓ CI`, `failure` → `✗ CI`, `pending` → `● CI`, else `? CI`
+/// - review: `approved` → `✓ approved`, `changes_requested` → `✗ changes`,
+///   `pending` → `● review`, `no reviews` → omitted
+fn format_pr_badge(pr: &SmartlogPrOverlay) -> String {
+    let state_glyph = match pr.state.as_str() {
+        "open" => "●",
+        "merged" | "closed" => "✓",
+        "draft" => "○",
+        _ => "?",
+    };
+    let ci = match pr.ci_status.as_str() {
+        "success" => "✓ CI",
+        "failure" => "✗ CI",
+        "pending" => "● CI",
+        _ => "? CI",
+    };
+    let mut out = format!("[PR #{} {} {} {}]", pr.number, state_glyph, pr.state, ci);
+    let review = match pr.review_status.as_str() {
+        "approved" => Some("✓ approved"),
+        "changes_requested" => Some("✗ changes"),
+        "pending" => Some("● review"),
+        _ => None, // "no reviews" or unknown → omit
+    };
+    if let Some(r) = review {
+        // Strip the closing bracket, append review, re-close.
+        out.pop();
+        out.push_str(&format!(" {}]", r));
+    }
+    out
 }
 
 /// Parse a single tab-separated line emitted by our `git log --pretty` format.
@@ -162,6 +286,12 @@ pub fn render_text(nodes: &[SmartlogNode]) -> String {
             ));
 
             let prefix = if is_last { "   " } else { "│  " };
+            // PR overlay (Phase 2): one line above commits when overlay set.
+            // Always uses `├─` so it visually attaches to the ticket above and
+            // the commits below; the actual tree closes on the last commit.
+            if let Some(pr) = &node.pr {
+                out.push_str(&format!("{}├─ {}\n", prefix, format_pr_badge(pr)));
+            }
             if node.commits.is_empty() {
                 out.push_str(&format!("{}└─ (no commits since {})\n", prefix, base));
             } else {
@@ -311,5 +441,80 @@ mod tests {
         assert!(!json.contains("\"pr\""));
         assert!(!json.contains("\"ci\""));
         assert!(json.contains("\"ticket\":\"CL-1\""));
+    }
+
+    fn mk_overlay(state: &str, ci: &str, review: &str) -> SmartlogPrOverlay {
+        SmartlogPrOverlay {
+            number: 42,
+            state: state.to_string(),
+            ci_status: ci.to_string(),
+            review_status: review.to_string(),
+            url: "https://github.com/erishforG/git-parsec/pull/42".to_string(),
+        }
+    }
+
+    #[test]
+    fn format_pr_badge_open_passing_approved() {
+        let badge = format_pr_badge(&mk_overlay("open", "success", "approved"));
+        assert!(badge.starts_with("[PR #42 ● open ✓ CI"));
+        assert!(badge.ends_with("✓ approved]"));
+    }
+
+    #[test]
+    fn format_pr_badge_no_reviews_drops_review_segment() {
+        let badge = format_pr_badge(&mk_overlay("open", "pending", "no reviews"));
+        assert_eq!(badge, "[PR #42 ● open ● CI]");
+    }
+
+    #[test]
+    fn format_pr_badge_merged_pr() {
+        let badge = format_pr_badge(&mk_overlay("merged", "success", "approved"));
+        // `merged` carries no special CI semantics — render the API-reported CI as-is.
+        assert!(badge.contains("✓ merged"));
+        assert!(badge.contains("✓ CI"));
+        assert!(badge.contains("✓ approved"));
+    }
+
+    #[test]
+    fn render_text_with_pr_overlay_attaches_badge_above_commits() {
+        let mut node = mk_node(
+            "CL-2283",
+            Some("Add rate limiting"),
+            "feature/CL-2283",
+            vec![mk_commit("a1b2c3d", "Implement rate limiter")],
+        );
+        node.pr = Some(mk_overlay("open", "success", "approved"));
+        let s = render_text(&[node]);
+        assert!(s.contains("CL-2283"), "ticket line still present");
+        assert!(s.contains("[PR #42"), "PR badge rendered");
+        assert!(s.contains("✓ approved"), "review badge rendered");
+        // Badge must appear above the commit line (above as in earlier in the string).
+        let badge_pos = s.find("[PR #42").unwrap();
+        let commit_pos = s.find("a1b2c3d").unwrap();
+        assert!(
+            badge_pos < commit_pos,
+            "PR badge should render above commits, got:\n{}",
+            s
+        );
+    }
+
+    #[test]
+    fn smartlog_node_serializes_pr_overlay_when_set() {
+        let mut node = mk_node("CL-1", Some("A"), "f/CL-1", vec![]);
+        node.pr = Some(mk_overlay("open", "success", "approved"));
+        let v: serde_json::Value = serde_json::to_value(&node).unwrap();
+        let pr = v.get("pr").expect("pr field should serialize when set");
+        assert_eq!(pr.get("number").and_then(|n| n.as_u64()), Some(42));
+        assert_eq!(pr.get("state").and_then(|s| s.as_str()), Some("open"));
+        assert_eq!(
+            pr.get("ci_status").and_then(|s| s.as_str()),
+            Some("success")
+        );
+        assert_eq!(
+            pr.get("review_status").and_then(|s| s.as_str()),
+            Some("approved")
+        );
+        // ci field still omitted — Phase 2 folds CI into the overlay.
+        assert!(v.get("ci").is_none(), "ci field stays omitted in Phase 2");
     }
 }
