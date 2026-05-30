@@ -1,6 +1,11 @@
 {
-  "latest": "0.3.3",
+  "latest": "0.4.0",
   "versions": [
+    {
+      "version": "0.4.0",
+      "date": "2026-05-04",
+      "path": "/git-parsec/v/0.4.0/"
+    },
     {
       "version": "0.3.3",
       "date": "2026-04-23",

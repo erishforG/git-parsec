@@ -190,14 +190,25 @@ pub fn parse_github_remote(url: &str) -> Option<GitHubRemote> {
     })
 }
 
+/// Returns true when `host` looks like a GitHub host. github.com and any host
+/// with `.github.` (GHE) substring qualifies. Used to gate env-var and
+/// `gh auth token` fallbacks so they don't leak into other forges.
+pub fn is_github_host(host: &str) -> bool {
+    let h = host.trim().to_ascii_lowercase();
+    h == "github.com" || h.contains(".github.") || h.ends_with(".ghe.com")
+}
+
 /// Resolve a GitHub token for the given host.
 ///
 /// Resolution priority:
-/// 1. `config.github.<host>.token` — host-specific config
-/// 2. `PARSEC_GITHUB_TOKEN` env var — explicit override
-/// 3. `GITHUB_TOKEN` / `GH_TOKEN` — generic fallback
+/// 1. `config.github.<host>.token` — host-specific config (any host)
+/// 2. `PARSEC_GITHUB_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` env vars (GitHub host only)
+/// 3. `gh auth token` shell fallback (GitHub host only) — issue #281 parity
+///
+/// 2 & 3 are gated on host being a GitHub host so that bitbucket / gitlab remotes
+/// don't accidentally pick up a GitHub token via `gh auth login`.
 pub fn resolve_github_token(host: &str, config: &ParsecConfig) -> Option<String> {
-    // 1. Host-specific config token
+    // 1. Host-specific config token (any host — opt-in via config)
     if let Some(host_cfg) = config.github.get(host) {
         if let Some(ref token) = host_cfg.token {
             if !token.is_empty() {
@@ -206,12 +217,11 @@ pub fn resolve_github_token(host: &str, config: &ParsecConfig) -> Option<String>
         }
     }
 
-    // 2 & 3. Environment variables (PARSEC_GITHUB_TOKEN > GITHUB_TOKEN > GH_TOKEN)
-    if let Some(token) = crate::env::github_token() {
-        return Some(token);
+    // 2 & 3: env / gh CLI fallback — only for actual GitHub hosts.
+    if !is_github_host(host) {
+        return None;
     }
-
-    None
+    crate::env::github_token()
 }
 
 // ---------------------------------------------------------------------------

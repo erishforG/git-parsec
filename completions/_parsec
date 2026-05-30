@@ -1,0 +1,111 @@
+#compdef parsec
+# zsh completion for git-parsec — dynamic worktree/branch candidates.
+#
+# Issue #291 Phase 2. Source this file from ~/.zshrc:
+#
+#   fpath=(/path/to/git-parsec/completions $fpath)
+#   autoload -U compinit && compinit
+#
+# Or run once to install into a site fpath dir:
+#
+#   cp completions/_parsec /usr/local/share/zsh/site-functions/
+#
+# Companion to the static structure emitted by `parsec config completions zsh`;
+# this file replaces it with dynamic completion that calls
+# `parsec __complete worktrees|branches` for ticket and branch arguments.
+
+# -- Dynamic candidate fetchers ------------------------------------------------
+_parsec_worktrees() {
+    local -a tickets
+    tickets=("${(@f)$(parsec __complete worktrees 2>/dev/null)}")
+    _describe -t tickets 'parsec worktree' tickets
+}
+
+_parsec_branches() {
+    local -a branches
+    branches=("${(@f)$(parsec __complete branches 2>/dev/null)}")
+    _describe -t branches 'git branch' branches
+}
+
+# -- Top-level subcommand list -------------------------------------------------
+_parsec_subcommands() {
+    local -a subs
+    subs=(
+        'start:Create new worktree for ticket'
+        'switch:Print path to a worktree'
+        'ship:Open or update PR for current worktree'
+        'open:Open ticket/PR in browser'
+        'list:List all active worktrees'
+        'status:Show ticket status'
+        'ticket:Show current ticket'
+        'clean:Remove merged worktree'
+        'pr-status:Show PR status'
+        'ci:Show CI status'
+        'merge:Merge one or more PRs'
+        'diff:Diff against base'
+        'sync:Rebase/merge from base'
+        'log:Audit log of recent ops'
+        'compress:Squash worktree commits'
+        'rename:Rename a ticket'
+        'adopt:Adopt existing branch as ticket'
+        'smartlog:Visualize worktrees as DAG'
+        'sl:Alias of smartlog'
+        'config:Configuration commands'
+        'doctor:Diagnose environment'
+        'health:Check worktree health'
+        'conflicts:Detect file overlap'
+        'history:Show command history'
+        'stack:Stack-aware operations'
+        'release:Cut a release'
+    )
+    _describe -t commands 'parsec subcommand' subs
+}
+
+# -- Main dispatcher -----------------------------------------------------------
+_parsec() {
+    local context state state_descr line
+    typeset -A opt_args
+
+    _arguments -C \
+        '1: :_parsec_subcommands' \
+        '*::arg:->args' \
+        '--json[Emit JSON output]' \
+        '--quiet[Suppress output]'
+
+    case $state in
+        (args)
+            case $line[1] in
+                start)
+                    _arguments \
+                        '1:ticket:_parsec_worktrees' \
+                        '--base[Base branch]:branch:_parsec_branches' \
+                        '--on[Stack on ticket]:ticket:_parsec_worktrees' \
+                        '--branch[Use existing branch]:branch:_parsec_branches' \
+                        '--title[Title for PR]:title:'
+                    ;;
+                switch|ship|open|clean|status|ticket|pr-status|diff|sync|compress|log|adopt)
+                    _arguments '1:ticket:_parsec_worktrees'
+                    ;;
+                merge|ci)
+                    _arguments '*:ticket:_parsec_worktrees'
+                    ;;
+                rename)
+                    _arguments \
+                        '1:old-ticket:_parsec_worktrees' \
+                        '2:new-ticket:'
+                    ;;
+                smartlog|sl)
+                    _arguments \
+                        '--depth[Max commits per worktree]:n:' \
+                        '--no-overlay[Skip GitHub PR/CI lookup]'
+                    ;;
+                *)
+                    # Defer to default file completion for unknown commands.
+                    _default
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_parsec "$@"

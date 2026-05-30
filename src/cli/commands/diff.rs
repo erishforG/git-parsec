@@ -1,3 +1,14 @@
+//! `parsec diff` / `parsec conflicts` / `parsec sync` — worktree-aware diff and sync.
+//!
+//! ## Commands
+//! - **`parsec diff [ticket]`** — show changes in a worktree against its merge-base.
+//!   Supports `--stat`, `--name-only`, and `--json` output modes.
+//! - **`parsec conflicts`** — pre-flight check that scans all active worktrees for
+//!   files that diverge from a common ancestor (speculative conflict detection).
+//! - **`parsec sync [ticket]`** — fast-forward an active worktree against the latest
+//!   upstream base branch via rebase (default) or merge. See issue #290 for the
+//!   full roadmap.
+
 use std::path::Path;
 
 use anyhow::Result;
@@ -8,6 +19,18 @@ use crate::git;
 use crate::output::{self, Mode};
 use crate::worktree::WorktreeManager;
 
+/// Show the diff between a worktree's current state and its merge-base with the
+/// upstream base branch (`origin/<base_branch>`).
+///
+/// If `ticket` is `None`, the function auto-detects the worktree by comparing
+/// `cwd` against known worktree paths; returns an error if the cwd is outside
+/// any parsec-managed worktree.
+///
+/// Output modes:
+/// - `--name-only` → list of changed file paths (human or JSON)
+/// - `--stat`      → diffstat summary (human or JSON)
+/// - default       → full unified diff piped to the terminal (human) or
+///   name-status pairs (JSON)
 pub async fn diff(
     repo: &Path,
     ticket: Option<&str>,
@@ -69,6 +92,12 @@ pub async fn diff(
     Ok(())
 }
 
+/// Detect files that are modified in multiple active worktrees simultaneously.
+///
+/// Scans every workspace returned by [`WorktreeManager::list`] and compares
+/// the set of changed files. Pairs of worktrees that touch the same path are
+/// reported as potential conflicts so the developer can resolve them before
+/// merging. Does **not** modify any worktree state.
 pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
@@ -80,6 +109,18 @@ pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
+/// Sync one or more worktrees with the latest state of their upstream base branch.
+///
+/// Fetches `origin/<base_branch>` and applies either a **rebase** (default,
+/// `strategy = "rebase"`) or a **merge** (`strategy = "merge"`). A failed
+/// rebase/merge is automatically aborted so the worktree is left clean.
+///
+/// Selection logic (in order):
+/// 1. `--all`        → all active worktrees
+/// 2. `ticket`       → the named worktree only
+/// 3. auto-detect    → the worktree whose path contains `cwd`
+///
+/// Returns a summary of synced tickets and any failures via [`output::print_sync`].
 pub async fn sync(
     repo: &Path,
     ticket: Option<&str>,
