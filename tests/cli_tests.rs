@@ -1594,3 +1594,189 @@ fn test_smartlog_json_one_worktree() {
         "unset 'ci' field must be omitted from JSON"
     );
 }
+
+// ---------------------------------------------------------------------------
+// parsec health (#324, Phase 1)
+// ---------------------------------------------------------------------------
+
+/// `parsec health` on a repo with no active worktrees must exit 0 and print
+/// "No active worktrees."
+#[test]
+fn test_health_empty_repo() {
+    let repo = setup_repo();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["health", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No active worktrees."));
+}
+
+/// `parsec health --json` on a repo with no active worktrees must exit 0 and
+/// emit exactly the JSON array `[]` (Health.rs emits `[]` for empty set).
+#[test]
+fn test_health_empty_repo_json() {
+    let repo = setup_repo();
+    let repo_path = repo.path().to_str().unwrap();
+
+    let output = parsec()
+        .args(["health", "--json", "--repo", repo_path])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "health --json should exit 0 on empty repo"
+    );
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let trimmed = stdout.trim();
+    assert_eq!(trimmed, "[]", "empty repo → health --json must emit `[]`");
+}
+
+/// After creating a workspace, `parsec health` must exit 0 and display the
+/// ticket name in the output.
+#[test]
+fn test_health_shows_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "HL-1", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args(["health", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("HL-1"));
+}
+
+/// `parsec health --json` with one active worktree must return a JSON object
+/// with `worktrees` array and `all_healthy` boolean.  The single entry must
+/// contain the mandatory fields: `ticket`, `has_lock`, `uncommitted`,
+/// `stale_days`, `stale`.
+#[test]
+fn test_health_json_one_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "HL-2", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["health", "--json", "--repo", repo_path])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "health --json should exit 0");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("health --json must emit valid JSON");
+
+    // Top-level shape
+    assert!(
+        parsed.get("worktrees").is_some(),
+        "top-level must have 'worktrees' key"
+    );
+    assert!(
+        parsed.get("all_healthy").is_some(),
+        "top-level must have 'all_healthy' key"
+    );
+    assert!(
+        parsed["all_healthy"].is_boolean(),
+        "'all_healthy' must be a boolean"
+    );
+
+    let worktrees = parsed["worktrees"]
+        .as_array()
+        .expect("'worktrees' must be an array");
+    assert_eq!(worktrees.len(), 1, "expected exactly 1 worktree entry");
+
+    let entry = &worktrees[0];
+    assert_eq!(
+        entry["ticket"].as_str().unwrap(),
+        "HL-2",
+        "ticket field mismatch"
+    );
+    assert!(
+        entry.get("has_lock").is_some(),
+        "entry must have 'has_lock' field"
+    );
+    assert!(
+        entry.get("uncommitted").is_some(),
+        "entry must have 'uncommitted' field"
+    );
+    assert!(
+        entry.get("stale_days").is_some(),
+        "entry must have 'stale_days' field"
+    );
+    assert!(
+        entry.get("stale").is_some(),
+        "entry must have 'stale' field"
+    );
+
+    // A fresh worktree must NOT have a lock file
+    assert_eq!(
+        entry["has_lock"].as_bool().unwrap(),
+        false,
+        "fresh worktree must not have index.lock"
+    );
+
+    // A fresh worktree with no pending changes has 0 uncommitted files
+    assert_eq!(
+        entry["uncommitted"].as_u64().unwrap(),
+        0,
+        "fresh worktree must have 0 uncommitted files"
+    );
+}
+
+/// `parsec health` must exit 0 even when worktrees have issues — health is
+/// informational and must not be used as a CI gate in Phase 1.
+#[test]
+fn test_health_exit_zero_with_issues() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "HL-3", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Simulate a stale lock file inside the worktree's git dir.
+    // The worktree is a linked worktree, so its .git is a file pointing to the
+    // real git dir.  Locate the real git dir and write a lock file there.
+    let worktree_path = repo.path().parent().unwrap().join("HL-3");
+    let git_file = worktree_path.join(".git");
+    let lock_path = if git_file.is_file() {
+        let contents = std::fs::read_to_string(&git_file).unwrap();
+        let real_git = contents
+            .strip_prefix("gitdir: ")
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        std::path::PathBuf::from(&real_git).join("index.lock")
+    } else {
+        git_file.join("index.lock")
+    };
+
+    // Write a dummy lock file
+    if let Some(parent) = lock_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::write(&lock_path, b"dummy lock").unwrap();
+
+    // Health must still exit 0 — it is purely informational in Phase 1
+    parsec()
+        .args(["health", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Clean up
+    std::fs::remove_file(&lock_path).ok();
+}
