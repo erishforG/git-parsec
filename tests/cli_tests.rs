@@ -1722,9 +1722,8 @@ fn test_health_json_one_worktree() {
     );
 
     // A fresh worktree must NOT have a lock file
-    assert_eq!(
-        entry["has_lock"].as_bool().unwrap(),
-        false,
+    assert!(
+        !entry["has_lock"].as_bool().unwrap(),
         "fresh worktree must not have index.lock"
     );
 
@@ -1779,4 +1778,88 @@ fn test_health_exit_zero_with_issues() {
 
     // Clean up
     std::fs::remove_file(&lock_path).ok();
+}
+
+// ---------------------------------------------------------------------------
+// Shell completion scripts (issue #291 Phase 2)
+//
+// Sanity tests only — verify the scripts ship in the repo and reference the
+// __complete subcommand from PR #312. We cannot exercise real shell behavior
+// (zsh/bash/fish parsers in the test sandbox is too fragile / heavy), so the
+// scripts themselves stand in for the "would this complete?" question.
+// ---------------------------------------------------------------------------
+
+fn read_completion(name: &str) -> String {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("completions")
+        .join(name);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("completion script {} should exist: {}", path.display(), e))
+}
+
+#[test]
+fn completion_zsh_present_and_dynamic() {
+    let s = read_completion("_parsec");
+    assert!(s.contains("#compdef parsec"), "must start with #compdef");
+    assert!(
+        s.contains("parsec __complete worktrees"),
+        "zsh script must call __complete worktrees"
+    );
+    assert!(
+        s.contains("parsec __complete branches"),
+        "zsh script must call __complete branches"
+    );
+    // Confirm we wire ticket-shaped subcommands.
+    for sub in ["start", "switch", "ship", "open", "clean", "merge", "ci"] {
+        assert!(s.contains(sub), "zsh script must mention {}", sub);
+    }
+}
+
+#[test]
+fn completion_bash_present_and_dynamic() {
+    let s = read_completion("parsec.bash");
+    assert!(s.contains("complete -F _parsec parsec"));
+    assert!(s.contains("parsec __complete worktrees"));
+    assert!(s.contains("parsec __complete branches"));
+    for sub in ["start", "switch", "ship", "open", "clean", "merge", "ci"] {
+        assert!(s.contains(sub), "bash script must mention {}", sub);
+    }
+}
+
+#[test]
+fn completion_fish_present_and_dynamic() {
+    let s = read_completion("parsec.fish");
+    assert!(s.contains("__parsec_worktrees"));
+    assert!(s.contains("__parsec_branches"));
+    assert!(s.contains("parsec __complete worktrees"));
+    assert!(s.contains("parsec __complete branches"));
+    for sub in ["start", "switch", "ship", "open", "clean", "merge", "ci"] {
+        assert!(s.contains(sub), "fish script must mention {}", sub);
+    }
+}
+
+#[test]
+fn completion_scripts_reference_phase1_subcommand_signature() {
+    // The __complete subcommand only accepts `worktrees` and `branches` kinds
+    // today (PR #312). Phase 2 scripts must not use any other kind name or
+    // they'll silently emit nothing.
+    for name in ["_parsec", "parsec.bash", "parsec.fish"] {
+        let s = read_completion(name);
+        let valid_kinds = ["worktrees", "branches"];
+        for line in s.lines() {
+            if let Some(rest) = line.find("parsec __complete ").map(|i| &line[i + 18..]) {
+                let kind: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric())
+                    .collect();
+                assert!(
+                    valid_kinds.contains(&kind.as_str()),
+                    "{}: unknown __complete kind '{}' (allowed: {:?})",
+                    name,
+                    kind,
+                    valid_kinds
+                );
+            }
+        }
+    }
 }

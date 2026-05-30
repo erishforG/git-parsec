@@ -57,6 +57,23 @@ cargo install git-parsec
 
 Other targets (macOS arm64/x86_64, Windows x86_64) ship on every release — see [Releases](https://github.com/erishforG/git-parsec/releases). After install, run `parsec config init` for the interactive first-time setup, then `parsec doctor` to validate.
 
+### Shell completion
+
+`parsec` ships dynamic completion scripts that suggest **live worktrees and branches** as you type (e.g. `parsec switch <Tab>` lists your active tickets).
+
+```bash
+# zsh — copy to a site fpath dir, or add the repo path to fpath:
+cp completions/_parsec ~/.zsh/completions/      # then: fpath=(~/.zsh/completions $fpath)
+
+# bash:
+source completions/parsec.bash                  # or symlink into /etc/bash_completion.d/
+
+# fish:
+cp completions/parsec.fish ~/.config/fish/completions/
+```
+
+A purely static fallback (no live candidates) is also available via `parsec config completions <shell>` if you'd rather not source the dynamic scripts.
+
 ---
 
 ## 60-second tour
