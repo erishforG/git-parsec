@@ -1001,3 +1001,69 @@ pub fn print_rename(old_ticket: &str, new_ticket: &str, workspace: &Workspace) {
     println!("  {} {}", "Branch:".bold(), workspace.branch);
     println!("  {} {}", "Path:".bold(), workspace.path.display());
 }
+
+pub fn print_health(records: &[super::HealthRecord]) {
+    println!("{}", "parsec health".bold());
+    let mut issues = 0usize;
+    for r in records {
+        let lock_tag = if r.has_lock {
+            "  ⚠ lock file!".red().to_string()
+        } else {
+            String::new()
+        };
+
+        let uncommitted_tag = if r.uncommitted > 0 {
+            format!("  {} uncommitted", r.uncommitted)
+                .yellow()
+                .to_string()
+        } else {
+            "  0 uncommitted".dimmed().to_string()
+        };
+
+        let stale_tag = match r.stale_days {
+            None => "  last commit unknown".dimmed().to_string(),
+            Some(d) if d > r.stale_threshold_days => format!("  last commit {}d ago (stale)", d)
+                .yellow()
+                .to_string(),
+            Some(d) => format!("  last commit {}d ago", d).dimmed().to_string(),
+        };
+
+        let any_issue = r.has_lock
+            || r.uncommitted > 0
+            || r.stale_days
+                .map(|d| d > r.stale_threshold_days)
+                .unwrap_or(false);
+
+        let icon = if r.has_lock {
+            "✗".red().to_string()
+        } else if any_issue {
+            "⚠".yellow().to_string()
+        } else {
+            "✓".green().to_string()
+        };
+
+        if any_issue {
+            issues += 1;
+        }
+
+        println!(
+            "  {} {:<20}{}{}{}",
+            icon,
+            r.ticket.bold(),
+            uncommitted_tag,
+            stale_tag,
+            lock_tag,
+        );
+    }
+    println!();
+    if issues == 0 {
+        println!("{}", "All worktrees healthy.".green().bold());
+    } else {
+        println!(
+            "{}",
+            format!("{}/{} worktrees need attention.", issues, records.len())
+                .yellow()
+                .bold()
+        );
+    }
+}

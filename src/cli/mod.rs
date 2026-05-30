@@ -432,6 +432,15 @@ pub enum Command {
         ai: bool,
     },
 
+    /// Check all active worktrees for common issues
+    ///
+    /// Scans every parsec-managed worktree for three lightweight health
+    /// indicators: lingering index.lock files (hung git process), uncommitted
+    /// changes, and stale branches (no commits in 7+ days).
+    ///
+    /// Phase 1 — CI-status overlay is reserved for a follow-up (#299).
+    Health,
+
     /// Create a release: merge to release branch, tag, and create GitHub Release
     ///
     /// Merges the current develop branch into the release branch (default: main),
@@ -524,6 +533,41 @@ pub enum Command {
         #[arg(long, short)]
         message: Option<String>,
     },
+
+    /// Visualize active worktrees as a commit DAG (alias: sl)
+    ///
+    /// Lists every active worktree, the commits it adds on top of its base
+    /// branch, and (in later releases) PR/CI/review state. Issue #245.
+    #[command(alias = "sl")]
+    Smartlog {
+        /// Maximum commits per worktree (default: 10)
+        #[arg(long, short)]
+        depth: Option<usize>,
+
+        /// Skip GitHub PR/CI overlay (faster, no network calls).
+        /// Overlay is also auto-skipped when no GitHub token is configured.
+        #[arg(long)]
+        no_overlay: bool,
+    },
+
+    /// Internal: emit dynamic completion candidates (issue #291).
+    ///
+    /// Used by shell completion scripts to enumerate worktrees / branches /
+    /// tickets at completion time. Not intended for direct user invocation.
+    #[command(name = "__complete", hide = true)]
+    Complete {
+        #[command(subcommand)]
+        kind: CompleteKind,
+    },
+}
+
+/// Candidate sets the dynamic completion subcommand can emit.
+#[derive(Subcommand)]
+pub enum CompleteKind {
+    /// Print active worktree ticket identifiers, one per line.
+    Worktrees,
+    /// Print local branch names, one per line.
+    Branches,
 }
 
 #[derive(Subcommand)]
@@ -615,11 +659,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Init { .. } => "init",
         Command::Config { .. } => "config",
         Command::Doctor { .. } => "doctor",
+        Command::Health => "health",
         Command::Release { .. } => "release",
         Command::Create { .. } => "create",
         Command::Rename { .. } => "rename",
         Command::Compress { .. } => "compress",
         Command::Commit { .. } => "commit",
+        Command::Smartlog { .. } => "smartlog",
+        Command::Complete { .. } => "__complete",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -856,6 +903,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::doctor(&repo_path, output_mode).await
             }
         }
+        Command::Health => commands::health(&repo_path, output_mode).await,
         Command::Release {
             version,
             from,
@@ -922,6 +970,10 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
+        Command::Smartlog { depth, no_overlay } => {
+            commands::smartlog(&repo_path, depth, no_overlay, output_mode).await
+        }
+        Command::Complete { kind } => commands::complete(&repo_path, kind).await,
     };
 
     // Record execution entry (best-effort, never fail the command)

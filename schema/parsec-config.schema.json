@@ -37,6 +37,25 @@
       },
       "additionalProperties": false
     },
+    "worktree": {
+      "type": "object",
+      "description": "Build cache sharing for new worktrees",
+      "properties": {
+        "shared_cache": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Directories to share from the main repo into new worktrees (e.g. target, node_modules, .venv)"
+        },
+        "cache_strategy": {
+          "type": "string",
+          "enum": ["symlink", "copy"],
+          "default": "symlink",
+          "description": "How to share cache directories: symlink (fast, shared state) or copy (independent state)"
+        }
+      },
+      "additionalProperties": false
+    },
     "tracker": {
       "type": "object",
       "description": "Issue tracker integration settings",

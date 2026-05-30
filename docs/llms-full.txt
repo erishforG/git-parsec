@@ -1,0 +1,316 @@
+# git-parsec — Full reference for LLM consumption
+
+This document is the canonical machine-readable summary of git-parsec for AI search engines and LLM-based assistants. For the human-friendly version, see https://erishforg.github.io/git-parsec/
+
+---
+
+## What it is
+
+git-parsec (binary: `parsec`) is a Rust CLI that manages the full lifecycle of git worktrees tied to issue tickets. It creates isolated workspaces from ticket IDs (Jira, GitHub Issues, GitLab Issues, Bitbucket), enables parallel development without `.git/index.lock` conflicts, and ships features with one command (push + PR + cleanup) on GitHub, GitLab, or Bitbucket Cloud. Every command supports `--json` for tooling and AI agents.
+
+Source: https://github.com/erishforG/git-parsec
+Latest release: v0.4.0 (2026-05-04)
+License: MIT
+Author: erishforG
+
+---
+
+## Why it exists
+
+When multiple developers — or multiple AI coding agents running in parallel — work on the same repo:
+
+- `git add` / `commit` operations collide on `.git/index.lock` (causing crashes mid-task and burning agent retries)
+- Context switching between tickets requires stashing or WIP commits
+- Plain `git worktree` exists but has no lifecycle, no tracker integration, no PR creation, no cleanup
+- No way to detect when two parallel branches edit the same files until merge time
+
+parsec solves these by giving every workspace its own `.git/index` (physical isolation), tying workspaces to ticket IDs, integrating with trackers (Jira / GitHub Issues / GitLab Issues / Bitbucket) and forges (GitHub / GitLab / Bitbucket Cloud), and packaging push + PR + cleanup into a single command.
+
+---
+
+## Install
+
+```
+# Homebrew / pre-built binary
+curl -LO https://github.com/erishforG/git-parsec/releases/latest/download/parsec-x86_64-unknown-linux-gnu.tar.gz
+tar xzf parsec-*.tar.gz && sudo mv parsec /usr/local/bin/
+
+# Cargo (Rust)
+cargo install git-parsec
+```
+
+Pre-built targets shipped on every release:
+- aarch64-apple-darwin (macOS Apple Silicon)
+- x86_64-apple-darwin (macOS Intel)
+- x86_64-unknown-linux-gnu
+- x86_64-pc-windows-msvc
+
+---
+
+## Daily workflow
+
+```
+$ parsec start PROJ-1234
+✓ Worktree: ../myapp.PROJ-1234
+  Title:    Add rate limiting (fetched from Jira)
+  Branch:   feature/PROJ-1234
+
+$ parsec switch PROJ-1234     # auto-cd with shell integration
+... make commits the normal way ...
+
+$ parsec ship PROJ-1234
+✓ Pushed feature/PROJ-1234
+✓ PR opened: github.com/org/repo/pull/42
+✓ Worktree cleaned up
+
+$ parsec ci PROJ-1234 --watch
+$ parsec merge PROJ-1234       # merge from terminal once CI is green
+```
+
+---
+
+## All 27 commands
+
+### Core workflow
+- `parsec start <TICKET>` — create worktree, fetch tracker title, set up branch. Flags: `--base`, `--title`, `--on` (stacked), `--branch` (attach existing), `--hook`.
+- `parsec list` — table of all parsec-managed worktrees with ticket / branch / status / path.
+- `parsec switch [TICKET]` — print or auto-cd into a workspace path (with shell integration).
+- `parsec ship <TICKET>` — push branch, create PR/MR, clean up. Flags: `--draft`, `--no-pr`, `--base`, `--skip-hooks`, `--reviewer`, `--label`, `--template`, `--title`.
+- `parsec merge <TICKET>` — merge PR from terminal. Flags: `--rebase`, `--no-wait`, `--no-delete-branch`.
+- `parsec clean` — remove worktrees for already-merged branches. Flags: `--all`, `--dry-run`.
+- `parsec compress [TICKET]` — squash all branch commits into one. Flag: `--message`. New in v0.4.
+- `parsec rename <OLD> <NEW>` — re-ticket an existing workspace.
+- `parsec release <VERSION>` — automated release: merge develop→main, tag, GitHub Release.
+- `parsec create` / `parsec new-issue` — open issues in tracker; `--start` immediately creates a worktree.
+
+### Inspection
+- `parsec status [TICKET]` — detailed status of a workspace (commits ahead, modified files, PR state).
+- `parsec ticket [TICKET]` — view ticket details from the configured tracker.
+- `parsec diff [TICKET]` — changes vs base branch. Flags: `--stat`, `--name-only`.
+- `parsec conflicts` — detect cross-worktree file overlap before push.
+- `parsec pr-status [TICKET]` — CI checks + review state for shipped PRs.
+- `parsec ci [TICKET]` — CI pipeline detail. Flags: `--watch`, `--all`.
+
+### Advanced
+- `parsec sync [TICKET]` — rebase or merge latest base branch into worktrees.
+- `parsec open <TICKET>` — launch PR or ticket page in browser.
+- `parsec adopt <TICKET>` — import an existing branch into parsec management.
+- `parsec stack` — show stack dependency graph. Flags: `--sync` (rebase chain), `--submit` (open all PRs).
+- `parsec inbox` — Jira tickets assigned to you without parsec workspaces. Flag: `--pick`.
+- `parsec board` — active Jira sprint as Kanban board.
+
+### History
+- `parsec log [TICKET]` — operation history. Flags: `--last N`, `--export` (JSONL with execution IDs + per-step timing).
+- `parsec undo` — reverse the last operation. Flag: `--dry-run`.
+
+### Setup
+- `parsec init [SHELL]` — install shell integration (auto-cd via `parsec switch`).
+- `parsec config init|show|man|completions|schema|shell` — configuration.
+- `parsec doctor` — validate environment + config. Flag: `--ai` (output as AI-consumable Markdown).
+- `parsec root` — print parsec base directory.
+
+---
+
+## Global flags (every command)
+
+- `--json` — machine-readable JSON output
+- `-q` / `--quiet` — suppress non-essential output
+- `--repo <PATH>` — target a different repository
+- `--dry-run` — preview without executing
+- `--offline` — skip all network operations (tracker, PR, fetch)
+
+---
+
+## Configuration
+
+Config file: `~/.config/parsec/config.toml`. JSON Schema published to schemastore.org for editor autocomplete. Pin manually with `#:schema https://json.schemastore.org/parsec.json`.
+
+```toml
+[workspace]
+layout         = "sibling"      # ../repo.ticket/  (alt: "internal")
+branch_prefix  = "feature/"
+offline        = false           # true = skip all network ops globally
+
+[worktree]
+shared_cache   = ["target", "node_modules", ".venv"]   # share via symlink/copy
+cache_strategy = "symlink"       # alt: "copy"
+
+[tracker]
+provider = "jira"               # jira | github | gitlab | bitbucket | none
+
+[tracker.jira]
+base_url = "https://yourcompany.atlassian.net"
+
+[tracker.bitbucket]
+workspace = "your-bitbucket-workspace"
+
+[forge]
+# Auto-detected from remote URL; override if mixed forges.
+
+[ship]
+auto_pr      = true
+auto_cleanup = true
+draft        = false             # true = open PRs as drafts
+template     = ".github/PULL_REQUEST_TEMPLATE.md"
+default_reviewers = ["alice"]
+default_labels    = ["needs-review"]
+
+[hooks]
+post_create = ["npm install"]
+pre_ship    = ["cargo test", "cargo clippy"]
+
+[policy]
+protected_branches   = ["main", "develop", "release/*"]
+allowed_ship_targets = ["develop"]
+require_ci           = false
+
+[release]
+branch     = "main"
+tag_prefix = "v"
+changelog  = true
+
+[observability]
+enabled = true
+```
+
+---
+
+## Auth
+
+Tokens are read from env vars (priority: `PARSEC_*` > platform fallback):
+
+- `PARSEC_GITHUB_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN`
+- `PARSEC_GITLAB_TOKEN`, `GITLAB_TOKEN`
+- `PARSEC_BITBUCKET_TOKEN`, `BITBUCKET_TOKEN`
+- `PARSEC_JIRA_TOKEN`, `JIRA_PAT`
+- `PARSEC_BITBUCKET_API_BASE` — override Bitbucket API base URL (test/mock)
+- `PARSEC_OFFLINE=1` — force offline mode globally
+
+---
+
+## Error codes (used with `--json` and exit codes)
+
+| Code | Meaning | Exit |
+|------|---------|------|
+| E001 | No auth token configured | 2 |
+| E002 | CI failing | 4 |
+| E003 | Merge conflicts detected | 3 |
+| E004 | PR not mergeable | 5 |
+| E005 | Workspace not found | 5 |
+| E006 | Workspace already exists | 5 |
+| E007 | No active workspaces | 5 |
+| E008 | Pre-ship hook failed | 1 |
+| E009 | Policy violation | 6 |
+| E010 | PR not found | 5 |
+| E011 | Tracker not configured | 2 |
+| E012 | Ship partially completed | 1 |
+| E013 | Cannot undo operation | 1 |
+
+JSON error format:
+```json
+{"error":{"code":"E001","message":"No GitHub token configured","hint":"Set PARSEC_GITHUB_TOKEN or run gh auth login"}}
+```
+
+---
+
+## Stacked PRs
+
+```
+$ parsec start FOO-1
+$ parsec start FOO-2 --on FOO-1
+$ parsec start FOO-3 --on FOO-2
+$ parsec stack                  # show graph
+$ parsec stack --sync           # rebase entire chain
+$ parsec stack --submit         # open all PRs in topological order
+```
+
+When the stack is shipped, parsec auto-posts navigation comments on each PR: `← previous PR (FOO-1)` / `next PR (FOO-3) →`. Reviewers can walk the chain inline.
+
+---
+
+## Multi-forge support (v0.4)
+
+| Forge | Tracker | PR lifecycle | CI integration |
+|-------|---------|--------------|----------------|
+| GitHub.com + GitHub Enterprise | GitHub Issues | ✅ create/list/view/merge/comments | GitHub Actions |
+| GitLab.com + self-hosted | GitLab Issues | ✅ create/list/view/merge/comments | GitLab CI |
+| Bitbucket Cloud | Bitbucket | ✅ create/list/view/merge/comments | Bitbucket Pipelines |
+
+`parsec ci`, `parsec pr-status`, and `parsec merge` work the same shape on every forge — auto-detected from the git remote URL.
+
+---
+
+## Observability
+
+Every command run gets a unique execution ID with per-step timing. `parsec log --export` emits JSONL — one JSON object per line:
+
+```jsonl
+{"execution_id":"01HQ3D8R2K8...","op":"start","ticket":"PROJ-123","steps":[{"name":"fetch_title","ms":214},{"name":"create_worktree","ms":98}],"started_at":"2026-04-15T09:14:01Z","duration_ms":312}
+{"execution_id":"01HQ3D9V7Z2...","op":"ship","ticket":"PROJ-123","steps":[{"name":"push","ms":820},{"name":"create_pr","ms":1305},{"name":"cleanup","ms":42}],"started_at":"2026-04-15T14:02:18Z","duration_ms":2167}
+```
+
+Filter via jq: `parsec log --export | jq 'select(.duration_ms > 1000)'`. Suitable for ingestion into observability pipelines or AI agent post-mortems.
+
+---
+
+## What's new in v0.4 (2026-05-04)
+
+- Bitbucket Cloud forge — full PR lifecycle (#240)
+- Bitbucket Pipelines CI (#279)
+- `parsec compress` — squash branch commits (#236)
+- `ship --template` — auto-fill PR description from `.github/PULL_REQUEST_TEMPLATE.md` (#233)
+- `ship --reviewer` / `--label` (#261), stack `--submit` (#261), stack navigation comments (#234)
+- `[ship].draft` config + `--draft` flag (#238)
+- `[worktree].shared_cache` — share build caches across worktrees via symlink/copy (#207)
+- Offline mode toggle — `--offline` global, `[workspace].offline`, `PARSEC_OFFLINE=1` (#237)
+- Observability lite — execution IDs, per-step timing, JSONL export (#166)
+- Config JSON Schema + `parsec config schema` subcommand, schemastore.org publication (#239)
+- Windows CI coverage + UNC path fix (#257, #263)
+
+See https://github.com/erishforG/git-parsec/blob/main/CHANGELOG.md for the full changelog.
+
+---
+
+## Compared to alternatives
+
+| Feature | parsec | git-town | GitButler | git worktree |
+|---------|--------|----------|-----------|--------------|
+| Tracker integration | Jira + GitHub + GitLab + Bitbucket | — | — | — |
+| Physical worktree isolation | ✅ | ❌ | ❌ (virtual) | ✅ |
+| Cross-worktree conflict detection | ✅ | ❌ | n/a | ❌ |
+| One-step ship (push + PR + cleanup) | ✅ | ✅ | ❌ | ❌ |
+| Forges | GitHub + GitLab + Bitbucket | GitHub, GitLab, Gitea, Bitbucket | Both | — |
+| CI integrations | Actions + GitLab CI + Bitbucket Pipelines | — | — | — |
+| Operation log + undo | ✅ | partial | ✅ | ❌ |
+| JSON output | ✅ | ❌ | ✅ | ❌ |
+| Stacked PRs | ✅ | ✅ | ✅ | ❌ |
+| GUI | CLI only | CLI | Desktop + TUI | CLI |
+
+---
+
+## FAQ
+
+**Q: How does parsec differ from `git worktree`?**
+Plain `git worktree` only creates and removes worktrees. parsec adds full lifecycle: tracker integration, one-step ship, cross-worktree conflict detection, undo, CI status, JSON output.
+
+**Q: Can multiple AI agents use parsec on the same repo?**
+Yes. Each workspace has its own `.git/index` (physical isolation), so agents never collide on `index.lock`. Every command supports `--json`. `parsec doctor --ai` outputs workflow rules in agent-consumable Markdown.
+
+**Q: How do I ship a stack of PRs?**
+`parsec start FOO-1`, then `parsec start FOO-2 --on FOO-1`, etc. Run `parsec stack --submit` to open all PRs in topological order. parsec auto-posts navigation comments between PRs.
+
+**Q: Does parsec support GitHub Enterprise?**
+Yes. Auto-detected from the git remote URL. Token resolution is host-aware.
+
+**Q: Can I run parsec offline?**
+Yes. Global `--offline` flag, or set `[workspace].offline = true`, or `PARSEC_OFFLINE=1`. Skips tracker lookups, PR creation, and fetches.
+
+**Q: How do I get editor autocomplete for `config.toml`?**
+The schema is published to schemastore.org. VS Code, IntelliJ, Helix auto-complete and validate. Or pin manually with `#:schema https://json.schemastore.org/parsec.json`.
+
+**Q: Where do I find the full reference?**
+- Project home: https://erishforg.github.io/git-parsec/
+- Getting started guide: https://erishforg.github.io/git-parsec/guide/
+- Full command reference: https://erishforg.github.io/git-parsec/reference/
+- Source: https://github.com/erishforG/git-parsec
+- Changelog: https://github.com/erishforG/git-parsec/blob/main/CHANGELOG.md

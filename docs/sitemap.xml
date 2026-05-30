@@ -2,21 +2,51 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://erishforg.github.io/git-parsec/</loc>
-    <lastmod>2026-04-22</lastmod>
+    <lastmod>2026-05-04</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://erishforg.github.io/git-parsec/guide/</loc>
-    <lastmod>2026-04-22</lastmod>
+    <lastmod>2026-05-04</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://erishforg.github.io/git-parsec/reference/</loc>
-    <lastmod>2026-04-22</lastmod>
+    <lastmod>2026-05-04</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/llms.txt</loc>
+    <lastmod>2026-05-04</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/llms-full.txt</loc>
+    <lastmod>2026-05-04</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/v/0.4.0/</loc>
+    <lastmod>2026-05-04</lastmod>
+    <changefreq>never</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/v/0.4.0/guide/</loc>
+    <lastmod>2026-05-04</lastmod>
+    <changefreq>never</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/v/0.4.0/reference/</loc>
+    <lastmod>2026-05-04</lastmod>
+    <changefreq>never</changefreq>
+    <priority>0.3</priority>
   </url>
   <url>
     <loc>https://erishforg.github.io/git-parsec/v/0.3.3/</loc>

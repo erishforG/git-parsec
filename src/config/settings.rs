@@ -85,6 +85,44 @@ impl std::fmt::Display for WorktreeLayout {
 }
 
 // ---------------------------------------------------------------------------
+// CacheStrategy
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum CacheStrategy {
+    #[default]
+    Symlink,
+    Copy,
+}
+
+impl std::fmt::Display for CacheStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CacheStrategy::Symlink => write!(f, "symlink"),
+            CacheStrategy::Copy => write!(f, "copy"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WorktreeConfig
+// ---------------------------------------------------------------------------
+
+/// Build cache sharing settings for new worktrees.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorktreeConfig {
+    /// Directories to share from the main repo into new worktrees
+    /// (e.g. ["target", "node_modules", ".venv"]).
+    #[serde(default)]
+    pub shared_cache: Vec<String>,
+    /// How to share the directories: symlink (default) or copy.
+    #[serde(default)]
+    pub cache_strategy: CacheStrategy,
+}
+
+// ---------------------------------------------------------------------------
 // WorkspaceConfig
 // ---------------------------------------------------------------------------
 
@@ -399,6 +437,8 @@ pub struct ParsecConfig {
     #[serde(default)]
     pub workspace: WorkspaceConfig,
     #[serde(default)]
+    pub worktree: WorktreeConfig,
+    #[serde(default)]
     pub tracker: TrackerConfig,
     #[serde(default)]
     pub ship: ShipConfig,
@@ -633,5 +673,67 @@ impl ParsecConfig {
             .context("Failed to read draft PR preference")?;
 
         Ok(config)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worktree_config_defaults_when_section_missing() {
+        let config: ParsecConfig = toml::from_str("").unwrap();
+        assert!(config.worktree.shared_cache.is_empty());
+        assert_eq!(config.worktree.cache_strategy, CacheStrategy::Symlink);
+    }
+
+    #[test]
+    fn worktree_config_parses_full_section() {
+        let toml_str = r#"
+[worktree]
+shared_cache = ["target", ".venv"]
+cache_strategy = "copy"
+"#;
+        let config: ParsecConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.worktree.shared_cache,
+            vec!["target".to_string(), ".venv".to_string()]
+        );
+        assert_eq!(config.worktree.cache_strategy, CacheStrategy::Copy);
+    }
+
+    #[test]
+    fn worktree_config_partial_fields_take_defaults() {
+        let toml_str = r#"
+[worktree]
+shared_cache = ["target"]
+"#;
+        let config: ParsecConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.worktree.shared_cache, vec!["target".to_string()]);
+        assert_eq!(config.worktree.cache_strategy, CacheStrategy::Symlink);
+    }
+
+    #[test]
+    fn worktree_config_unknown_strategy_is_error() {
+        let toml_str = r#"
+[worktree]
+cache_strategy = "hardlink"
+"#;
+        let err = toml::from_str::<ParsecConfig>(toml_str).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("hardlink") || msg.to_lowercase().contains("variant"),
+            "expected error to mention bad variant, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn cache_strategy_symlink_is_default() {
+        let strategy = CacheStrategy::default();
+        assert_eq!(strategy, CacheStrategy::Symlink);
     }
 }

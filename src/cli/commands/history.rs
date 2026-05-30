@@ -1,3 +1,12 @@
+//! `parsec log` / `parsec log --export` / `parsec undo` — operation history and undo.
+//!
+//! Parsec maintains two complementary audit trails:
+//! - **OpLog** (`~/.parsec/oplog.json`) — structured log of high-level parsec
+//!   operations (start, ship, clean, adopt, undo). Displayed by `parsec log` and
+//!   used by `parsec undo` to reconstruct the previous state.
+//! - **ExecLog** (`.parsec/execlog.ndjson` in the repo) — low-level shell command
+//!   trace for debugging. Exported verbatim by `parsec log --export`.
+
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -7,6 +16,11 @@ use crate::errors::ErrorCode;
 use crate::git;
 use crate::output::{self, Mode};
 
+/// Display the parsec operation log, optionally filtered to a single ticket.
+///
+/// `last` controls how many entries to show (counted from the end of the log).
+/// When `ticket` is `Some`, only entries matching that ticket are shown.
+/// Uses [`output::print_log`] for human/JSON rendering.
 pub async fn log(repo: &Path, ticket: Option<&str>, last: usize, mode: Mode) -> Result<()> {
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let oplog = crate::oplog::OpLog::load(&repo_root)?;
@@ -18,6 +32,9 @@ pub async fn log(repo: &Path, ticket: Option<&str>, last: usize, mode: Mode) -> 
     Ok(())
 }
 
+/// Dump the raw execution log (ndjson) to stdout for debugging or external tooling.
+///
+/// Prints a warning to stderr when the log is empty; exits cleanly in either case.
 pub async fn log_export(repo: &Path) -> Result<()> {
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;
     let raw = crate::execlog::read_raw(&repo_root)?;
@@ -29,6 +46,19 @@ pub async fn log_export(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Undo the most recent reversible parsec operation.
+///
+/// Reads the last [`OpLog`] entry and reverses it:
+/// - `start` / `adopt` — removes the worktree, deletes the local branch, and
+///   drops the workspace from state.
+/// - `ship` / `clean`  — re-creates the worktree from the local branch (or
+///   restores it from `origin/<branch>` if the local ref is gone).
+///
+/// `undo` itself is **not** re-undoable; attempting `parsec undo` after `parsec
+/// undo` returns [`ErrorCode::E013`].
+///
+/// When `dry_run = true` the intended action is printed but no mutations are
+/// performed.
 pub async fn undo(repo: &Path, dry_run: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let repo_root = git::get_main_repo_root(repo).or_else(|_| git::get_repo_root(repo))?;

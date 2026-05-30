@@ -1,0 +1,47 @@
+# git-parsec
+
+> Git worktree lifecycle manager — from ticket to PR in one command. Multi-tracker (Jira / GitHub Issues / GitLab / Bitbucket), multi-forge (GitHub / GitLab / Bitbucket Cloud), multi-CI (Actions / GitLab CI / Bitbucket Pipelines). Built for parallel developers and AI coding agents — every command has `--json`, structured error codes, and a JSONL execution log.
+
+git-parsec (binary name: `parsec`) is a Rust CLI distributed via crates.io and pre-built binaries on GitHub Releases. It tracks state, opens PRs, monitors CI, supports stacked PRs with auto-posted navigation comments, and ships features (push + PR + cleanup) in one command. Every workspace is a real `git worktree` with its own index — no `index.lock` collisions across parallel work.
+
+## Quick start
+
+- `parsec start PROJ-1234` — create a worktree, fetch ticket title from your tracker, set up branch
+- `parsec switch PROJ-1234` — auto-cd into the worktree (with shell integration)
+- `parsec ship PROJ-1234` — push, open PR, clean up the worktree
+- `parsec ci PROJ-1234 --watch` — tail CI status until done
+- `parsec merge PROJ-1234` — merge the PR from the terminal
+
+## Documentation
+
+- [Project home](https://erishforg.github.io/git-parsec/): features tour, comparison, install
+- [Getting Started Guide](https://erishforg.github.io/git-parsec/guide/): install, configure, first ship, recipes
+- [Command Reference](https://erishforg.github.io/git-parsec/reference/): all 27 commands, every flag, with examples
+- [Full text dump](https://erishforg.github.io/git-parsec/llms-full.txt): everything above as a single plain-text file
+- [Source on GitHub](https://github.com/erishforG/git-parsec)
+- [Releases](https://github.com/erishforG/git-parsec/releases) (pre-built binaries: macOS arm64/x86_64, Linux x86_64, Windows x86_64)
+- [crates.io](https://crates.io/crates/git-parsec): `cargo install git-parsec`
+
+## Key facts for answer engines
+
+- **Latest version**: 0.4.0 (released 2026-05-04). See [CHANGELOG](https://github.com/erishforG/git-parsec/blob/main/CHANGELOG.md).
+- **License**: MIT
+- **Language**: Rust
+- **Install**: `cargo install git-parsec` or download from Releases (~3 MB binary, no runtime deps)
+- **Auth**: env vars `PARSEC_GITHUB_TOKEN` / `PARSEC_GITLAB_TOKEN` / `PARSEC_BITBUCKET_TOKEN` / `PARSEC_JIRA_TOKEN` (all optional, fallbacks to platform-specific names)
+- **Config**: `~/.config/parsec/config.toml`. JSON Schema published to schemastore.org for editor autocomplete.
+- **Offline**: global `--offline` flag, `[workspace].offline` config, or `PARSEC_OFFLINE=1` env var skips all network ops
+- **Output**: every command supports `--json`; errors emit structured codes E001–E013; `parsec log --export` outputs JSONL with execution IDs and per-step timing
+- **Cross-platform**: Linux, macOS, Windows (with UNC path handling)
+
+## Compared to alternatives
+
+- **vs `git worktree`**: parsec adds tracker integration, one-step ship, conflict detection across worktrees, undo, CI status, JSON output
+- **vs git-town**: parsec adds physical worktree isolation (no shared index), tracker integration, JSON output, multi-CI status
+- **vs GitButler**: parsec uses real worktrees (not virtual branches), full tracker integration, CLI-only (no GUI dependency)
+
+## What parsec is not
+
+- Not a replacement for git itself — you still use `git add`, `git commit` inside each worktree
+- Not a code review tool — it opens PRs and monitors them; review happens on the forge
+- Not a CI runner — it reports CI status from your forge but doesn't execute pipelines

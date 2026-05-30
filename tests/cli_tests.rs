@@ -1028,6 +1028,226 @@ fn test_start_with_existing_branch() {
 }
 
 // ---------------------------------------------------------------------------
+// shared_cache (issue #207)
+// ---------------------------------------------------------------------------
+
+/// Build a custom config dir containing a config.toml with the given body and
+/// return its path. Caller must keep the TempDir alive.
+fn write_config_toml(body: &str) -> TempDir {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("config.toml"), body).unwrap();
+    dir
+}
+
+#[test]
+fn test_shared_cache_symlink_creates_link() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    // Pre-populate a `target/` directory in the main repo with a build artifact.
+    std::fs::create_dir_all(repo_path.join("target")).unwrap();
+    std::fs::write(repo_path.join("target").join("artifact.txt"), "pre-built").unwrap();
+
+    let config_dir = write_config_toml(
+        r#"
+[worktree]
+shared_cache = ["target"]
+cache_strategy = "symlink"
+"#,
+    );
+
+    let mut cmd = Command::cargo_bin("parsec").unwrap();
+    cmd.env("PARSEC_CONFIG_DIR", config_dir.path())
+        .args(["start", "CACHE-1", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Worktree path follows sibling layout: <parent>/<repo_name>.CACHE-1
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+    let wt_path = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.CACHE-1", repo_name));
+    let dest = wt_path.join("target");
+
+    assert!(dest.exists(), "worktree should have shared target/");
+    let meta = std::fs::symlink_metadata(&dest).unwrap();
+    assert!(
+        meta.file_type().is_symlink(),
+        "symlink strategy must produce a symlink, got: {:?}",
+        meta.file_type()
+    );
+    let contents = std::fs::read_to_string(dest.join("artifact.txt")).unwrap();
+    assert_eq!(contents, "pre-built");
+}
+
+#[test]
+fn test_shared_cache_copy_creates_real_dir() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    std::fs::create_dir_all(repo_path.join("target").join("nested")).unwrap();
+    std::fs::write(repo_path.join("target").join("a.txt"), "alpha").unwrap();
+    std::fs::write(
+        repo_path.join("target").join("nested").join("b.txt"),
+        "beta",
+    )
+    .unwrap();
+
+    let config_dir = write_config_toml(
+        r#"
+[worktree]
+shared_cache = ["target"]
+cache_strategy = "copy"
+"#,
+    );
+
+    let mut cmd = Command::cargo_bin("parsec").unwrap();
+    cmd.env("PARSEC_CONFIG_DIR", config_dir.path())
+        .args(["start", "CACHE-2", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+    let wt_path = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.CACHE-2", repo_name));
+    let dest = wt_path.join("target");
+
+    assert!(dest.exists());
+    let meta = std::fs::symlink_metadata(&dest).unwrap();
+    assert!(
+        !meta.file_type().is_symlink(),
+        "copy strategy must NOT produce a symlink"
+    );
+    assert!(meta.is_dir());
+    assert_eq!(
+        std::fs::read_to_string(dest.join("a.txt")).unwrap(),
+        "alpha"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest.join("nested").join("b.txt")).unwrap(),
+        "beta"
+    );
+}
+
+#[test]
+fn test_shared_cache_missing_entry_skipped() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    // Don't pre-create `.venv` in the main repo.
+    let config_dir = write_config_toml(
+        r#"
+[worktree]
+shared_cache = [".venv"]
+cache_strategy = "symlink"
+"#,
+    );
+
+    let mut cmd = Command::cargo_bin("parsec").unwrap();
+    cmd.env("PARSEC_CONFIG_DIR", config_dir.path())
+        .args(["start", "CACHE-3", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+    let wt_path = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.CACHE-3", repo_name));
+
+    // Worktree was created (start succeeded), but `.venv` was simply skipped.
+    assert!(wt_path.exists(), "worktree should still be created");
+    assert!(
+        !wt_path.join(".venv").exists(),
+        "missing source should NOT be linked into worktree"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// __complete (hidden dynamic-completion helper, #291)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_complete_is_hidden_from_help() {
+    let assertion = parsec().arg("--help").assert().success();
+    let stdout = String::from_utf8(assertion.get_output().stdout.clone()).unwrap();
+    assert!(
+        !stdout.contains("__complete"),
+        "__complete should be hidden from --help, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_complete_branches_lists_local_branches() {
+    let repo = setup_repo();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Add a second local branch on top of the default main.
+    StdCommand::new("git")
+        .args(["branch", "feature/x"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    let assertion = parsec()
+        .args(["__complete", "branches", "--repo", repo_path])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assertion.get_output().stdout.clone()).unwrap();
+
+    assert!(stdout.contains("main"), "expected 'main', got:\n{stdout}");
+    assert!(
+        stdout.contains("feature/x"),
+        "expected 'feature/x', got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_complete_worktrees_lists_tickets() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "COMP-001", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let assertion = parsec()
+        .args(["__complete", "worktrees", "--repo", repo_path])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assertion.get_output().stdout.clone()).unwrap();
+
+    assert!(
+        stdout.contains("COMP-001"),
+        "expected 'COMP-001', got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_complete_outside_git_repo_is_silent_success() {
+    // Empty temp dir, no git repo — completion must not error or print noise.
+    let dir = TempDir::new().unwrap();
+    let assertion = parsec()
+        .args([
+            "__complete",
+            "branches",
+            "--repo",
+            dir.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assertion.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.trim().is_empty(),
+        "expected empty stdout outside repo, got:\n{stdout}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // JSON error format
 // ---------------------------------------------------------------------------
 
@@ -1050,7 +1270,596 @@ fn test_json_error_format() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("JSON error output must be parseable");
-    assert_eq!(parsed["error"].as_bool().unwrap(), true);
+    assert!(parsed["error"].as_bool().unwrap());
     assert!(parsed.get("code").is_some());
     assert!(parsed.get("message").is_some());
+}
+
+// ---------------------------------------------------------------------------
+// compress command (issue #314)
+// ---------------------------------------------------------------------------
+
+/// When the worktree has only the initial "start" commit (0 commits above
+/// merge-base), compress must report "Nothing to compress" and exit 0.
+#[test]
+fn test_compress_nothing_to_do() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Create a workspace
+    parsec()
+        .args(["start", "COMP-1", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // compress: single commit (merge-base == HEAD), nothing to squash
+    parsec()
+        .args(["compress", "COMP-1", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Nothing to compress"));
+}
+
+/// When the worktree has 2+ commits above merge-base, compress squashes them
+/// into one and reports the count.
+#[test]
+fn test_compress_squashes_commits() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    // Start a workspace
+    parsec()
+        .args(["start", "COMP-2", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Locate the sibling worktree directory
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+    let wt_path = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.COMP-2", repo_name));
+
+    // Make two distinct commits in the worktree
+    std::fs::write(wt_path.join("a.txt"), "alpha").unwrap();
+    StdCommand::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "first change"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+
+    std::fs::write(wt_path.join("b.txt"), "beta").unwrap();
+    StdCommand::new("git")
+        .args(["add", "b.txt"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "second change"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+
+    // compress should squash both commits and report "Compressed 2 commits"
+    parsec()
+        .args(["compress", "COMP-2", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Compressed 2 commits"));
+
+    // Verify only 1 commit now sits above merge-base
+    let merge_base = StdCommand::new("git")
+        .args(["merge-base", "HEAD", "main"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    let merge_base_sha = String::from_utf8(merge_base.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
+
+    let count_out = StdCommand::new("git")
+        .args(["rev-list", "--count", &format!("{}..HEAD", merge_base_sha)])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    let count: u64 = String::from_utf8(count_out.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        count, 1,
+        "compress should leave exactly 1 commit above merge-base"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// config schema command (issue #314)
+// ---------------------------------------------------------------------------
+
+/// `parsec config schema` must exit 0 and emit well-formed JSON.
+#[test]
+fn test_config_schema_outputs_json() {
+    let repo = setup_repo();
+
+    let output = parsec()
+        .args(["config", "schema", "--repo", repo.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "config schema should exit 0");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("config schema output must be valid JSON");
+
+    // JSON Schema documents must have a $schema or type/properties field
+    assert!(
+        parsed.get("$schema").is_some()
+            || parsed.get("type").is_some()
+            || parsed.get("properties").is_some(),
+        "output does not look like a JSON Schema document"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// history log --export command (issue #314)
+// ---------------------------------------------------------------------------
+
+/// `parsec log --export` in a repo with no prior parsec operations should exit
+/// 0. When the execlog is empty it writes a message to stderr and nothing to
+/// stdout (or exits successfully with empty stdout).
+#[test]
+fn test_history_log_export_empty() {
+    let repo = setup_repo();
+
+    let output = parsec()
+        .args(["log", "--export", "--repo", repo.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    // Should not fail
+    assert!(
+        output.status.success(),
+        "log --export should succeed even when log is empty"
+    );
+
+    // Either stdout is empty OR stderr mentions the empty state
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stdout.is_empty() || stderr.contains("No execution log"),
+        "expected empty stdout or informational stderr, got stdout={:?} stderr={:?}",
+        stdout,
+        stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
+// parsec smartlog / sl (issue #245, #305)
+// ---------------------------------------------------------------------------
+
+/// `parsec smartlog` in a repo with no active worktrees should exit 0 and
+/// print the "No active worktrees" placeholder message.
+#[test]
+fn test_smartlog_empty_repo() {
+    let repo = setup_repo();
+
+    parsec()
+        .args(["smartlog", "--repo", repo.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No active worktrees"));
+}
+
+/// `parsec sl` (alias) must behave identically to `parsec smartlog`.
+#[test]
+fn test_sl_alias_works_like_smartlog() {
+    let repo = setup_repo();
+
+    let smartlog_out = parsec()
+        .args(["smartlog", "--repo", repo.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let sl_out = parsec()
+        .args(["sl", "--repo", repo.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(smartlog_out.status.success(), "smartlog should succeed");
+    assert!(sl_out.status.success(), "sl alias should succeed");
+    assert_eq!(
+        smartlog_out.stdout, sl_out.stdout,
+        "`sl` and `smartlog` must produce identical output"
+    );
+}
+
+/// `parsec smartlog --json` in an empty repo must return a valid, empty JSON
+/// array and exit 0.
+#[test]
+fn test_smartlog_json_empty_is_array() {
+    let repo = setup_repo();
+
+    let output = parsec()
+        .args([
+            "smartlog",
+            "--json",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "smartlog --json should exit 0");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("smartlog --json must emit valid JSON");
+    assert!(
+        parsed.is_array(),
+        "smartlog --json should emit a JSON array, got: {parsed}"
+    );
+    assert_eq!(
+        parsed.as_array().unwrap().len(),
+        0,
+        "empty repo → empty array"
+    );
+}
+
+/// After creating a workspace, `parsec smartlog` should display the ticket
+/// name, branch, and base branch in the ASCII tree.
+#[test]
+fn test_smartlog_shows_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "SL-1", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["smartlog", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.contains("SL-1"),
+        "smartlog should show ticket 'SL-1', got:\n{stdout}"
+    );
+    // The ASCII tree marks base branch with "○ <base> (base)"
+    assert!(
+        stdout.contains("(base)"),
+        "smartlog should show a base-branch marker, got:\n{stdout}"
+    );
+}
+
+/// `parsec smartlog --json` with one active worktree must return a JSON array
+/// containing exactly one object with expected fields.
+#[test]
+fn test_smartlog_json_one_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "SL-2", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["smartlog", "--json", "--repo", repo_path])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "smartlog --json should exit 0");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("must be valid JSON");
+
+    let arr = parsed.as_array().expect("must be a JSON array");
+    assert_eq!(arr.len(), 1, "expected exactly 1 worktree entry");
+
+    let entry = &arr[0];
+    assert_eq!(
+        entry["ticket"].as_str().unwrap(),
+        "SL-2",
+        "ticket field mismatch"
+    );
+    assert!(
+        entry.get("branch").is_some(),
+        "entry must have a 'branch' field"
+    );
+    assert!(
+        entry.get("base_branch").is_some(),
+        "entry must have a 'base_branch' field"
+    );
+    assert!(
+        entry.get("commits").is_some(),
+        "entry must have a 'commits' field"
+    );
+    // PR / CI overlay fields must NOT appear when unset (skip_serializing_if)
+    assert!(
+        entry.get("pr").is_none(),
+        "unset 'pr' field must be omitted from JSON"
+    );
+    assert!(
+        entry.get("ci").is_none(),
+        "unset 'ci' field must be omitted from JSON"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// parsec health (#324, Phase 1)
+// ---------------------------------------------------------------------------
+
+/// `parsec health` on a repo with no active worktrees must exit 0 and print
+/// "No active worktrees."
+#[test]
+fn test_health_empty_repo() {
+    let repo = setup_repo();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["health", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No active worktrees."));
+}
+
+/// `parsec health --json` on a repo with no active worktrees must exit 0 and
+/// emit exactly the JSON array `[]` (Health.rs emits `[]` for empty set).
+#[test]
+fn test_health_empty_repo_json() {
+    let repo = setup_repo();
+    let repo_path = repo.path().to_str().unwrap();
+
+    let output = parsec()
+        .args(["health", "--json", "--repo", repo_path])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "health --json should exit 0 on empty repo"
+    );
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let trimmed = stdout.trim();
+    assert_eq!(trimmed, "[]", "empty repo → health --json must emit `[]`");
+}
+
+/// After creating a workspace, `parsec health` must exit 0 and display the
+/// ticket name in the output.
+#[test]
+fn test_health_shows_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "HL-1", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args(["health", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("HL-1"));
+}
+
+/// `parsec health --json` with one active worktree must return a JSON object
+/// with `worktrees` array and `all_healthy` boolean.  The single entry must
+/// contain the mandatory fields: `ticket`, `has_lock`, `uncommitted`,
+/// `stale_days`, `stale`.
+#[test]
+fn test_health_json_one_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "HL-2", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["health", "--json", "--repo", repo_path])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "health --json should exit 0");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("health --json must emit valid JSON");
+
+    // Top-level shape
+    assert!(
+        parsed.get("worktrees").is_some(),
+        "top-level must have 'worktrees' key"
+    );
+    assert!(
+        parsed.get("all_healthy").is_some(),
+        "top-level must have 'all_healthy' key"
+    );
+    assert!(
+        parsed["all_healthy"].is_boolean(),
+        "'all_healthy' must be a boolean"
+    );
+
+    let worktrees = parsed["worktrees"]
+        .as_array()
+        .expect("'worktrees' must be an array");
+    assert_eq!(worktrees.len(), 1, "expected exactly 1 worktree entry");
+
+    let entry = &worktrees[0];
+    assert_eq!(
+        entry["ticket"].as_str().unwrap(),
+        "HL-2",
+        "ticket field mismatch"
+    );
+    assert!(
+        entry.get("has_lock").is_some(),
+        "entry must have 'has_lock' field"
+    );
+    assert!(
+        entry.get("uncommitted").is_some(),
+        "entry must have 'uncommitted' field"
+    );
+    assert!(
+        entry.get("stale_days").is_some(),
+        "entry must have 'stale_days' field"
+    );
+    assert!(
+        entry.get("stale").is_some(),
+        "entry must have 'stale' field"
+    );
+
+    // A fresh worktree must NOT have a lock file
+    assert!(
+        !entry["has_lock"].as_bool().unwrap(),
+        "fresh worktree must not have index.lock"
+    );
+
+    // A fresh worktree with no pending changes has 0 uncommitted files
+    assert_eq!(
+        entry["uncommitted"].as_u64().unwrap(),
+        0,
+        "fresh worktree must have 0 uncommitted files"
+    );
+}
+
+/// `parsec health` must exit 0 even when worktrees have issues — health is
+/// informational and must not be used as a CI gate in Phase 1.
+#[test]
+fn test_health_exit_zero_with_issues() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "HL-3", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Simulate a stale lock file inside the worktree's git dir.
+    // The worktree is a linked worktree, so its .git is a file pointing to the
+    // real git dir.  Locate the real git dir and write a lock file there.
+    let worktree_path = repo.path().parent().unwrap().join("HL-3");
+    let git_file = worktree_path.join(".git");
+    let lock_path = if git_file.is_file() {
+        let contents = std::fs::read_to_string(&git_file).unwrap();
+        let real_git = contents
+            .strip_prefix("gitdir: ")
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        std::path::PathBuf::from(&real_git).join("index.lock")
+    } else {
+        git_file.join("index.lock")
+    };
+
+    // Write a dummy lock file
+    if let Some(parent) = lock_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::write(&lock_path, b"dummy lock").unwrap();
+
+    // Health must still exit 0 — it is purely informational in Phase 1
+    parsec()
+        .args(["health", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Clean up
+    std::fs::remove_file(&lock_path).ok();
+}
+
+// ---------------------------------------------------------------------------
+// Shell completion scripts (issue #291 Phase 2)
+//
+// Sanity tests only — verify the scripts ship in the repo and reference the
+// __complete subcommand from PR #312. We cannot exercise real shell behavior
+// (zsh/bash/fish parsers in the test sandbox is too fragile / heavy), so the
+// scripts themselves stand in for the "would this complete?" question.
+// ---------------------------------------------------------------------------
+
+fn read_completion(name: &str) -> String {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("completions")
+        .join(name);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("completion script {} should exist: {}", path.display(), e))
+}
+
+#[test]
+fn completion_zsh_present_and_dynamic() {
+    let s = read_completion("_parsec");
+    assert!(s.contains("#compdef parsec"), "must start with #compdef");
+    assert!(
+        s.contains("parsec __complete worktrees"),
+        "zsh script must call __complete worktrees"
+    );
+    assert!(
+        s.contains("parsec __complete branches"),
+        "zsh script must call __complete branches"
+    );
+    // Confirm we wire ticket-shaped subcommands.
+    for sub in ["start", "switch", "ship", "open", "clean", "merge", "ci"] {
+        assert!(s.contains(sub), "zsh script must mention {}", sub);
+    }
+}
+
+#[test]
+fn completion_bash_present_and_dynamic() {
+    let s = read_completion("parsec.bash");
+    assert!(s.contains("complete -F _parsec parsec"));
+    assert!(s.contains("parsec __complete worktrees"));
+    assert!(s.contains("parsec __complete branches"));
+    for sub in ["start", "switch", "ship", "open", "clean", "merge", "ci"] {
+        assert!(s.contains(sub), "bash script must mention {}", sub);
+    }
+}
+
+#[test]
+fn completion_fish_present_and_dynamic() {
+    let s = read_completion("parsec.fish");
+    assert!(s.contains("__parsec_worktrees"));
+    assert!(s.contains("__parsec_branches"));
+    assert!(s.contains("parsec __complete worktrees"));
+    assert!(s.contains("parsec __complete branches"));
+    for sub in ["start", "switch", "ship", "open", "clean", "merge", "ci"] {
+        assert!(s.contains(sub), "fish script must mention {}", sub);
+    }
+}
+
+#[test]
+fn completion_scripts_reference_phase1_subcommand_signature() {
+    // The __complete subcommand only accepts `worktrees` and `branches` kinds
+    // today (PR #312). Phase 2 scripts must not use any other kind name or
+    // they'll silently emit nothing.
+    for name in ["_parsec", "parsec.bash", "parsec.fish"] {
+        let s = read_completion(name);
+        let valid_kinds = ["worktrees", "branches"];
+        for line in s.lines() {
+            if let Some(rest) = line.find("parsec __complete ").map(|i| &line[i + 18..]) {
+                let kind: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric())
+                    .collect();
+                assert!(
+                    valid_kinds.contains(&kind.as_str()),
+                    "{}: unknown __complete kind '{}' (allowed: {:?})",
+                    name,
+                    kind,
+                    valid_kinds
+                );
+            }
+        }
+    }
 }
