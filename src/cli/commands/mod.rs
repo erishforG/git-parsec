@@ -1,4 +1,5 @@
 mod ci;
+mod commit;
 mod complete;
 mod compress;
 mod config;
@@ -15,6 +16,7 @@ mod tracker_cmds;
 mod workspace;
 
 pub use ci::*;
+pub use commit::*;
 pub use complete::complete;
 pub use compress::*;
 pub use config::*;
