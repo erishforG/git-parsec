@@ -520,6 +520,11 @@ pub enum Command {
         /// Maximum commits per worktree (default: 10)
         #[arg(long, short)]
         depth: Option<usize>,
+
+        /// Skip GitHub PR/CI overlay (faster, no network calls).
+        /// Overlay is also auto-skipped when no GitHub token is configured.
+        #[arg(long)]
+        no_overlay: bool,
     },
 
     /// Internal: emit dynamic completion candidates (issue #291).
@@ -925,7 +930,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Compress { ticket, message } => {
             commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
         }
-        Command::Smartlog { depth } => commands::smartlog(&repo_path, depth, output_mode).await,
+        Command::Smartlog { depth, no_overlay } => {
+            commands::smartlog(&repo_path, depth, no_overlay, output_mode).await
+        }
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
     };
 
