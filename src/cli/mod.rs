@@ -430,12 +430,20 @@ pub enum Command {
 
     /// Check all active worktrees for common issues
     ///
-    /// Scans every parsec-managed worktree for three lightweight health
-    /// indicators: lingering index.lock files (hung git process), uncommitted
-    /// changes, and stale branches (no commits in 7+ days).
+    /// Scans every parsec-managed worktree for health indicators:
+    /// lingering index.lock files (hung git process), uncommitted changes,
+    /// stale branches, and (when a GitHub token is available) live CI status.
     ///
-    /// Phase 1 — CI-status overlay is reserved for a follow-up (#299).
-    Health,
+    /// Phase 2 — CI-status overlay via GitHub PR lookup (opt-out: --no-overlay).
+    Health {
+        /// Override the stale-branch threshold (default: 7 days).
+        #[arg(long, default_value = "7")]
+        stale_days: u64,
+
+        /// Skip GitHub CI-status overlay (fully offline mode).
+        #[arg(long)]
+        no_overlay: bool,
+    },
 
     /// Create a release: merge to release branch, tag, and create GitHub Release
     ///
@@ -636,7 +644,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Init { .. } => "init",
         Command::Config { .. } => "config",
         Command::Doctor { .. } => "doctor",
-        Command::Health => "health",
+        Command::Health { .. } => "health",
         Command::Release { .. } => "release",
         Command::Create { .. } => "create",
         Command::Rename { .. } => "rename",
@@ -877,7 +885,10 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::doctor(&repo_path, output_mode).await
             }
         }
-        Command::Health => commands::health(&repo_path, output_mode).await,
+        Command::Health {
+            stale_days,
+            no_overlay,
+        } => commands::health(&repo_path, output_mode, stale_days, no_overlay).await,
         Command::Release {
             version,
             from,

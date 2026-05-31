@@ -360,12 +360,16 @@ pub fn print_health(records: &[super::HealthRecord]) {
                 .stale_days
                 .map(|d| d > r.stale_threshold_days)
                 .unwrap_or(false);
+            let ci_failing = matches!(r.ci_status.as_deref(), Some("failing") | Some("failure"));
             json!({
                 "ticket": r.ticket,
                 "has_lock": r.has_lock,
                 "uncommitted": r.uncommitted,
                 "stale_days": r.stale_days,
                 "stale": stale,
+                "ci_status": r.ci_status,
+                "pr_number": r.pr_number,
+                "ci_failing": ci_failing,
             })
         })
         .collect();
@@ -376,6 +380,7 @@ pub fn print_health(records: &[super::HealthRecord]) {
                 .stale_days
                 .map(|d| d > r.stale_threshold_days)
                 .unwrap_or(false)
+            && !matches!(r.ci_status.as_deref(), Some("failing") | Some("failure"))
     });
     println!(
         "{}",

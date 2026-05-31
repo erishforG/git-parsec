@@ -1863,3 +1863,84 @@ fn completion_scripts_reference_phase1_subcommand_signature() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// parsec health Phase 2 (#299) — --stale-days and --no-overlay flags
+// ---------------------------------------------------------------------------
+
+/// `parsec health --stale-days 99` exits 0 — the flag is accepted and a
+/// generous threshold means the fresh worktree is never flagged stale.
+#[test]
+fn test_health_stale_days_flag_accepted() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "PH2-1", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args(["health", "--stale-days", "99", "--repo", repo_path])
+        .assert()
+        .success();
+}
+
+/// `parsec health --no-overlay` must exit 0 on an empty repo — the flag is
+/// accepted and the command degrades gracefully to "No active worktrees."
+#[test]
+fn test_health_no_overlay_flag_accepted() {
+    let repo = setup_repo();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["health", "--no-overlay", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No active worktrees."));
+}
+
+/// `parsec health --no-overlay --json` with one worktree must include the
+/// `ci_status` key (value `null`) in the JSON output — schema is stable
+/// regardless of whether the CI overlay was attempted.
+#[test]
+fn test_health_no_overlay_json_has_ci_status_key() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "PH2-2", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["health", "--no-overlay", "--json", "--repo", repo_path])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "health --no-overlay --json must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("health --no-overlay --json must emit valid JSON");
+
+    let worktrees = parsed["worktrees"]
+        .as_array()
+        .expect("'worktrees' must be an array");
+    assert!(
+        !worktrees.is_empty(),
+        "expected at least one worktree entry"
+    );
+
+    let entry = &worktrees[0];
+    assert!(
+        entry.get("ci_status").is_some(),
+        "JSON entry must have 'ci_status' key (null when no-overlay)"
+    );
+    assert!(
+        entry.get("pr_number").is_some(),
+        "JSON entry must have 'pr_number' key"
+    );
+}

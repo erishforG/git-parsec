@@ -1028,13 +1028,48 @@ pub fn print_health(records: &[super::HealthRecord]) {
             Some(d) => format!("  last commit {}d ago", d).dimmed().to_string(),
         };
 
+        // Phase 2: CI status overlay tag
+        let ci_tag = match &r.ci_status {
+            None => String::new(),
+            Some(s) => match s.as_str() {
+                "passing" | "success" => format!(
+                    "  PR#{} ✓ CI",
+                    r.pr_number.map(|n| n.to_string()).unwrap_or_default()
+                )
+                .green()
+                .to_string(),
+                "failing" | "failure" => format!(
+                    "  PR#{} ✗ CI",
+                    r.pr_number.map(|n| n.to_string()).unwrap_or_default()
+                )
+                .red()
+                .to_string(),
+                "pending" => format!(
+                    "  PR#{} ● CI",
+                    r.pr_number.map(|n| n.to_string()).unwrap_or_default()
+                )
+                .yellow()
+                .to_string(),
+                other => format!(
+                    "  PR#{} {} CI",
+                    r.pr_number.map(|n| n.to_string()).unwrap_or_default(),
+                    other
+                )
+                .dimmed()
+                .to_string(),
+            },
+        };
+
+        let ci_issue = matches!(r.ci_status.as_deref(), Some("failing") | Some("failure"));
+
         let any_issue = r.has_lock
             || r.uncommitted > 0
+            || ci_issue
             || r.stale_days
                 .map(|d| d > r.stale_threshold_days)
                 .unwrap_or(false);
 
-        let icon = if r.has_lock {
+        let icon = if r.has_lock || ci_issue {
             "✗".red().to_string()
         } else if any_issue {
             "⚠".yellow().to_string()
@@ -1047,12 +1082,13 @@ pub fn print_health(records: &[super::HealthRecord]) {
         }
 
         println!(
-            "  {} {:<20}{}{}{}",
+            "  {} {:<20}{}{}{}{}",
             icon,
             r.ticket.bold(),
             uncommitted_tag,
             stale_tag,
             lock_tag,
+            ci_tag,
         );
     }
     println!();
