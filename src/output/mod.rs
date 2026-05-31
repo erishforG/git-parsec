@@ -55,6 +55,11 @@ pub struct HealthRecord {
     pub stale_threshold_days: i64,
     /// Whether a `.git/index.lock` file exists (hung git process indicator).
     pub has_lock: bool,
+    /// GitHub Actions / CI overall status for the worktree's open PR, if any.
+    /// Populated by Phase 2 CI overlay; `None` when no PR or no token.
+    pub ci_status: Option<String>,
+    /// GitHub PR number linked to this worktree's branch, if any.
+    pub pr_number: Option<u64>,
 }
 
 /// Generate a dispatch function that routes to json:: and human:: based on Mode.
