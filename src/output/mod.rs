@@ -111,6 +111,7 @@ dispatch_output!(print_undo_preview, entry: &OpEntry);
 dispatch_output!(
     print_sync,
     synced: &[String],
+    skipped: &[(String, u32)],
     failed: &[(String, String)],
     strategy: &str
 );

@@ -446,7 +446,12 @@ pub fn print_undo_preview(entry: &OpEntry) {
     }
 }
 
-pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str) {
+pub fn print_sync(
+    synced: &[String],
+    skipped: &[(String, u32)],
+    failed: &[(String, String)],
+    strategy: &str,
+) {
     if !synced.is_empty() {
         println!(
             "{} {} {} worktree(s):",
@@ -456,6 +461,16 @@ pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str
         );
         for ticket in synced {
             println!("  - {}", ticket);
+        }
+    }
+    if !skipped.is_empty() {
+        println!(
+            "{} Skipped {} worktree(s) (already up-to-date):",
+            "–".dimmed(),
+            skipped.len()
+        );
+        for (ticket, behind) in skipped {
+            println!("  - {} ({} commit(s) behind)", ticket, behind);
         }
     }
     if !failed.is_empty() {
@@ -469,7 +484,7 @@ pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str
             println!("  - {}: {}", ticket, reason.red());
         }
     }
-    if synced.is_empty() && failed.is_empty() {
+    if synced.is_empty() && skipped.is_empty() && failed.is_empty() {
         println!("Nothing to sync.");
     }
 }

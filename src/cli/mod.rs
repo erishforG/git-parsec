@@ -255,6 +255,9 @@ pub enum Command {
     /// Fetches the latest changes from the remote base branch and rebases
     /// (or merges) the worktree branch on top. Use --all to sync every
     /// active worktree at once. Strategy is configurable in config.toml.
+    ///
+    /// Use --min-behind to skip worktrees that are already nearly up-to-date
+    /// (e.g. --min-behind 3 skips any worktree fewer than 3 commits behind).
     Sync {
         /// Ticket identifier (syncs current worktree if omitted)
         ticket: Option<String>,
@@ -266,6 +269,10 @@ pub enum Command {
         /// Sync strategy: rebase or merge (default: rebase)
         #[arg(long, default_value = "rebase")]
         strategy: String,
+
+        /// Only sync worktrees at least N commits behind their base (default: 1)
+        #[arg(long, default_value = "1")]
+        min_behind: u32,
     },
 
     /// Open PR/MR or ticket page in browser
@@ -748,20 +755,18 @@ pub async fn run(cli: Cli) -> Result<()> {
             ticket,
             all,
             strategy,
+            min_behind,
         } => {
-            if cli.dry_run {
-                eprintln!(
-                    "[dry-run] Would sync {} (strategy: {})",
-                    if all {
-                        "all worktrees".to_string()
-                    } else {
-                        format!("ticket '{}'", ticket.as_deref().unwrap_or("auto"))
-                    },
-                    strategy
-                );
-                return Ok(());
-            }
-            commands::sync(&repo_path, ticket.as_deref(), all, &strategy, output_mode).await
+            commands::sync(
+                &repo_path,
+                ticket.as_deref(),
+                all,
+                &strategy,
+                min_behind,
+                cli.dry_run,
+                output_mode,
+            )
+            .await
         }
         Command::Adopt {
             ticket,
