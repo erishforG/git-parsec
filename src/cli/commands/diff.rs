@@ -213,13 +213,12 @@ pub async fn sync(
                 } else {
                     let _ = git::run(ws_path, &["merge", "--abort"]);
                 }
-                let conflict_hint = if e.to_string().contains("CONFLICT")
-                    || e.to_string().contains("conflict")
-                {
-                    " (conflict detected — resolve manually)"
-                } else {
-                    ""
-                };
+                let conflict_hint =
+                    if e.to_string().contains("CONFLICT") || e.to_string().contains("conflict") {
+                        " (conflict detected — resolve manually)"
+                    } else {
+                        ""
+                    };
                 failed.push((
                     ws.ticket.clone(),
                     format!("{strategy} failed: {e}{conflict_hint}"),

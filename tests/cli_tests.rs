@@ -463,7 +463,12 @@ fn test_sync_dry_run_shows_behind_count() {
 
     // Advance main by one commit so SYNC-003 is 1 behind.
     StdCommand::new("git")
-        .args(["commit", "--allow-empty", "-m", "advance main for dry-run test"])
+        .args([
+            "commit",
+            "--allow-empty",
+            "-m",
+            "advance main for dry-run test",
+        ])
         .current_dir(repo.path())
         .output()
         .unwrap();
@@ -480,7 +485,10 @@ fn test_sync_dry_run_shows_behind_count() {
         .unwrap();
     assert!(out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("dry-run"), "expected dry-run output, got: {stderr}");
+    assert!(
+        stderr.contains("dry-run"),
+        "expected dry-run output, got: {stderr}"
+    );
 }
 
 // ---------------------------------------------------------------------------
