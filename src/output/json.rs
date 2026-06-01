@@ -125,11 +125,17 @@ pub fn print_config_show(config: &ParsecConfig) {
     emit(config);
 }
 
-pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str) {
+pub fn print_sync(
+    synced: &[String],
+    skipped: &[(String, u32)],
+    failed: &[(String, String)],
+    strategy: &str,
+) {
     let value = json!({
         "action": "sync",
         "strategy": strategy,
         "synced": synced,
+        "skipped": skipped.iter().map(|(t, b)| json!({"ticket": t, "behind": b})).collect::<Vec<_>>(),
         "failed": failed.iter().map(|(t, r)| json!({"ticket": t, "reason": r})).collect::<Vec<_>>(),
     });
     println!("{}", value);
