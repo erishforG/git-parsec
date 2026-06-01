@@ -535,6 +535,16 @@ pub enum Command {
         no_overlay: bool,
     },
 
+    /// Show PR review status across all active worktrees (issue #301).
+    ///
+    /// Scans each active worktree, finds its associated open GitHub PR, and
+    /// prints a unified review table showing review decisions and CI status.
+    ///
+    /// Phase 2 will add `--requested` to show PRs from *others* where you are
+    /// a requested reviewer (uses GitHub Search API).
+    #[command(name = "reviews", alias = "rv")]
+    Reviews,
+
     /// Internal: emit dynamic completion candidates (issue #291).
     ///
     /// Used by shell completion scripts to enumerate worktrees / branches /
@@ -651,6 +661,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Compress { .. } => "compress",
         Command::Smartlog { .. } => "smartlog",
         Command::Complete { .. } => "__complete",
+        Command::Reviews => "reviews",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -944,6 +955,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Smartlog { depth, no_overlay } => {
             commands::smartlog(&repo_path, depth, no_overlay, output_mode).await
         }
+        Command::Reviews => commands::reviews(&repo_path, output_mode).await,
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
     };
 
