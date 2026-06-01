@@ -62,6 +62,24 @@ pub struct HealthRecord {
     pub pr_number: Option<u64>,
 }
 
+/// One entry in the `parsec reviews` output — one open PR per worktree.
+pub struct ReviewEntry {
+    /// Ticket identifier for the worktree.
+    pub ticket: String,
+    /// GitHub PR number.
+    pub pr_number: u64,
+    /// PR title.
+    pub title: String,
+    /// PR state: `open`, `draft`, `merged`, `closed`.
+    pub state: String,
+    /// Review decision: `approved`, `changes_requested`, `pending`, `no reviews`.
+    pub review_status: String,
+    /// CI overall: `success`, `failure`, `pending`, `unknown`.
+    pub ci_status: String,
+    /// HTML URL to the pull request.
+    pub url: String,
+}
+
 /// Generate a dispatch function that routes to json:: and human:: based on Mode.
 ///
 /// Standard form (both Json and Human):
@@ -142,6 +160,7 @@ dispatch_output!(
     infos: &[WorkspaceFullInfo],
     pr_map: &std::collections::HashMap<String, (u64, String)>
 );
+dispatch_output!(print_reviews, entries: &[ReviewEntry]);
 dispatch_output!(print_create, ticket_id: &str, title: &str, url: &str);
 
 pub fn print_diff_full_json(files: &[(String, String)], ticket: &str) {
