@@ -259,6 +259,9 @@ pub enum Command {
     /// Fetches the latest changes from the remote base branch and rebases
     /// (or merges) the worktree branch on top. Use --all to sync every
     /// active worktree at once. Strategy is configurable in config.toml.
+    ///
+    /// Use --min-behind to skip worktrees that are already nearly up-to-date
+    /// (e.g. --min-behind 3 skips any worktree fewer than 3 commits behind).
     Sync {
         /// Ticket identifier (syncs current worktree if omitted)
         ticket: Option<String>,
@@ -270,6 +273,10 @@ pub enum Command {
         /// Sync strategy: rebase or merge (default: rebase)
         #[arg(long, default_value = "rebase")]
         strategy: String,
+
+        /// Only sync worktrees at least N commits behind their base (default: 1)
+        #[arg(long, default_value = "1")]
+        min_behind: u32,
     },
 
     /// Open PR/MR or ticket page in browser
@@ -556,7 +563,23 @@ pub enum Command {
         /// Overlay is also auto-skipped when no GitHub token is configured.
         #[arg(long)]
         no_overlay: bool,
+
+        /// Show only worktrees whose ticket or branch name contains this
+        /// pattern (case-insensitive substring match).
+        /// Example: `parsec sl --worktree PROJ-4` shows all PROJ-4* tickets.
+        #[arg(long, short = 'w', value_name = "PATTERN")]
+        worktree: Option<String>,
     },
+
+    /// Show PR review status across all active worktrees (issue #301).
+    ///
+    /// Scans each active worktree, finds its associated open GitHub PR, and
+    /// prints a unified review table showing review decisions and CI status.
+    ///
+    /// Phase 2 will add `--requested` to show PRs from *others* where you are
+    /// a requested reviewer (uses GitHub Search API).
+    #[command(name = "reviews", alias = "rv")]
+    Reviews,
 
     /// Internal: emit dynamic completion candidates (issue #291).
     ///
@@ -675,6 +698,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Commit { .. } => "commit",
         Command::Smartlog { .. } => "smartlog",
         Command::Complete { .. } => "__complete",
+        Command::Reviews => "reviews",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -774,20 +798,18 @@ pub async fn run(cli: Cli) -> Result<()> {
             ticket,
             all,
             strategy,
+            min_behind,
         } => {
-            if cli.dry_run {
-                eprintln!(
-                    "[dry-run] Would sync {} (strategy: {})",
-                    if all {
-                        "all worktrees".to_string()
-                    } else {
-                        format!("ticket '{}'", ticket.as_deref().unwrap_or("auto"))
-                    },
-                    strategy
-                );
-                return Ok(());
-            }
-            commands::sync(&repo_path, ticket.as_deref(), all, &strategy, output_mode).await
+            commands::sync(
+                &repo_path,
+                ticket.as_deref(),
+                all,
+                &strategy,
+                min_behind,
+                cli.dry_run,
+                output_mode,
+            )
+            .await
         }
         Command::Adopt {
             ticket,
@@ -981,9 +1003,21 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
-        Command::Smartlog { depth, no_overlay } => {
-            commands::smartlog(&repo_path, depth, no_overlay, output_mode).await
+        Command::Smartlog {
+            depth,
+            no_overlay,
+            worktree,
+        } => {
+            commands::smartlog(
+                &repo_path,
+                depth,
+                no_overlay,
+                worktree.as_deref(),
+                output_mode,
+            )
+            .await
         }
+        Command::Reviews => commands::reviews(&repo_path, output_mode).await,
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
     };
 

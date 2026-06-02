@@ -147,7 +147,7 @@ pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
         }
     }
 
-    output::print_sync(&synced, &failed, "rebase (stack)", mode);
+    output::print_sync(&synced, &[], &failed, "rebase (stack)", mode);
     Ok(())
 }
 

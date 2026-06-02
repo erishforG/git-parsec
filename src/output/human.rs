@@ -446,7 +446,12 @@ pub fn print_undo_preview(entry: &OpEntry) {
     }
 }
 
-pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str) {
+pub fn print_sync(
+    synced: &[String],
+    skipped: &[(String, u32)],
+    failed: &[(String, String)],
+    strategy: &str,
+) {
     if !synced.is_empty() {
         println!(
             "{} {} {} worktree(s):",
@@ -456,6 +461,16 @@ pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str
         );
         for ticket in synced {
             println!("  - {}", ticket);
+        }
+    }
+    if !skipped.is_empty() {
+        println!(
+            "{} Skipped {} worktree(s) (already up-to-date):",
+            "–".dimmed(),
+            skipped.len()
+        );
+        for (ticket, behind) in skipped {
+            println!("  - {} ({} commit(s) behind)", ticket, behind);
         }
     }
     if !failed.is_empty() {
@@ -469,7 +484,7 @@ pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str
             println!("  - {}: {}", ticket, reason.red());
         }
     }
-    if synced.is_empty() && failed.is_empty() {
+    if synced.is_empty() && skipped.is_empty() && failed.is_empty() {
         println!("Nothing to sync.");
     }
 }
@@ -1099,6 +1114,101 @@ pub fn print_health(records: &[super::HealthRecord]) {
             "{}",
             format!("{}/{} worktrees need attention.", issues, records.len())
                 .yellow()
+                .bold()
+        );
+    }
+}
+
+/// Render the `parsec reviews` table — one row per open PR found across worktrees.
+///
+/// Review status is color-coded:
+/// - ✓ approved   → green
+/// - ✗ changes requested → red
+/// - ● pending    → yellow
+/// - no reviews   → dimmed
+pub fn print_reviews(entries: &[super::ReviewEntry]) {
+    if entries.is_empty() {
+        println!("No open PRs found in active worktrees.");
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct Row {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "PR")]
+        pr: String,
+        #[tabled(rename = "Title")]
+        title: String,
+        #[tabled(rename = "State")]
+        state: String,
+        #[tabled(rename = "Review")]
+        review: String,
+        #[tabled(rename = "CI")]
+        ci: String,
+    }
+
+    let rows: Vec<Row> = entries
+        .iter()
+        .map(|e| {
+            let state = match e.state.as_str() {
+                "open" => "open".green().to_string(),
+                "draft" => "draft".dimmed().to_string(),
+                "merged" => "merged".cyan().to_string(),
+                _ => e.state.clone(),
+            };
+            let review = match e.review_status.as_str() {
+                "approved" => "✓ approved".green().to_string(),
+                "changes_requested" => "✗ changes requested".red().to_string(),
+                "pending" => "● pending".yellow().to_string(),
+                "no reviews" => "– no reviews".dimmed().to_string(),
+                _ => e.review_status.clone(),
+            };
+            let ci = match e.ci_status.as_str() {
+                "success" => "✓ CI".green().to_string(),
+                "failure" | "error" => "✗ CI".red().to_string(),
+                "pending" => "● CI".yellow().to_string(),
+                _ => e.ci_status.clone(),
+            };
+            // Truncate long titles for readability.
+            let title = if e.title.len() > 48 {
+                format!("{}…", &e.title[..47])
+            } else {
+                e.title.clone()
+            };
+            Row {
+                ticket: e.ticket.clone(),
+                pr: format!("#{}", e.pr_number),
+                title,
+                state,
+                review,
+                ci,
+            }
+        })
+        .collect();
+
+    let table = Table::new(rows)
+        .with(tabled::settings::Style::modern())
+        .to_string();
+    println!("{}", "parsec reviews".bold());
+    println!("{table}");
+    println!();
+    let pending = entries
+        .iter()
+        .filter(|e| e.review_status == "pending" || e.review_status == "no reviews")
+        .count();
+    if pending > 0 {
+        println!(
+            "{}",
+            format!("{}/{} PRs awaiting review.", pending, entries.len())
+                .yellow()
+                .bold()
+        );
+    } else {
+        println!(
+            "{}",
+            format!("All {} PRs reviewed.", entries.len())
+                .green()
                 .bold()
         );
     }

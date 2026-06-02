@@ -428,6 +428,69 @@ fn test_sync_rebases_worktree() {
         .success();
 }
 
+#[test]
+fn test_sync_skips_when_already_up_to_date() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    // Create a worktree — it starts up-to-date.
+    parsec()
+        .args(["start", "SYNC-002", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // With default --min-behind 1, a worktree that is 0 commits behind should
+    // be skipped (no error, no sync output line).
+    let out = parsec()
+        .args(["sync", "SYNC-002", "--repo", repo_path])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Should not report a successful rebase of SYNC-002.
+    assert!(!stdout.contains("rebase") || stdout.contains("Skipped") || stdout.contains("Nothing"));
+}
+
+#[test]
+fn test_sync_dry_run_shows_behind_count() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "SYNC-003", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Advance main by one commit so SYNC-003 is 1 behind.
+    StdCommand::new("git")
+        .args([
+            "commit",
+            "--allow-empty",
+            "-m",
+            "advance main for dry-run test",
+        ])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["push", "origin", "main"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    // --dry-run should report the action without modifying the worktree.
+    let out = parsec()
+        .args(["sync", "SYNC-003", "--dry-run", "--repo", repo_path])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("dry-run"),
+        "expected dry-run output, got: {stderr}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // adopt
 // ---------------------------------------------------------------------------

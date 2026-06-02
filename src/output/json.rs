@@ -125,11 +125,17 @@ pub fn print_config_show(config: &ParsecConfig) {
     emit(config);
 }
 
-pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str) {
+pub fn print_sync(
+    synced: &[String],
+    skipped: &[(String, u32)],
+    failed: &[(String, String)],
+    strategy: &str,
+) {
     let value = json!({
         "action": "sync",
         "strategy": strategy,
         "synced": synced,
+        "skipped": skipped.iter().map(|(t, b)| json!({"ticket": t, "behind": b})).collect::<Vec<_>>(),
         "failed": failed.iter().map(|(t, r)| json!({"ticket": t, "reason": r})).collect::<Vec<_>>(),
     });
     println!("{}", value);
@@ -388,5 +394,27 @@ pub fn print_health(records: &[super::HealthRecord]) {
             "worktrees": items,
             "all_healthy": all_healthy,
         })
+    );
+}
+
+/// Emit `parsec reviews` output as a JSON array.
+pub fn print_reviews(entries: &[super::ReviewEntry]) {
+    let items: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| {
+            json!({
+                "ticket": e.ticket,
+                "pr_number": e.pr_number,
+                "title": e.title,
+                "state": e.state,
+                "review_status": e.review_status,
+                "ci_status": e.ci_status,
+                "url": e.url,
+            })
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string())
     );
 }
