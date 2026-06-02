@@ -540,6 +540,12 @@ pub enum Command {
         /// Overlay is also auto-skipped when no GitHub token is configured.
         #[arg(long)]
         no_overlay: bool,
+
+        /// Show only worktrees whose ticket or branch name contains this
+        /// pattern (case-insensitive substring match).
+        /// Example: `parsec sl --worktree PROJ-4` shows all PROJ-4* tickets.
+        #[arg(long, short = 'w', value_name = "PATTERN")]
+        worktree: Option<String>,
     },
 
     /// Show PR review status across all active worktrees (issue #301).
@@ -957,8 +963,19 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Compress { ticket, message } => {
             commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
         }
-        Command::Smartlog { depth, no_overlay } => {
-            commands::smartlog(&repo_path, depth, no_overlay, output_mode).await
+        Command::Smartlog {
+            depth,
+            no_overlay,
+            worktree,
+        } => {
+            commands::smartlog(
+                &repo_path,
+                depth,
+                no_overlay,
+                worktree.as_deref(),
+                output_mode,
+            )
+            .await
         }
         Command::Reviews => commands::reviews(&repo_path, output_mode).await,
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
