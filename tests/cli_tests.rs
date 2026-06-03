@@ -2007,3 +2007,84 @@ fn test_health_no_overlay_json_has_ci_status_key() {
         "JSON entry must have 'pr_number' key"
     );
 }
+
+// ---------------------------------------------------------------------------
+// dashboard (#248) — TUI command smoke tests
+//
+// We deliberately do not try to drive the actual TUI here (entering raw mode
+// in `cargo test` would corrupt the test runner's terminal). Instead, verify
+// the command surface: --help works for both the primary name and the alias,
+// and --json / --quiet are rejected with an actionable error.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_dashboard_help_shows_command() {
+    parsec()
+        .args(["dashboard", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("dashboard"))
+        .stdout(predicate::str::contains("--refresh"))
+        .stdout(predicate::str::contains("--no-overlay"));
+}
+
+#[test]
+fn test_dashboard_alias_dash_help() {
+    parsec()
+        .args(["dash", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--refresh"));
+}
+
+#[test]
+fn test_dashboard_json_rejected() {
+    let repo = setup_repo();
+    // Error path emits via the global JSON error wrapper, which writes to
+    // stdout — so check both streams for the message.
+    let output = parsec()
+        .args([
+            "--json",
+            "dashboard",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "expected non-zero exit");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("--json"),
+        "expected helpful message mentioning --json, got: {}",
+        combined
+    );
+}
+
+#[test]
+fn test_dashboard_quiet_rejected() {
+    let repo = setup_repo();
+    let output = parsec()
+        .args([
+            "--quiet",
+            "dashboard",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "expected non-zero exit");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("--quiet"),
+        "expected helpful message mentioning --quiet, got: {}",
+        combined
+    );
+}

@@ -35,6 +35,8 @@ clap_mangen = "0.3"
 clap_complete = "4"
 dunce = "1"
 uuid = { version = "1", features = ["v4"] }
+ratatui = "0.28"
+crossterm = "0.28"
 
 [dev-dependencies]
 assert_cmd = "2"
