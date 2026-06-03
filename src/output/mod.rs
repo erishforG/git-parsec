@@ -2,7 +2,7 @@ mod human;
 mod json;
 
 use crate::config::ParsecConfig;
-use crate::conflict::FileConflict;
+use crate::conflict::{FileConflict, MergeSimulation};
 use crate::oplog::OpEntry;
 use crate::tracker::jira::{InboxTicket, SprintInfo};
 use crate::tracker::Ticket as TrackerTicket;
@@ -121,6 +121,7 @@ dispatch_output!(print_status, workspaces: &[Workspace], ticket_infos: &[Option<
 dispatch_output!(print_ship, result: &ShipResult);
 dispatch_output!(print_clean, removed: &[Workspace], dry_run: bool);
 dispatch_output!(print_conflicts, conflicts: &[FileConflict]);
+dispatch_output!(print_conflict_simulation, sim: &MergeSimulation);
 dispatch_output!(print_switch, workspace: &Workspace);
 dispatch_output!(print_config_init);
 dispatch_output!(print_log, entries: &[&OpEntry]);

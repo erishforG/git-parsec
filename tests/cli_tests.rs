@@ -2007,3 +2007,162 @@ fn test_health_no_overlay_json_has_ci_status_key() {
         "JSON entry must have 'pr_number' key"
     );
 }
+
+// ---------------------------------------------------------------------------
+// conflicts --simulate (issue #246: speculative merge)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_conflicts_simulate_empty_repo() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "conflicts",
+            "--simulate",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("clean").or(predicate::str::contains("No")));
+}
+
+#[test]
+fn test_conflicts_simulate_json_empty_is_object() {
+    let repo = setup_repo();
+    let out = parsec()
+        .args([
+            "conflicts",
+            "--simulate",
+            "--json",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "exit must be 0 for empty simulate");
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("simulate --json must emit valid JSON");
+    assert!(v.get("vs_base").is_some(), "JSON must contain vs_base");
+    assert!(v.get("cross").is_some(), "JSON must contain cross");
+    assert!(v.get("skipped").is_some(), "JSON must contain skipped");
+    assert_eq!(v["vs_base"].as_array().unwrap().len(), 0);
+    assert_eq!(v["cross"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn test_conflicts_simulate_single_clean_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    parsec()
+        .args(["start", "SIM-1", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Worktree exists but no changes → simulate should report clean.
+    parsec()
+        .args([
+            "conflicts",
+            "--simulate",
+            "--repo",
+            repo_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("clean").or(predicate::str::contains("No")));
+}
+
+#[test]
+fn test_conflicts_simulate_detects_cross_worktree_line_conflict() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+
+    // Seed a shared file on main so both worktrees fork from the same base.
+    std::fs::write(repo_path.join("shared.txt"), "hello\nworld\n").unwrap();
+    StdCommand::new("git")
+        .args(["add", "shared.txt"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "seed shared file"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["push", "origin", "main"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+
+    // Two worktrees, each modifying the SAME line of shared.txt → real line-level conflict.
+    parsec()
+        .args(["start", "SIM-A", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+    parsec()
+        .args(["start", "SIM-B", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let wt_a = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.SIM-A", repo_name));
+    let wt_b = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.SIM-B", repo_name));
+
+    std::fs::write(wt_a.join("shared.txt"), "hello\nALPHA\n").unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-am", "alpha change"])
+        .current_dir(&wt_a)
+        .output()
+        .unwrap();
+
+    std::fs::write(wt_b.join("shared.txt"), "hello\nBETA\n").unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-am", "beta change"])
+        .current_dir(&wt_b)
+        .output()
+        .unwrap();
+
+    // JSON output to introspect the cross-pair section reliably.
+    let out = parsec()
+        .args([
+            "conflicts",
+            "--simulate",
+            "--json",
+            "--repo",
+            repo_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .expect("simulate --json must emit valid JSON even with conflicts");
+
+    let cross = v["cross"].as_array().expect("cross array expected");
+    assert!(
+        !cross.is_empty(),
+        "expected at least one cross-worktree conflict, got: {}",
+        stdout
+    );
+    // The conflict must mention shared.txt as a conflicting file.
+    let mentions_shared = cross.iter().any(|c| {
+        c["files"]
+            .as_array()
+            .map(|f| f.iter().any(|x| x.as_str() == Some("shared.txt")))
+            .unwrap_or(false)
+    });
+    assert!(
+        mentions_shared,
+        "expected shared.txt in a cross conflict, got: {}",
+        stdout
+    );
+}
