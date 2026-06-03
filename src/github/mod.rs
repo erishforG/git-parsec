@@ -306,6 +306,30 @@ struct ApiPrListItem {
     number: Option<u64>,
 }
 
+#[derive(Deserialize)]
+struct ApiUserResponse {
+    #[serde(default)]
+    login: String,
+}
+
+#[derive(Deserialize)]
+struct ApiSearchItem {
+    #[serde(default)]
+    number: u64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    html_url: String,
+    #[serde(default)]
+    state: String,
+}
+
+#[derive(Deserialize)]
+struct ApiSearchResponse {
+    #[serde(default)]
+    items: Vec<ApiSearchItem>,
+}
+
 // ---------------------------------------------------------------------------
 // GitHubClient
 // ---------------------------------------------------------------------------
@@ -535,6 +559,45 @@ impl GitHubClient {
         let resp: Vec<ApiPrListItem> = send_with_retry(self.get(&url)).await?.json().await?;
 
         Ok(resp.first().and_then(|pr| pr.number))
+    }
+
+    /// Return the login of the authenticated GitHub user.
+    ///
+    /// Used by `parsec reviews --requested` to build the search query.
+    pub async fn get_authenticated_user(&self) -> Result<String> {
+        let resp: ApiUserResponse = send_with_retry(self.get("/user")).await?.json().await?;
+        if resp.login.is_empty() {
+            anyhow::bail!("GitHub API returned empty login; is the token valid?");
+        }
+        Ok(resp.login)
+    }
+
+    /// Search for open PRs in *this repo* where `login` is a requested reviewer.
+    ///
+    /// Uses the GitHub Search Issues API:
+    /// `GET /search/issues?q=repo:{owner}/{repo}+type:pr+state:open+review-requested:{login}`
+    ///
+    /// Returns a list of `(pr_number, title, html_url, state)` tuples.
+    /// Up to 30 results (GitHub Search default page size).
+    pub async fn search_review_requested_prs(
+        &self,
+        login: &str,
+    ) -> Result<Vec<(u64, String, String, String)>> {
+        let q = format!(
+            "repo:{}/{} type:pr state:open review-requested:{}",
+            self.remote.owner, self.remote.repo, login
+        );
+        // Use reqwest's .query() so the value is properly percent-encoded.
+        let resp: ApiSearchResponse =
+            send_with_retry(self.get("/search/issues").query(&[("q", &q)]))
+                .await?
+                .json()
+                .await?;
+        Ok(resp
+            .items
+            .into_iter()
+            .map(|item| (item.number, item.title, item.html_url, item.state))
+            .collect())
     }
 
     /// Merge a GitHub PR.

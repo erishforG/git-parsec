@@ -1,20 +1,16 @@
 //! `parsec reviews` — unified PR review status across all active worktrees (#301).
 //!
-//! Phase 1 (this PR):
+//! Phase 1 (PR #331):
 //! - Scan every active worktree via [`WorktreeManager`].
 //! - For each worktree, resolve its open GitHub PR by branch name.
 //! - Fetch the PR's review + CI status and collect into a [`ReviewEntry`].
 //! - Render a table (human) or JSON array.
 //!
-//! Scope is intentionally the "author" view: PRs that the current user opened
-//! and that have a pending review request from others. Both pending and
-//! approved/changes-requested states are shown so that nothing falls through.
-//!
-//! Phase 2 hint:
-//! - Add `--requested` flag: use GitHub Search API
+//! Phase 2 (this PR):
+//! - Add `--requested` flag: uses GitHub Search API
 //!   (`/search/issues?q=review-requested:{login}`) to show PRs *from others*
 //!   where the current user is a requested reviewer.
-//! - Add `--all` to include closed/merged PRs.
+//! - Both views (author + requested) share the same `ReviewEntry` table output.
 
 use std::path::Path;
 
@@ -28,26 +24,18 @@ use crate::worktree::WorktreeManager;
 
 /// Entry point for the `parsec reviews` subcommand.
 ///
-/// Iterates all active worktrees, resolves their associated open GitHub PRs,
-/// and prints the aggregated review table.
+/// When `requested` is `false` (default): iterates all active worktrees,
+/// resolves their associated open GitHub PRs, and prints the aggregated
+/// review table (author view).
+///
+/// When `requested` is `true`: uses the GitHub Search API to find open PRs
+/// *in this repo* where the authenticated user is a requested reviewer.
 ///
 /// # Errors
 /// Returns an error if GitHub credentials are missing. Individual per-worktree
-/// failures (e.g. no PR for the branch) are silently skipped so that the rest
-/// of the table still renders.
-pub async fn reviews(repo: &Path, mode: Mode) -> Result<()> {
+/// failures (e.g. no PR for the branch) are silently skipped.
+pub async fn reviews(repo: &Path, requested: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
-    let manager = WorktreeManager::new(repo, &config)?;
-    let workspaces = manager.list()?;
-
-    if workspaces.is_empty() {
-        match mode {
-            Mode::Human => println!("No active worktrees — nothing to review."),
-            Mode::Json => println!("[]"),
-            Mode::Quiet => {}
-        }
-        return Ok(());
-    }
 
     let remote_url = git::get_remote_url(repo).unwrap_or_default();
     let gh = match GitHubClient::new(&remote_url, &config)? {
@@ -61,27 +49,57 @@ pub async fn reviews(repo: &Path, mode: Mode) -> Result<()> {
         }
     };
 
-    let mut entries: Vec<ReviewEntry> = Vec::new();
+    let entries = if requested {
+        collect_requested_reviews(&gh).await?
+    } else {
+        collect_authored_reviews(repo, &config, &gh).await?
+    };
+
+    if entries.is_empty() {
+        match mode {
+            Mode::Human => {
+                if requested {
+                    println!("No open PRs where you are a requested reviewer.");
+                } else {
+                    println!("No open PRs found in active worktrees.");
+                }
+            }
+            Mode::Json => println!("[]"),
+            Mode::Quiet => {}
+        }
+        return Ok(());
+    }
+
+    output::print_reviews(&entries, mode);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/// Collect PRs authored by the user — one per active worktree (Phase 1 logic).
+async fn collect_authored_reviews(
+    repo: &Path,
+    config: &ParsecConfig,
+    gh: &GitHubClient,
+) -> Result<Vec<ReviewEntry>> {
+    let manager = WorktreeManager::new(repo, config)?;
+    let workspaces = manager.list()?;
+    let mut entries = Vec::new();
 
     for ws in &workspaces {
-        // Resolve PR number from branch name — skip worktrees without an open PR.
         let pr_number = match gh.find_pr_by_branch(&ws.branch).await {
             Ok(Some(n)) => n,
-            Ok(None) => continue,
-            Err(_) => continue,
+            Ok(None) | Err(_) => continue,
         };
-
-        // Fetch PR status (title, state, ci_status, review_status, url).
         let status = match gh.get_pr_status(pr_number).await {
             Ok(s) => s,
             Err(_) => continue,
         };
-
-        // Phase 1 shows open + draft PRs only; closed/merged are filtered out.
         if status.state == "closed" {
             continue;
         }
-
         entries.push(ReviewEntry {
             ticket: ws.ticket.clone(),
             pr_number: status.number,
@@ -92,9 +110,36 @@ pub async fn reviews(repo: &Path, mode: Mode) -> Result<()> {
             url: status.url.clone(),
         });
     }
+    Ok(entries)
+}
 
-    output::print_reviews(&entries, mode);
-    Ok(())
+/// Collect PRs from *others* where the current user is a requested reviewer
+/// (Phase 2 — uses GitHub Search API).
+async fn collect_requested_reviews(gh: &GitHubClient) -> Result<Vec<ReviewEntry>> {
+    let login = gh.get_authenticated_user().await?;
+    let found = gh.search_review_requested_prs(&login).await?;
+
+    let mut entries = Vec::new();
+    for (pr_number, title, url, state) in found {
+        // Fetch full PR status to get CI + review data.
+        // Fall back to "–" on individual fetch failure rather than aborting.
+        let (review_status, ci_status) = match gh.get_pr_status(pr_number).await {
+            Ok(s) => (s.review_status, s.ci_status),
+            Err(_) => ("–".to_string(), "–".to_string()),
+        };
+
+        // No worktree is associated with reviewer-mode PRs.
+        entries.push(ReviewEntry {
+            ticket: "–".to_string(),
+            pr_number,
+            title,
+            state,
+            review_status,
+            ci_status,
+            url,
+        });
+    }
+    Ok(entries)
 }
 
 // ---------------------------------------------------------------------------
@@ -139,5 +184,13 @@ mod tests {
         let e = mk_entry("CL-300", 55, "changes_requested", "failure");
         assert_eq!(e.review_status, "changes_requested");
         assert_eq!(e.ci_status, "failure");
+    }
+
+    #[test]
+    fn review_entry_requested_mode_ticket_placeholder() {
+        // In --requested mode, ticket is set to "–" because no worktree is associated.
+        let e = mk_entry("–", 77, "pending", "success");
+        assert_eq!(e.ticket, "–");
+        assert_eq!(e.pr_number, 77);
     }
 }
