@@ -20,12 +20,23 @@ jobs:
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
     runs-on: ubuntu-latest
     steps:
-      - name: Only develop can merge into main
+      - name: Only develop or auto-snapshot branches can merge into main
         run: |
-          if [ "${{ github.head_ref }}" != "develop" ]; then
-            echo "::error::Only the 'develop' branch can be merged into 'main'. Got '${{ github.head_ref }}'."
-            exit 1
+          HEAD='${{ github.head_ref }}'
+          if [ "$HEAD" = "develop" ]; then
+            echo "OK — develop → main"
+            exit 0
           fi
+          # release.yml's snapshot-docs job opens PRs from docs/snapshot-vX.Y.Z
+          # because direct push to protected main is blocked. These are
+          # data-only changes (docs/v/, docs/versions.json, docs/sitemap.xml).
+          case "$HEAD" in
+            docs/snapshot-v*)
+              echo "OK — auto-snapshot branch (release docs versioning)"
+              exit 0 ;;
+          esac
+          echo "::error::Only 'develop' or 'docs/snapshot-v*' branches can be merged into 'main'. Got '$HEAD'."
+          exit 1
 
   check:
     name: Check
