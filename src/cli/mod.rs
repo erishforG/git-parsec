@@ -175,9 +175,17 @@ pub enum Command {
 
     /// Detect file conflicts across active worktrees
     ///
-    /// Compares modified files across all active worktrees and reports
-    /// any files that are being edited in more than one workspace.
-    Conflicts,
+    /// Default: filename-overlap heuristic — fast, reports files touched in
+    /// 2+ worktrees.
+    ///
+    /// `--simulate`: run an in-memory three-way merge (git merge-tree) for
+    /// each worktree vs. its base branch AND each worktree pair. Catches
+    /// real line-level conflicts before they bite at merge time. Read-only.
+    Conflicts {
+        /// Run speculative merges to detect line-level conflicts (issue #246)
+        #[arg(long)]
+        simulate: bool,
+    },
 
     /// Check PR/MR CI and review status
     ///
@@ -698,7 +706,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Ticket { .. } => "ticket",
         Command::Ship { .. } => "ship",
         Command::Clean { .. } => "clean",
-        Command::Conflicts => "conflicts",
+        Command::Conflicts { .. } => "conflicts",
         Command::PrStatus { .. } => "pr-status",
         Command::Merge { .. } => "merge",
         Command::Ci { .. } => "ci",
@@ -898,7 +906,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             stat,
             name_only,
         } => commands::diff(&repo_path, ticket.as_deref(), stat, name_only, output_mode).await,
-        Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
+        Command::Conflicts { simulate } => {
+            commands::conflicts(&repo_path, simulate, output_mode).await
+        }
         Command::Switch { ticket } => {
             commands::switch(&repo_path, ticket.as_deref(), output_mode).await
         }

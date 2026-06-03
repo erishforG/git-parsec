@@ -107,6 +107,10 @@ pub fn print_conflicts(conflicts: &[FileConflict]) {
     emit(&conflicts);
 }
 
+pub fn print_conflict_simulation(sim: &crate::conflict::MergeSimulation) {
+    emit(sim);
+}
+
 pub fn print_switch(workspace: &Workspace) {
     let value = json!({ "path": workspace.path });
     println!("{}", value);
