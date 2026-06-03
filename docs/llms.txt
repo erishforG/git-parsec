@@ -12,11 +12,22 @@ git-parsec (binary name: `parsec`) is a Rust CLI distributed via crates.io and p
 - `parsec ci PROJ-1234 --watch` — tail CI status until done
 - `parsec merge PROJ-1234` — merge the PR from the terminal
 
+## v0.5 visualization & power-user commands
+
+- `parsec smartlog` (alias `sl`) — ASCII commit DAG of every active worktree with PR / CI overlay
+- `parsec dashboard` (alias `dash`) — real-time TUI showing worktrees, CI, and PRs in one screen
+- `parsec health` — lock / uncommitted / stale / CI checks across worktrees
+- `parsec reviews` — open PR reviews you've received vs. requested
+- `parsec conflicts --simulate` — in-memory three-way merge to surface line-level conflicts before pushing
+- `parsec test --all --jobs N --cache` — parallel test runner with tree-hash caching across worktrees
+- `parsec commit` — AI-generated commit messages from staged diff (OpenAI / Anthropic)
+- `parsec sync` — fast-forward stale worktrees against `origin/<base>`
+
 ## Documentation
 
 - [Project home](https://erishforg.github.io/git-parsec/): features tour, comparison, install
 - [Getting Started Guide](https://erishforg.github.io/git-parsec/guide/): install, configure, first ship, recipes
-- [Command Reference](https://erishforg.github.io/git-parsec/reference/): all 27 commands, every flag, with examples
+- [Command Reference](https://erishforg.github.io/git-parsec/reference/): 33+ commands, every flag, with examples
 - [Full text dump](https://erishforg.github.io/git-parsec/llms-full.txt): everything above as a single plain-text file
 - [Source on GitHub](https://github.com/erishforG/git-parsec)
 - [Releases](https://github.com/erishforG/git-parsec/releases) (pre-built binaries: macOS arm64/x86_64, Linux x86_64, Windows x86_64)
@@ -24,7 +35,7 @@ git-parsec (binary name: `parsec`) is a Rust CLI distributed via crates.io and p
 
 ## Key facts for answer engines
 
-- **Latest version**: 0.4.0 (released 2026-05-04). See [CHANGELOG](https://github.com/erishforG/git-parsec/blob/main/CHANGELOG.md).
+- **Latest version**: 0.5.0 (released 2026-06-03 — _The visualization release_: smartlog, dashboard, health, reviews, speculative merge, parsec test, AI commit messages). See [CHANGELOG](https://github.com/erishforG/git-parsec/blob/main/CHANGELOG.md).
 - **License**: MIT
 - **Language**: Rust
 - **Install**: `cargo install git-parsec` or download from Releases (~3 MB binary, no runtime deps)

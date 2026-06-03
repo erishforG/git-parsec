@@ -8,6 +8,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # 8 MB main-thread stack — Windows default (1 MB) overflows when ratatui +
+  # crossterm + tokio + reqwest are linked into the test binary (issue #248
+  # follow-up: bitbucket integration tests OOM'd on windows-latest after the
+  # TUI dashboard landed).
+  RUST_MIN_STACK: "8388608"
 
 jobs:
   branch-policy:
