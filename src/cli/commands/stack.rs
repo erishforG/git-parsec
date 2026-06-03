@@ -1,3 +1,18 @@
+//! `parsec stack` / `parsec stack sync` / `parsec stack submit` — stacked worktree management.
+//!
+//! A *stack* is a chain of worktrees where each child is based on its parent's
+//! branch instead of the shared base branch.  Stacks are created via
+//! `parsec start <ticket> --on <parent_ticket>` and allow dependent changes to
+//! be developed in parallel without waiting for parent PRs to land.
+//!
+//! ## Commands
+//! - **`parsec stack`** — list all worktrees that participate in at least one
+//!   stack (have a `parent_ticket` or are themselves a parent).
+//! - **`parsec stack sync`** — rebase every stack from root to leaves so that
+//!   each child always sits on top of its parent's latest commit.
+//! - **`parsec stack submit`** — ship the entire stack in topological order
+//!   (root first, leaves last) by calling [`super::ship`] for each member.
+
 use std::path::Path;
 
 use anyhow::Result;
@@ -7,6 +22,14 @@ use crate::git;
 use crate::output::{self, Mode};
 use crate::worktree::WorktreeManager;
 
+/// List all worktrees that are part of a stack.
+///
+/// A worktree participates in a stack when it either:
+/// - has a `parent_ticket` (it is a child), **or**
+/// - is referenced as the parent of another worktree.
+///
+/// Outputs nothing (human) or an empty JSON array when no stacks exist,
+/// with a hint message in human mode.
 pub async fn stack(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
@@ -38,6 +61,17 @@ pub async fn stack(repo: &Path, mode: Mode) -> Result<()> {
     Ok(())
 }
 
+/// Synchronise a stack by rebasing every worktree onto its dependency.
+///
+/// Traversal order (BFS from each root):
+/// 1. Root worktrees (no parent) are rebased onto `origin/<base_branch>`.
+/// 2. Each child is then rebased onto its parent's local branch tip.
+///
+/// A failed rebase is automatically aborted (`git rebase --abort`) so the
+/// worktree is left in a clean state.  The failed ticket is recorded in
+/// `failed` and processing continues with the next root.
+///
+/// Returns a summary of synced and failed tickets via [`output::print_sync`].
 pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
@@ -113,11 +147,18 @@ pub async fn stack_sync(repo: &Path, mode: Mode) -> Result<()> {
         }
     }
 
-    output::print_sync(&synced, &failed, "rebase (stack)", mode);
+    output::print_sync(&synced, &[], &failed, "rebase (stack)", mode);
     Ok(())
 }
 
 /// Ship the entire stack in topological order (#235).
+///
+/// Determines the topological order (BFS from roots) and calls
+/// [`super::ship`] for each worktree.  Processing stops at the first failure
+/// to avoid creating PRs with a broken dependency chain.
+///
+/// `mode` is forwarded to `ship` for consistent output formatting.
+/// Returns an error when one or more tickets could not be shipped.
 pub async fn stack_submit(repo: &Path, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;

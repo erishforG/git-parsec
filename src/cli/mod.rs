@@ -175,9 +175,17 @@ pub enum Command {
 
     /// Detect file conflicts across active worktrees
     ///
-    /// Compares modified files across all active worktrees and reports
-    /// any files that are being edited in more than one workspace.
-    Conflicts,
+    /// Default: filename-overlap heuristic — fast, reports files touched in
+    /// 2+ worktrees.
+    ///
+    /// `--simulate`: run an in-memory three-way merge (git merge-tree) for
+    /// each worktree vs. its base branch AND each worktree pair. Catches
+    /// real line-level conflicts before they bite at merge time. Read-only.
+    Conflicts {
+        /// Run speculative merges to detect line-level conflicts (issue #246)
+        #[arg(long)]
+        simulate: bool,
+    },
 
     /// Check PR/MR CI and review status
     ///
@@ -255,6 +263,9 @@ pub enum Command {
     /// Fetches the latest changes from the remote base branch and rebases
     /// (or merges) the worktree branch on top. Use --all to sync every
     /// active worktree at once. Strategy is configurable in config.toml.
+    ///
+    /// Use --min-behind to skip worktrees that are already nearly up-to-date
+    /// (e.g. --min-behind 3 skips any worktree fewer than 3 commits behind).
     Sync {
         /// Ticket identifier (syncs current worktree if omitted)
         ticket: Option<String>,
@@ -266,6 +277,10 @@ pub enum Command {
         /// Sync strategy: rebase or merge (default: rebase)
         #[arg(long, default_value = "rebase")]
         strategy: String,
+
+        /// Only sync worktrees at least N commits behind their base (default: 1)
+        #[arg(long, default_value = "1")]
+        min_behind: u32,
     },
 
     /// Open PR/MR or ticket page in browser
@@ -428,6 +443,23 @@ pub enum Command {
         ai: bool,
     },
 
+    /// Check all active worktrees for common issues
+    ///
+    /// Scans every parsec-managed worktree for health indicators:
+    /// lingering index.lock files (hung git process), uncommitted changes,
+    /// stale branches, and (when a GitHub token is available) live CI status.
+    ///
+    /// Phase 2 — CI-status overlay via GitHub PR lookup (opt-out: --no-overlay).
+    Health {
+        /// Override the stale-branch threshold (default: 7 days).
+        #[arg(long, default_value = "7")]
+        stale_days: u64,
+
+        /// Skip GitHub CI-status overlay (fully offline mode).
+        #[arg(long)]
+        no_overlay: bool,
+    },
+
     /// Create a release: merge to release branch, tag, and create GitHub Release
     ///
     /// Merges the current develop branch into the release branch (default: main),
@@ -501,6 +533,123 @@ pub enum Command {
         /// New ticket identifier
         new_ticket: String,
     },
+
+    /// Visualize active worktrees as a commit DAG (alias: sl)
+    ///
+    /// Lists every active worktree, the commits it adds on top of its base
+    /// branch, and (in later releases) PR/CI/review state. Issue #245.
+    #[command(alias = "sl")]
+    Smartlog {
+        /// Maximum commits per worktree (default: 10)
+        #[arg(long, short)]
+        depth: Option<usize>,
+
+        /// Skip GitHub PR/CI overlay (faster, no network calls).
+        /// Overlay is also auto-skipped when no GitHub token is configured.
+        #[arg(long)]
+        no_overlay: bool,
+
+        /// Show only worktrees whose ticket or branch name contains this
+        /// pattern (case-insensitive substring match).
+        /// Example: `parsec sl --worktree PROJ-4` shows all PROJ-4* tickets.
+        #[arg(long, short = 'w', value_name = "PATTERN")]
+        worktree: Option<String>,
+    },
+
+    /// Run tests inside parsec-managed worktrees (issue #247).
+    ///
+    /// Executes a shell command (default: `cargo test`, configurable via
+    /// `[test].command` in `~/.config/parsec/config.toml`) inside one or
+    /// every active worktree. Supports parallel execution via `--jobs N`
+    /// and tree-hash result caching via `--cache`.
+    ///
+    /// Selection logic (in order):
+    ///   1. `--all`        → all active worktrees
+    ///   2. `[TICKET]`     → the named worktree only
+    ///   3. auto-detect    → the worktree whose path contains `cwd`
+    Test {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Run tests in every active worktree
+        #[arg(long)]
+        all: bool,
+
+        /// Number of worktrees to test in parallel (default: 1).
+        ///
+        /// Only takes effect together with `--all`. Falls back to the
+        /// configured `[test].jobs` value when omitted.
+        #[arg(long, short = 'j', default_value = "0")]
+        jobs: usize,
+
+        /// Cache test results by worktree tree-hash.
+        ///
+        /// Successful runs are persisted under `.parsec/test-cache/<hash>.json`
+        /// and replayed instantly on subsequent runs while the tree-hash
+        /// is unchanged.
+        #[arg(long)]
+        cache: bool,
+
+        /// Override the configured `[test].command`.
+        ///
+        /// Useful for ad-hoc invocations (e.g. `--command 'pytest -x'`)
+        /// and for the integration tests of this command.
+        #[arg(long)]
+        command: Option<String>,
+    },
+
+    /// Show PR review status across all active worktrees (issue #301).
+    ///
+    /// Scans each active worktree, finds its associated open GitHub PR, and
+    /// prints a unified review table showing review decisions and CI status.
+    ///
+    /// Use `--requested` to show PRs from *others* where you are a requested
+    /// reviewer (Phase 2 — uses GitHub Search API).
+    #[command(name = "reviews", alias = "rv")]
+    Reviews {
+        /// Show PRs from others where you are a requested reviewer.
+        ///
+        /// Uses the GitHub Search API to find open PRs in this repo where
+        /// the authenticated user (`gh auth status`) is listed as a reviewer.
+        #[arg(long, short = 'r')]
+        requested: bool,
+    },
+
+    /// Launch interactive TUI dashboard (alias: dash) — issue #248.
+    ///
+    /// Opens a real-time terminal UI showing every active worktree, its CI
+    /// status, and the associated GitHub PR — all in a single view. Built on
+    /// `ratatui` + `crossterm`.
+    ///
+    /// Keys: `q` / Esc to quit · `r` to refresh now · `?` for help.
+    #[command(alias = "dash")]
+    Dashboard {
+        /// Refresh interval in seconds (default: 10)
+        #[arg(long, default_value_t = 10)]
+        refresh: u64,
+        /// Disable network calls (CI/PR overlay)
+        #[arg(long)]
+        no_overlay: bool,
+    },
+
+    /// Internal: emit dynamic completion candidates (issue #291).
+    ///
+    /// Used by shell completion scripts to enumerate worktrees / branches /
+    /// tickets at completion time. Not intended for direct user invocation.
+    #[command(name = "__complete", hide = true)]
+    Complete {
+        #[command(subcommand)]
+        kind: CompleteKind,
+    },
+}
+
+/// Candidate sets the dynamic completion subcommand can emit.
+#[derive(Subcommand)]
+pub enum CompleteKind {
+    /// Print active worktree ticket identifiers, one per line.
+    Worktrees,
+    /// Print local branch names, one per line.
+    Branches,
 }
 
 #[derive(Subcommand)]
@@ -574,7 +723,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Ticket { .. } => "ticket",
         Command::Ship { .. } => "ship",
         Command::Clean { .. } => "clean",
-        Command::Conflicts => "conflicts",
+        Command::Conflicts { .. } => "conflicts",
         Command::PrStatus { .. } => "pr-status",
         Command::Merge { .. } => "merge",
         Command::Ci { .. } => "ci",
@@ -592,10 +741,16 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Init { .. } => "init",
         Command::Config { .. } => "config",
         Command::Doctor { .. } => "doctor",
+        Command::Health { .. } => "health",
         Command::Release { .. } => "release",
         Command::Create { .. } => "create",
         Command::Rename { .. } => "rename",
         Command::Compress { .. } => "compress",
+        Command::Smartlog { .. } => "smartlog",
+        Command::Complete { .. } => "__complete",
+        Command::Reviews { .. } => "reviews",
+        Command::Dashboard { .. } => "dashboard",
+        Command::Test { .. } => "test",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -693,20 +848,18 @@ pub async fn run(cli: Cli) -> Result<()> {
             ticket,
             all,
             strategy,
+            min_behind,
         } => {
-            if cli.dry_run {
-                eprintln!(
-                    "[dry-run] Would sync {} (strategy: {})",
-                    if all {
-                        "all worktrees".to_string()
-                    } else {
-                        format!("ticket '{}'", ticket.as_deref().unwrap_or("auto"))
-                    },
-                    strategy
-                );
-                return Ok(());
-            }
-            commands::sync(&repo_path, ticket.as_deref(), all, &strategy, output_mode).await
+            commands::sync(
+                &repo_path,
+                ticket.as_deref(),
+                all,
+                &strategy,
+                min_behind,
+                cli.dry_run,
+                output_mode,
+            )
+            .await
         }
         Command::Adopt {
             ticket,
@@ -771,7 +924,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             stat,
             name_only,
         } => commands::diff(&repo_path, ticket.as_deref(), stat, name_only, output_mode).await,
-        Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
+        Command::Conflicts { simulate } => {
+            commands::conflicts(&repo_path, simulate, output_mode).await
+        }
         Command::Switch { ticket } => {
             commands::switch(&repo_path, ticket.as_deref(), output_mode).await
         }
@@ -830,6 +985,10 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::doctor(&repo_path, output_mode).await
             }
         }
+        Command::Health {
+            stale_days,
+            no_overlay,
+        } => commands::health(&repo_path, output_mode, stale_days, no_overlay).await,
         Command::Release {
             version,
             from,
@@ -882,6 +1041,60 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Compress { ticket, message } => {
             commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
         }
+        Command::Smartlog {
+            depth,
+            no_overlay,
+            worktree,
+        } => {
+            commands::smartlog(
+                &repo_path,
+                depth,
+                no_overlay,
+                worktree.as_deref(),
+                output_mode,
+            )
+            .await
+        }
+        Command::Reviews { requested } => {
+            commands::reviews(&repo_path, requested, output_mode).await
+        }
+        Command::Dashboard {
+            refresh,
+            no_overlay,
+        } => {
+            if cli.json {
+                anyhow::bail!(
+                    "TUI dashboard does not support --json. \
+                     Use `parsec list --json` or `parsec reviews --json` instead."
+                );
+            }
+            if cli.quiet {
+                anyhow::bail!(
+                    "TUI dashboard does not support --quiet. \
+                     Use `parsec list --quiet` or `parsec reviews --quiet` instead."
+                );
+            }
+            commands::dashboard(&repo_path, refresh, no_overlay).await
+        }
+        Command::Test {
+            ticket,
+            all,
+            jobs,
+            cache,
+            command,
+        } => {
+            commands::test(
+                &repo_path,
+                ticket.as_deref(),
+                all,
+                jobs,
+                cache,
+                command.as_deref(),
+                output_mode,
+            )
+            .await
+        }
+        Command::Complete { kind } => commands::complete(&repo_path, kind).await,
     };
 
     // Record execution entry (best-effort, never fail the command)

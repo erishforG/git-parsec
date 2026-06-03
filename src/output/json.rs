@@ -107,6 +107,10 @@ pub fn print_conflicts(conflicts: &[FileConflict]) {
     emit(&conflicts);
 }
 
+pub fn print_conflict_simulation(sim: &crate::conflict::MergeSimulation) {
+    emit(sim);
+}
+
 pub fn print_switch(workspace: &Workspace) {
     let value = json!({ "path": workspace.path });
     println!("{}", value);
@@ -125,11 +129,17 @@ pub fn print_config_show(config: &ParsecConfig) {
     emit(config);
 }
 
-pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str) {
+pub fn print_sync(
+    synced: &[String],
+    skipped: &[(String, u32)],
+    failed: &[(String, String)],
+    strategy: &str,
+) {
     let value = json!({
         "action": "sync",
         "strategy": strategy,
         "synced": synced,
+        "skipped": skipped.iter().map(|(t, b)| json!({"ticket": t, "behind": b})).collect::<Vec<_>>(),
         "failed": failed.iter().map(|(t, r)| json!({"ticket": t, "reason": r})).collect::<Vec<_>>(),
     });
     println!("{}", value);
@@ -350,4 +360,85 @@ pub fn print_rename(old_ticket: &str, new_ticket: &str, workspace: &crate::workt
         "path": workspace.path,
     });
     println!("{}", value);
+}
+
+pub fn print_health(records: &[super::HealthRecord]) {
+    let items: Vec<serde_json::Value> = records
+        .iter()
+        .map(|r| {
+            let stale = r
+                .stale_days
+                .map(|d| d > r.stale_threshold_days)
+                .unwrap_or(false);
+            let ci_failing = matches!(r.ci_status.as_deref(), Some("failing") | Some("failure"));
+            json!({
+                "ticket": r.ticket,
+                "has_lock": r.has_lock,
+                "uncommitted": r.uncommitted,
+                "stale_days": r.stale_days,
+                "stale": stale,
+                "ci_status": r.ci_status,
+                "pr_number": r.pr_number,
+                "ci_failing": ci_failing,
+            })
+        })
+        .collect();
+    let all_healthy = records.iter().all(|r| {
+        !r.has_lock
+            && r.uncommitted == 0
+            && !r
+                .stale_days
+                .map(|d| d > r.stale_threshold_days)
+                .unwrap_or(false)
+            && !matches!(r.ci_status.as_deref(), Some("failing") | Some("failure"))
+    });
+    println!(
+        "{}",
+        json!({
+            "worktrees": items,
+            "all_healthy": all_healthy,
+        })
+    );
+}
+
+/// Emit `parsec reviews` output as a JSON array.
+pub fn print_reviews(entries: &[super::ReviewEntry]) {
+    let items: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| {
+            json!({
+                "ticket": e.ticket,
+                "pr_number": e.pr_number,
+                "title": e.title,
+                "state": e.state,
+                "review_status": e.review_status,
+                "ci_status": e.ci_status,
+                "url": e.url,
+            })
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string())
+    );
+}
+
+/// Emit `parsec test` results as a JSON array.
+pub fn print_test_results(results: &[super::TestResult]) {
+    let items: Vec<serde_json::Value> = results
+        .iter()
+        .map(|r| {
+            json!({
+                "ticket": r.ticket,
+                "exit_code": r.exit_code,
+                "duration_ms": r.duration_ms,
+                "from_cache": r.from_cache,
+                "stdout_tail": r.stdout_tail,
+            })
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string())
+    );
 }

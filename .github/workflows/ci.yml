@@ -8,6 +8,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # 8 MB main-thread stack — Windows default (1 MB) overflows when ratatui +
+  # crossterm + tokio + reqwest are linked into the test binary (issue #248
+  # follow-up: bitbucket integration tests OOM'd on windows-latest after the
+  # TUI dashboard landed).
+  RUST_MIN_STACK: "8388608"
 
 jobs:
   branch-policy:
@@ -96,3 +101,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit --locked
       - run: cargo audit
+
+  # Pre-validation for GitHub Actions Windows runner migration to VS 2026
+  # (windows-latest / windows-2025 labels move to VS2026 default between
+  # 2026-06-08 and 2026-06-15). Informational until migration completes.
+  # Tracked in issue #307 — remove after migration window closes.
+  windows-vs2026-prevalidation:
+    name: Windows VS2026 Pre-Validation
+    runs-on: windows-2025-vs2026
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo build --release
+      - run: cargo test

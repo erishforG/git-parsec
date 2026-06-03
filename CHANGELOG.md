@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-03 — _The visualization release_
+
+v0.5 마일스톤 **16/16 완료**. Polish & Power-User UX: 워크트리/PR/CI를 하나의
+시야에 모아주는 시각화·자동화 명령 6개 신규.
+
+### Added
+- **`parsec smartlog` (alias `sl`)** — 모든 활성 워크트리를 commit DAG로 시각화.
+  ASCII 트리가 base branch별로 워크트리를 묶고 merge-base 이후 커밋을 표시.
+  Phase 2 PR/CI status overlay (`#327`), Phase 3 worktree filter + ANSI 색상 +
+  stack indicator (`#333`). `--json` 출력 지원. (`#245`, `#305`, `#318`, `#319`)
+- **`parsec dashboard` (alias `dash`)** — 실시간 터미널 TUI 대시보드. 워크트리 /
+  CI 상태 / GitHub PR을 3-pane 레이아웃으로 한 화면에. ratatui + crossterm 기반,
+  키바인딩 `q` (종료) / `r` (즉시 새로고침) / `?` (도움말), `--refresh N` 인터벌,
+  `--no-overlay` 오프라인 모드. (`#248`, `#337`)
+- **`parsec test`** — 워크트리 병렬 테스트 러너 + tree-hash 결과 캐싱.
+  `--all`로 모든 활성 워크트리 일괄 실행, `--jobs N` 병렬, `--cache`로 동일 tree
+  재실행 시 즉시 스킵. `[test]` 설정 섹션(`command`, `jobs`, `cache`). 인간/JSON
+  출력. (`#247`, `#336`)
+- **`parsec health`** — 모든 활성 워크트리 헬스 체크. Phase 1: lock(`.git/index.lock`)
+  · uncommitted 파일 수 · stale(7일 초과) 검사 (`#324`, `#325`). Phase 2: CI 상태
+  overlay + configurable stale threshold (`#330`). CLI 통합 테스트 5개 (`#326`).
+- **`parsec reviews`** — 워크트리별 받은/요청한 PR 리뷰를 한 표로. Phase 1 (`#301`,
+  `#331`) + Phase 2 `--requested` (GitHub Search API) (`#334`).
+- **`parsec conflicts --simulate`** — 기존 filename overlap 휴리스틱을 보완하는
+  line-level 충돌 시뮬레이션. `git merge-tree --write-tree`로 워크트리 vs base +
+  워크트리 페어 cross-simulate 두 패스. 머지 전 실제 충돌 파일을 read-only로 노출.
+  (`#246`, `#335`)
+- **`parsec commit`** — AI 커밋 메시지 생성 (OpenAI / Anthropic). staged diff 분석
+  후 자동 prefix + Conventional Commits 포맷(`--conventional`). 수동 메시지
+  override(`--message`). (`#274`)
+- **`parsec sync`** — auto-sync `main`/`develop` into stale worktrees (rebase 또는
+  merge 전략, `--all` 일괄, `--dry-run` behind 카운트, conflict hint). (`#290`)
+- **AI-generated PR descriptions** — `parsec ship`이 OpenAI / Anthropic / Ollama
+  공급자로 PR 본문 자동 작성. `[ai]` 설정. (`#242`, `#275`)
+- **`parsec __complete` shell-completion 헬퍼** — 숨김 subcommand가 워크트리 / branch
+  완성 후보를 newline-separated로 출력. zsh / bash / fish 동적 탭 완성 지원
+  (`#291`, `#312`). Phase 2 dynamic 쉘 스크립트 (`#328`).
+- **`parsec agent` mode (PARSEC_AGENT=1)** — non-interactive JSON 출력 모드, AI
+  에이전트 호출용. (`#272`)
+
+### Changed
+- **Error messages standardized to 3-line format** — 모든 사용자 대상 에러가
+  `error: <summary> / caused by: <root cause> / help: <action>` 포맷으로 통일
+  (`#303`, `#306`).
+
+### Fixed
+- `parsec ship` falls back to `gh auth token` when `PARSEC_GITHUB_TOKEN` /
+  `GITHUB_TOKEN` / `GH_TOKEN` env vars are absent — parity with `parsec doctor`
+  and the tracker layer. GitHub host에만 한정해 Bitbucket / GitLab remote는 영향
+  없음 (`#281`).
+
+### CI
+- Windows VS2026 (Visual Studio 2026 runner) pre-validation 잡 — MSVC toolchain
+  회귀 사전 차단 (`#307`, `#311`).
+- `parsec test`의 shell invocation을 cross-platform화 (sh -c / cmd /C),
+  Windows test가 WSL을 호출하지 않도록 수정.
+
+### Docs
+- 모듈별 RustDoc 보강 — `diff` / `history` (`#321`), `stack` / `ci` (`#323`).
+- CHANGELOG `[Unreleased]` 섹션 누락 항목 보완 (smartlog / complete / errors /
+  win-ci) (`#316`, `#317`).
+
+### Tests
+- CLI 통합 테스트 대폭 추가 — `compress` / `config schema` / `log --export`
+  (`#314`, `#315`), `smartlog` / `sl` (`#318`, `#319`), `health` (`#324`, `#326`),
+  `parsec test` (5 신규), `parsec dashboard` (4 신규), `conflicts --simulate`
+  (4 신규).
+
 ## [0.4.0] - 2026-05-04
 
 ### Added

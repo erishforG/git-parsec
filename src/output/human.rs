@@ -4,7 +4,7 @@ use tabled::{Table, Tabled};
 
 use super::{BoardTicketDisplay, WorkspaceFullInfo};
 use crate::config::ParsecConfig;
-use crate::conflict::FileConflict;
+use crate::conflict::{FileConflict, MergeSimulation};
 use crate::oplog::OpEntry;
 use crate::tracker::jira::{InboxTicket, SprintInfo};
 use crate::tracker::Ticket as TrackerTicket;
@@ -308,6 +308,85 @@ pub fn print_clean(removed: &[Workspace], dry_run: bool) {
     }
 }
 
+pub fn print_conflict_simulation(sim: &MergeSimulation) {
+    if sim.vs_base.is_empty() && sim.cross.is_empty() {
+        println!(
+            "{}",
+            "Speculative merge: clean — no line-level conflicts.".green()
+        );
+        if !sim.skipped.is_empty() {
+            println!(
+                "{}",
+                format!(
+                    "note: {} worktree(s) skipped: {}",
+                    sim.skipped.len(),
+                    sim.skipped.join(", ")
+                )
+                .dimmed()
+            );
+        }
+        return;
+    }
+
+    if !sim.vs_base.is_empty() {
+        println!(
+            "{}",
+            format!(
+                "Worktree → base conflicts ({} worktree(s)):",
+                sim.vs_base.len()
+            )
+            .yellow()
+            .bold()
+        );
+        for bc in &sim.vs_base {
+            println!(
+                "  {} → {} ({} file(s))",
+                bc.ticket.cyan(),
+                bc.base_branch.dimmed(),
+                bc.files.len()
+            );
+            for f in &bc.files {
+                println!("    {} {}", "●".red(), f);
+            }
+        }
+    }
+
+    if !sim.cross.is_empty() {
+        if !sim.vs_base.is_empty() {
+            println!();
+        }
+        println!(
+            "{}",
+            format!("Cross-worktree conflicts ({} pair(s)):", sim.cross.len())
+                .yellow()
+                .bold()
+        );
+        for cc in &sim.cross {
+            println!(
+                "  {} ↔ {} ({} file(s))",
+                cc.ticket_a.cyan(),
+                cc.ticket_b.cyan(),
+                cc.files.len()
+            );
+            for f in &cc.files {
+                println!("    {} {}", "●".red(), f);
+            }
+        }
+    }
+
+    if !sim.skipped.is_empty() {
+        println!(
+            "{}",
+            format!(
+                "note: {} worktree(s) skipped: {}",
+                sim.skipped.len(),
+                sim.skipped.join(", ")
+            )
+            .dimmed()
+        );
+    }
+}
+
 pub fn print_conflicts(conflicts: &[FileConflict]) {
     if conflicts.is_empty() {
         println!("{}", "No conflicts detected.".green());
@@ -446,7 +525,12 @@ pub fn print_undo_preview(entry: &OpEntry) {
     }
 }
 
-pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str) {
+pub fn print_sync(
+    synced: &[String],
+    skipped: &[(String, u32)],
+    failed: &[(String, String)],
+    strategy: &str,
+) {
     if !synced.is_empty() {
         println!(
             "{} {} {} worktree(s):",
@@ -456,6 +540,16 @@ pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str
         );
         for ticket in synced {
             println!("  - {}", ticket);
+        }
+    }
+    if !skipped.is_empty() {
+        println!(
+            "{} Skipped {} worktree(s) (already up-to-date):",
+            "–".dimmed(),
+            skipped.len()
+        );
+        for (ticket, behind) in skipped {
+            println!("  - {} ({} commit(s) behind)", ticket, behind);
         }
     }
     if !failed.is_empty() {
@@ -469,7 +563,7 @@ pub fn print_sync(synced: &[String], failed: &[(String, String)], strategy: &str
             println!("  - {}: {}", ticket, reason.red());
         }
     }
-    if synced.is_empty() && failed.is_empty() {
+    if synced.is_empty() && skipped.is_empty() && failed.is_empty() {
         println!("Nothing to sync.");
     }
 }
@@ -1000,4 +1094,285 @@ pub fn print_rename(old_ticket: &str, new_ticket: &str, workspace: &Workspace) {
     );
     println!("  {} {}", "Branch:".bold(), workspace.branch);
     println!("  {} {}", "Path:".bold(), workspace.path.display());
+}
+
+pub fn print_health(records: &[super::HealthRecord]) {
+    println!("{}", "parsec health".bold());
+    let mut issues = 0usize;
+    for r in records {
+        let lock_tag = if r.has_lock {
+            "  ⚠ lock file!".red().to_string()
+        } else {
+            String::new()
+        };
+
+        let uncommitted_tag = if r.uncommitted > 0 {
+            format!("  {} uncommitted", r.uncommitted)
+                .yellow()
+                .to_string()
+        } else {
+            "  0 uncommitted".dimmed().to_string()
+        };
+
+        let stale_tag = match r.stale_days {
+            None => "  last commit unknown".dimmed().to_string(),
+            Some(d) if d > r.stale_threshold_days => format!("  last commit {}d ago (stale)", d)
+                .yellow()
+                .to_string(),
+            Some(d) => format!("  last commit {}d ago", d).dimmed().to_string(),
+        };
+
+        // Phase 2: CI status overlay tag
+        let ci_tag = match &r.ci_status {
+            None => String::new(),
+            Some(s) => match s.as_str() {
+                "passing" | "success" => format!(
+                    "  PR#{} ✓ CI",
+                    r.pr_number.map(|n| n.to_string()).unwrap_or_default()
+                )
+                .green()
+                .to_string(),
+                "failing" | "failure" => format!(
+                    "  PR#{} ✗ CI",
+                    r.pr_number.map(|n| n.to_string()).unwrap_or_default()
+                )
+                .red()
+                .to_string(),
+                "pending" => format!(
+                    "  PR#{} ● CI",
+                    r.pr_number.map(|n| n.to_string()).unwrap_or_default()
+                )
+                .yellow()
+                .to_string(),
+                other => format!(
+                    "  PR#{} {} CI",
+                    r.pr_number.map(|n| n.to_string()).unwrap_or_default(),
+                    other
+                )
+                .dimmed()
+                .to_string(),
+            },
+        };
+
+        let ci_issue = matches!(r.ci_status.as_deref(), Some("failing") | Some("failure"));
+
+        let any_issue = r.has_lock
+            || r.uncommitted > 0
+            || ci_issue
+            || r.stale_days
+                .map(|d| d > r.stale_threshold_days)
+                .unwrap_or(false);
+
+        let icon = if r.has_lock || ci_issue {
+            "✗".red().to_string()
+        } else if any_issue {
+            "⚠".yellow().to_string()
+        } else {
+            "✓".green().to_string()
+        };
+
+        if any_issue {
+            issues += 1;
+        }
+
+        println!(
+            "  {} {:<20}{}{}{}{}",
+            icon,
+            r.ticket.bold(),
+            uncommitted_tag,
+            stale_tag,
+            lock_tag,
+            ci_tag,
+        );
+    }
+    println!();
+    if issues == 0 {
+        println!("{}", "All worktrees healthy.".green().bold());
+    } else {
+        println!(
+            "{}",
+            format!("{}/{} worktrees need attention.", issues, records.len())
+                .yellow()
+                .bold()
+        );
+    }
+}
+
+/// Render the `parsec reviews` table — one row per open PR found across worktrees.
+///
+/// Review status is color-coded:
+/// - ✓ approved   → green
+/// - ✗ changes requested → red
+/// - ● pending    → yellow
+/// - no reviews   → dimmed
+pub fn print_reviews(entries: &[super::ReviewEntry]) {
+    if entries.is_empty() {
+        println!("No open PRs found in active worktrees.");
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct Row {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "PR")]
+        pr: String,
+        #[tabled(rename = "Title")]
+        title: String,
+        #[tabled(rename = "State")]
+        state: String,
+        #[tabled(rename = "Review")]
+        review: String,
+        #[tabled(rename = "CI")]
+        ci: String,
+    }
+
+    let rows: Vec<Row> = entries
+        .iter()
+        .map(|e| {
+            let state = match e.state.as_str() {
+                "open" => "open".green().to_string(),
+                "draft" => "draft".dimmed().to_string(),
+                "merged" => "merged".cyan().to_string(),
+                _ => e.state.clone(),
+            };
+            let review = match e.review_status.as_str() {
+                "approved" => "✓ approved".green().to_string(),
+                "changes_requested" => "✗ changes requested".red().to_string(),
+                "pending" => "● pending".yellow().to_string(),
+                "no reviews" => "– no reviews".dimmed().to_string(),
+                _ => e.review_status.clone(),
+            };
+            let ci = match e.ci_status.as_str() {
+                "success" => "✓ CI".green().to_string(),
+                "failure" | "error" => "✗ CI".red().to_string(),
+                "pending" => "● CI".yellow().to_string(),
+                _ => e.ci_status.clone(),
+            };
+            // Truncate long titles for readability.
+            let title = if e.title.len() > 48 {
+                format!("{}…", &e.title[..47])
+            } else {
+                e.title.clone()
+            };
+            Row {
+                ticket: e.ticket.clone(),
+                pr: format!("#{}", e.pr_number),
+                title,
+                state,
+                review,
+                ci,
+            }
+        })
+        .collect();
+
+    let table = Table::new(rows)
+        .with(tabled::settings::Style::modern())
+        .to_string();
+    println!("{}", "parsec reviews".bold());
+    println!("{table}");
+    println!();
+    let pending = entries
+        .iter()
+        .filter(|e| e.review_status == "pending" || e.review_status == "no reviews")
+        .count();
+    if pending > 0 {
+        println!(
+            "{}",
+            format!("{}/{} PRs awaiting review.", pending, entries.len())
+                .yellow()
+                .bold()
+        );
+    } else {
+        println!(
+            "{}",
+            format!("All {} PRs reviewed.", entries.len())
+                .green()
+                .bold()
+        );
+    }
+}
+
+/// Render the `parsec test` results table — one row per worktree, with
+/// status (✓/✗), duration, and cache indicator.
+pub fn print_test_results(results: &[super::TestResult]) {
+    if results.is_empty() {
+        println!("{}", "No worktrees to test.".dimmed());
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct Row {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "Status")]
+        status: String,
+        #[tabled(rename = "Duration")]
+        duration: String,
+        #[tabled(rename = "Cache")]
+        cache: String,
+    }
+
+    let rows: Vec<Row> = results
+        .iter()
+        .map(|r| {
+            let status = if r.exit_code == 0 {
+                "✓ pass".green().to_string()
+            } else {
+                format!("✗ exit {}", r.exit_code).red().to_string()
+            };
+            let duration = format!("{}ms", r.duration_ms);
+            let cache = if r.from_cache {
+                "cached".cyan().to_string()
+            } else {
+                "fresh".dimmed().to_string()
+            };
+            Row {
+                ticket: r.ticket.clone(),
+                status,
+                duration,
+                cache,
+            }
+        })
+        .collect();
+
+    let table = Table::new(rows).with(Style::modern()).to_string();
+    println!("{}", "parsec test".bold());
+    println!("{table}");
+
+    let failed = results.iter().filter(|r| r.exit_code != 0).count();
+    let cached = results.iter().filter(|r| r.from_cache).count();
+    println!();
+    if failed == 0 {
+        println!(
+            "{}",
+            format!(
+                "All {} worktree(s) passed ({} cached).",
+                results.len(),
+                cached
+            )
+            .green()
+            .bold()
+        );
+    } else {
+        println!(
+            "{}",
+            format!("{}/{} worktree(s) failed.", failed, results.len())
+                .red()
+                .bold()
+        );
+        // Surface stdout tails for failing entries so users can debug.
+        for r in results.iter().filter(|r| r.exit_code != 0) {
+            println!();
+            println!(
+                "{}",
+                format!("--- {} (exit {}) ---", r.ticket, r.exit_code)
+                    .red()
+                    .bold()
+            );
+            if !r.stdout_tail.is_empty() {
+                println!("{}", r.stdout_tail.dimmed());
+            }
+        }
+    }
 }

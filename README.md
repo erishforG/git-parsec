@@ -29,6 +29,21 @@ That's the whole loop. Plain `git worktree` doesn't track state, doesn't talk to
 
 ---
 
+## Roadmap
+
+> **Vision**: parsec = AI agents + human devs both — worktree-native git CLI.
+
+| Milestone | Status | Theme |
+|---|---|---|
+| **v0.4.0** | ✅ Released (2026-05-04) | Multi-forge + multi-tracker foundation (GitHub / GitLab / Bitbucket; Jira / Linear) |
+| **v0.5.0** — _The visualization release_ | ✅ Released (2026-06-03) | smartlog · TUI dashboard · speculative merge · `parsec test` · health · reviews · AI PR descriptions |
+| **v1.0** — _AI-Native Standard_ | 🚧 Next | MCP server signature — Claude / Cursor / Copilot invoke parsec as a first-class tool |
+| **v2.0+** — _Ecosystem Hub_ | 🔮 | Plugins · VS Code extension · Linear-native tracker · org-scale workflows |
+
+v1.0 work is tracked under the [`v1.0` milestone](https://github.com/erishforG/git-parsec/milestone/4); see the [CHANGELOG](./CHANGELOG.md) for the full v0.5.0 release notes.
+
+---
+
 ## Install
 
 ```bash
@@ -41,6 +56,23 @@ cargo install git-parsec
 ```
 
 Other targets (macOS arm64/x86_64, Windows x86_64) ship on every release — see [Releases](https://github.com/erishforG/git-parsec/releases). After install, run `parsec config init` for the interactive first-time setup, then `parsec doctor` to validate.
+
+### Shell completion
+
+`parsec` ships dynamic completion scripts that suggest **live worktrees and branches** as you type (e.g. `parsec switch <Tab>` lists your active tickets).
+
+```bash
+# zsh — copy to a site fpath dir, or add the repo path to fpath:
+cp completions/_parsec ~/.zsh/completions/      # then: fpath=(~/.zsh/completions $fpath)
+
+# bash:
+source completions/parsec.bash                  # or symlink into /etc/bash_completion.d/
+
+# fish:
+cp completions/parsec.fish ~/.config/fish/completions/
+```
+
+A purely static fallback (no live candidates) is also available via `parsec config completions <shell>` if you'd rather not source the dynamic scripts.
 
 ---
 
@@ -108,7 +140,17 @@ Every command has `--json`. Errors emit structured codes (E001…E013). `parsec 
 ### 📋 Sprint board + issue creation
 `parsec board` turns your active sprint into a Kanban board in the terminal. `parsec create` and `parsec new-issue` open issues in your tracker without leaving the shell.
 
-> 27 commands total — see the [full command reference](https://erishforg.github.io/git-parsec/reference/) for every flag and example.
+### 🌌 Visualization & power-user tools _(new in v0.5)_
+- **`parsec smartlog`** (alias `sl`) — ASCII commit DAG of every active worktree with PR / CI overlay.
+- **`parsec dashboard`** (alias `dash`) — real-time TUI panel showing worktrees, CI, and PRs in one screen (ratatui + crossterm).
+- **`parsec health`** — lock / uncommitted / stale / CI checks across every worktree, with a configurable stale threshold.
+- **`parsec reviews`** — open PR reviews you've received vs. requested, unified across worktrees.
+- **`parsec conflicts --simulate`** — in-memory three-way merge to surface real *line-level* conflicts before you push (worktree-vs-base + cross-worktree pairs, read-only).
+- **`parsec test`** — run tests in parallel across worktrees with tree-hash result caching (`--all --jobs N --cache`).
+- **`parsec commit`** — AI-generated commit messages from staged diff (OpenAI / Anthropic, `--conventional` for Conventional Commits).
+- **`parsec sync`** — fast-forward stale worktrees against `origin/<base>` (rebase or merge, `--all`, `--dry-run`).
+
+> 33+ commands total — see the [full command reference](https://erishforg.github.io/git-parsec/reference/) for every flag and example.
 
 Each PR body includes a stack navigation table:
 
