@@ -144,4 +144,22 @@
     <changefreq>never</changefreq>
     <priority>0.3</priority>
   </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/v/0.5.0/</loc>
+    <lastmod>2026-06-03</lastmod>
+    <changefreq>never</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/v/0.5.0/guide/</loc>
+    <lastmod>2026-06-03</lastmod>
+    <changefreq>never</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://erishforg.github.io/git-parsec/v/0.5.0/reference/</loc>
+    <lastmod>2026-06-03</lastmod>
+    <changefreq>never</changefreq>
+    <priority>0.3</priority>
+  </url>
 </urlset>
