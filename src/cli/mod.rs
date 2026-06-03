@@ -553,10 +553,17 @@ pub enum Command {
     /// Scans each active worktree, finds its associated open GitHub PR, and
     /// prints a unified review table showing review decisions and CI status.
     ///
-    /// Phase 2 will add `--requested` to show PRs from *others* where you are
-    /// a requested reviewer (uses GitHub Search API).
+    /// Use `--requested` to show PRs from *others* where you are a requested
+    /// reviewer (Phase 2 — uses GitHub Search API).
     #[command(name = "reviews", alias = "rv")]
-    Reviews,
+    Reviews {
+        /// Show PRs from others where you are a requested reviewer.
+        ///
+        /// Uses the GitHub Search API to find open PRs in this repo where
+        /// the authenticated user (`gh auth status`) is listed as a reviewer.
+        #[arg(long, short = 'r')]
+        requested: bool,
+    },
 
     /// Internal: emit dynamic completion candidates (issue #291).
     ///
@@ -674,7 +681,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Compress { .. } => "compress",
         Command::Smartlog { .. } => "smartlog",
         Command::Complete { .. } => "__complete",
-        Command::Reviews => "reviews",
+        Command::Reviews { .. } => "reviews",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -977,7 +984,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
-        Command::Reviews => commands::reviews(&repo_path, output_mode).await,
+        Command::Reviews { requested } => {
+            commands::reviews(&repo_path, requested, output_mode).await
+        }
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
     };
 
