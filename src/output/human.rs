@@ -4,7 +4,7 @@ use tabled::{Table, Tabled};
 
 use super::{BoardTicketDisplay, WorkspaceFullInfo};
 use crate::config::ParsecConfig;
-use crate::conflict::FileConflict;
+use crate::conflict::{FileConflict, MergeSimulation};
 use crate::oplog::OpEntry;
 use crate::tracker::jira::{InboxTicket, SprintInfo};
 use crate::tracker::Ticket as TrackerTicket;
@@ -305,6 +305,85 @@ pub fn print_clean(removed: &[Workspace], dry_run: bool) {
     println!("{} {} worktree(s):", verb.bold(), removed.len());
     for ws in removed {
         println!("  {} {}", "-".dimmed(), ws.ticket.yellow());
+    }
+}
+
+pub fn print_conflict_simulation(sim: &MergeSimulation) {
+    if sim.vs_base.is_empty() && sim.cross.is_empty() {
+        println!(
+            "{}",
+            "Speculative merge: clean — no line-level conflicts.".green()
+        );
+        if !sim.skipped.is_empty() {
+            println!(
+                "{}",
+                format!(
+                    "note: {} worktree(s) skipped: {}",
+                    sim.skipped.len(),
+                    sim.skipped.join(", ")
+                )
+                .dimmed()
+            );
+        }
+        return;
+    }
+
+    if !sim.vs_base.is_empty() {
+        println!(
+            "{}",
+            format!(
+                "Worktree → base conflicts ({} worktree(s)):",
+                sim.vs_base.len()
+            )
+            .yellow()
+            .bold()
+        );
+        for bc in &sim.vs_base {
+            println!(
+                "  {} → {} ({} file(s))",
+                bc.ticket.cyan(),
+                bc.base_branch.dimmed(),
+                bc.files.len()
+            );
+            for f in &bc.files {
+                println!("    {} {}", "●".red(), f);
+            }
+        }
+    }
+
+    if !sim.cross.is_empty() {
+        if !sim.vs_base.is_empty() {
+            println!();
+        }
+        println!(
+            "{}",
+            format!("Cross-worktree conflicts ({} pair(s)):", sim.cross.len())
+                .yellow()
+                .bold()
+        );
+        for cc in &sim.cross {
+            println!(
+                "  {} ↔ {} ({} file(s))",
+                cc.ticket_a.cyan(),
+                cc.ticket_b.cyan(),
+                cc.files.len()
+            );
+            for f in &cc.files {
+                println!("    {} {}", "●".red(), f);
+            }
+        }
+    }
+
+    if !sim.skipped.is_empty() {
+        println!(
+            "{}",
+            format!(
+                "note: {} worktree(s) skipped: {}",
+                sim.skipped.len(),
+                sim.skipped.join(", ")
+            )
+            .dimmed()
+        );
     }
 }
 

@@ -94,18 +94,26 @@ pub async fn diff(
 
 /// Detect files that are modified in multiple active worktrees simultaneously.
 ///
-/// Scans every workspace returned by [`WorktreeManager::list`] and compares
-/// the set of changed files. Pairs of worktrees that touch the same path are
-/// reported as potential conflicts so the developer can resolve them before
-/// merging. Does **not** modify any worktree state.
-pub async fn conflicts(repo: &Path, mode: Mode) -> Result<()> {
+/// Default mode is a fast filename-overlap heuristic — every workspace returned
+/// by [`WorktreeManager::list`] has its changed files compared; pairs of
+/// worktrees that touch the same path are reported.
+///
+/// With `simulate = true` (issue #246), runs an in-memory three-way merge
+/// using `git merge-tree` for each worktree vs. its base branch AND each pair
+/// of worktrees, surfacing real line-level conflicts. Read-only — no worktree
+/// or index changes.
+pub async fn conflicts(repo: &Path, simulate: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
     let manager = WorktreeManager::new(repo, &config)?;
-
     let workspaces = manager.list()?;
-    let conflicts = conflict::detect(&workspaces)?;
 
-    output::print_conflicts(&conflicts, mode);
+    if simulate {
+        let result = conflict::simulate(repo, &workspaces)?;
+        output::print_conflict_simulation(&result, mode);
+    } else {
+        let conflicts = conflict::detect(&workspaces)?;
+        output::print_conflicts(&conflicts, mode);
+    }
     Ok(())
 }
 
