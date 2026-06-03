@@ -386,6 +386,42 @@ impl PolicyConfig {
 }
 
 // ---------------------------------------------------------------------------
+// TestConfig
+// ---------------------------------------------------------------------------
+
+fn default_test_command() -> String {
+    "cargo test".to_string()
+}
+
+fn default_test_jobs() -> usize {
+    1
+}
+
+/// Settings for the `parsec test` command (issue #247).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestConfig {
+    /// Shell command to run inside each worktree (default: `cargo test`).
+    #[serde(default = "default_test_command")]
+    pub command: String,
+    /// Number of worktrees to test in parallel (default: 1, sequential).
+    #[serde(default = "default_test_jobs")]
+    pub jobs: usize,
+    /// When `true`, cache test results by worktree tree-hash.
+    #[serde(default)]
+    pub cache: bool,
+}
+
+impl Default for TestConfig {
+    fn default() -> Self {
+        Self {
+            command: default_test_command(),
+            jobs: default_test_jobs(),
+            cache: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ParsecConfig
 // ---------------------------------------------------------------------------
 
@@ -405,6 +441,8 @@ pub struct ParsecConfig {
     pub release: ReleaseConfig,
     #[serde(default)]
     pub policy: PolicyConfig,
+    #[serde(default)]
+    pub test: TestConfig,
     /// Per-host GitHub tokens. Keys are hostnames like "github.com" or
     /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
     #[serde(default)]

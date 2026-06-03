@@ -418,3 +418,23 @@ pub fn print_reviews(entries: &[super::ReviewEntry]) {
         serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string())
     );
 }
+
+/// Emit `parsec test` results as a JSON array.
+pub fn print_test_results(results: &[super::TestResult]) {
+    let items: Vec<serde_json::Value> = results
+        .iter()
+        .map(|r| {
+            json!({
+                "ticket": r.ticket,
+                "exit_code": r.exit_code,
+                "duration_ms": r.duration_ms,
+                "from_cache": r.from_cache,
+                "stdout_tail": r.stdout_tail,
+            })
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".to_string())
+    );
+}
