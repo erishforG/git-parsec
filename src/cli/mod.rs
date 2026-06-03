@@ -615,6 +615,23 @@ pub enum Command {
         requested: bool,
     },
 
+    /// Launch interactive TUI dashboard (alias: dash) — issue #248.
+    ///
+    /// Opens a real-time terminal UI showing every active worktree, its CI
+    /// status, and the associated GitHub PR — all in a single view. Built on
+    /// `ratatui` + `crossterm`.
+    ///
+    /// Keys: `q` / Esc to quit · `r` to refresh now · `?` for help.
+    #[command(alias = "dash")]
+    Dashboard {
+        /// Refresh interval in seconds (default: 10)
+        #[arg(long, default_value_t = 10)]
+        refresh: u64,
+        /// Disable network calls (CI/PR overlay)
+        #[arg(long)]
+        no_overlay: bool,
+    },
+
     /// Internal: emit dynamic completion candidates (issue #291).
     ///
     /// Used by shell completion scripts to enumerate worktrees / branches /
@@ -732,6 +749,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Smartlog { .. } => "smartlog",
         Command::Complete { .. } => "__complete",
         Command::Reviews { .. } => "reviews",
+        Command::Dashboard { .. } => "dashboard",
         Command::Test { .. } => "test",
     };
     let exec_id = crate::execlog::new_execution_id();
@@ -1039,6 +1057,24 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Reviews { requested } => {
             commands::reviews(&repo_path, requested, output_mode).await
+        }
+        Command::Dashboard {
+            refresh,
+            no_overlay,
+        } => {
+            if cli.json {
+                anyhow::bail!(
+                    "TUI dashboard does not support --json. \
+                     Use `parsec list --json` or `parsec reviews --json` instead."
+                );
+            }
+            if cli.quiet {
+                anyhow::bail!(
+                    "TUI dashboard does not support --quiet. \
+                     Use `parsec list --quiet` or `parsec reviews --quiet` instead."
+                );
+            }
+            commands::dashboard(&repo_path, refresh, no_overlay).await
         }
         Command::Test {
             ticket,
