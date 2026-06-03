@@ -2032,7 +2032,14 @@ fn test_test_runs_in_single_worktree() {
         .success();
 
     parsec()
-        .args(["test", "TEST-T01", "--command", "true", "--repo", repo_path])
+        .args([
+            "test",
+            "TEST-T01",
+            "--command",
+            "exit 0",
+            "--repo",
+            repo_path,
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("TEST-T01"));
@@ -2053,7 +2060,7 @@ fn test_test_all_runs_each_worktree() {
         .success();
 
     parsec()
-        .args(["test", "--all", "--command", "true", "--repo", repo_path])
+        .args(["test", "--all", "--command", "exit 0", "--repo", repo_path])
         .assert()
         .success()
         .stdout(predicate::str::contains("TEST-T02"))
@@ -2077,7 +2084,7 @@ fn test_test_cache_skips_second_run() {
             "TEST-T04",
             "--cache",
             "--command",
-            "true",
+            "exit 0",
             "--repo",
             repo_path,
         ])
@@ -2092,7 +2099,7 @@ fn test_test_cache_skips_second_run() {
             "TEST-T04",
             "--cache",
             "--command",
-            "true",
+            "exit 0",
             "--repo",
             repo_path,
         ])
@@ -2151,6 +2158,7 @@ fn test_test_failure_propagates_nonzero() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn test_test_jobs_parallel_completes() {
     let (repo, _bare) = setup_repo_with_remote();

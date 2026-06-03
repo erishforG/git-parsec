@@ -187,11 +187,18 @@ async fn run_one(ws: Workspace, command: String, cache: bool, cache_dir: PathBuf
     let ws_path = ws.path.clone();
     let cmd_str = command.clone();
     let exec = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("bash")
-            .arg("-c")
-            .arg(&cmd_str)
-            .current_dir(&ws_path)
-            .output()
+        // Cross-platform shell: cmd.exe on Windows (bash on Windows resolves
+        // to WSL which may not be installed), sh -c elsewhere.
+        let mut c = if cfg!(windows) {
+            let mut cmd = std::process::Command::new("cmd");
+            cmd.arg("/C");
+            cmd
+        } else {
+            let mut cmd = std::process::Command::new("sh");
+            cmd.arg("-c");
+            cmd
+        };
+        c.arg(&cmd_str).current_dir(&ws_path).output()
     })
     .await;
     let duration_ms = started.elapsed().as_millis() as u64;
