@@ -2009,6 +2009,196 @@ fn test_health_no_overlay_json_has_ci_status_key() {
 }
 
 // ---------------------------------------------------------------------------
+// test (parsec test — issue #247)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_test_help_shows_command() {
+    parsec()
+        .args(["test", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("worktree"));
+}
+
+#[test]
+fn test_test_runs_in_single_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T01", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args([
+            "test",
+            "TEST-T01",
+            "--command",
+            "exit 0",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TEST-T01"));
+}
+
+#[test]
+fn test_test_all_runs_each_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T02", "--repo", repo_path])
+        .assert()
+        .success();
+    parsec()
+        .args(["start", "TEST-T03", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args(["test", "--all", "--command", "exit 0", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TEST-T02"))
+        .stdout(predicate::str::contains("TEST-T03"));
+}
+
+#[test]
+fn test_test_cache_skips_second_run() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T04", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // First run: populates the cache.
+    parsec()
+        .args([
+            "test",
+            "TEST-T04",
+            "--cache",
+            "--command",
+            "exit 0",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+
+    // Second run: must serve from cache (from_cache = true in JSON).
+    let output = parsec()
+        .args([
+            "--json",
+            "test",
+            "TEST-T04",
+            "--cache",
+            "--command",
+            "exit 0",
+            "--repo",
+            repo_path,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "second cached run must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("test --json must emit valid JSON");
+    let arr = parsed.as_array().expect("test --json must be an array");
+    assert_eq!(arr.len(), 1);
+    let entry = &arr[0];
+    assert_eq!(
+        entry["from_cache"].as_bool(),
+        Some(true),
+        "second invocation must hit the tree-hash cache"
+    );
+    assert_eq!(entry["exit_code"].as_i64(), Some(0));
+}
+
+#[test]
+fn test_test_failure_propagates_nonzero() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T05", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args([
+            "--json",
+            "test",
+            "TEST-T05",
+            "--command",
+            "exit 7",
+            "--repo",
+            repo_path,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "test with failing command must exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("\"exit_code\": 7") || stdout.contains("\"exit_code\":7"),
+        "JSON must surface the underlying exit code; got: {stdout}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_test_jobs_parallel_completes() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T06", "--repo", repo_path])
+        .assert()
+        .success();
+    parsec()
+        .args(["start", "TEST-T07", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let started = std::time::Instant::now();
+    parsec()
+        .args([
+            "test",
+            "--all",
+            "--jobs",
+            "4",
+            "--command",
+            "sleep 0.2",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+    let elapsed = started.elapsed();
+
+    // Two sequential sleeps would take >= 0.4s. Parallel must beat that
+    // comfortably even with process spawn overhead.
+    assert!(
+        elapsed < std::time::Duration::from_millis(2_000),
+        "parallel --jobs run should finish well under 2s, took {:?}",
+        elapsed
+    );
+}
+
+// ---------------------------------------------------------------------------
 // conflicts --simulate (issue #246: speculative merge)
 // ---------------------------------------------------------------------------
 

@@ -13,6 +13,7 @@ mod reviews;
 mod ship;
 pub mod smartlog;
 mod stack;
+mod test;
 mod tracker_cmds;
 mod workspace;
 
@@ -31,5 +32,6 @@ pub use reviews::reviews;
 pub use ship::*;
 pub use smartlog::smartlog;
 pub use stack::*;
+pub use test::test;
 pub use tracker_cmds::*;
 pub use workspace::*;

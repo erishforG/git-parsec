@@ -1292,3 +1292,87 @@ pub fn print_reviews(entries: &[super::ReviewEntry]) {
         );
     }
 }
+
+/// Render the `parsec test` results table — one row per worktree, with
+/// status (✓/✗), duration, and cache indicator.
+pub fn print_test_results(results: &[super::TestResult]) {
+    if results.is_empty() {
+        println!("{}", "No worktrees to test.".dimmed());
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct Row {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "Status")]
+        status: String,
+        #[tabled(rename = "Duration")]
+        duration: String,
+        #[tabled(rename = "Cache")]
+        cache: String,
+    }
+
+    let rows: Vec<Row> = results
+        .iter()
+        .map(|r| {
+            let status = if r.exit_code == 0 {
+                "✓ pass".green().to_string()
+            } else {
+                format!("✗ exit {}", r.exit_code).red().to_string()
+            };
+            let duration = format!("{}ms", r.duration_ms);
+            let cache = if r.from_cache {
+                "cached".cyan().to_string()
+            } else {
+                "fresh".dimmed().to_string()
+            };
+            Row {
+                ticket: r.ticket.clone(),
+                status,
+                duration,
+                cache,
+            }
+        })
+        .collect();
+
+    let table = Table::new(rows).with(Style::modern()).to_string();
+    println!("{}", "parsec test".bold());
+    println!("{table}");
+
+    let failed = results.iter().filter(|r| r.exit_code != 0).count();
+    let cached = results.iter().filter(|r| r.from_cache).count();
+    println!();
+    if failed == 0 {
+        println!(
+            "{}",
+            format!(
+                "All {} worktree(s) passed ({} cached).",
+                results.len(),
+                cached
+            )
+            .green()
+            .bold()
+        );
+    } else {
+        println!(
+            "{}",
+            format!("{}/{} worktree(s) failed.", failed, results.len())
+                .red()
+                .bold()
+        );
+        // Surface stdout tails for failing entries so users can debug.
+        for r in results.iter().filter(|r| r.exit_code != 0) {
+            println!();
+            println!(
+                "{}",
+                format!("--- {} (exit {}) ---", r.ticket, r.exit_code)
+                    .red()
+                    .bold()
+            );
+            if !r.stdout_tail.is_empty() {
+                println!("{}", r.stdout_tail.dimmed());
+            }
+        }
+    }
+}
