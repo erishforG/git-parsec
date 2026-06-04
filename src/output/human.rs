@@ -4,7 +4,7 @@ use tabled::{Table, Tabled};
 
 use super::{BoardTicketDisplay, WorkspaceFullInfo};
 use crate::config::ParsecConfig;
-use crate::conflict::FileConflict;
+use crate::conflict::{FileConflict, MergeSimulation};
 use crate::oplog::OpEntry;
 use crate::tracker::jira::{InboxTicket, SprintInfo};
 use crate::tracker::Ticket as TrackerTicket;
@@ -305,6 +305,85 @@ pub fn print_clean(removed: &[Workspace], dry_run: bool) {
     println!("{} {} worktree(s):", verb.bold(), removed.len());
     for ws in removed {
         println!("  {} {}", "-".dimmed(), ws.ticket.yellow());
+    }
+}
+
+pub fn print_conflict_simulation(sim: &MergeSimulation) {
+    if sim.vs_base.is_empty() && sim.cross.is_empty() {
+        println!(
+            "{}",
+            "Speculative merge: clean — no line-level conflicts.".green()
+        );
+        if !sim.skipped.is_empty() {
+            println!(
+                "{}",
+                format!(
+                    "note: {} worktree(s) skipped: {}",
+                    sim.skipped.len(),
+                    sim.skipped.join(", ")
+                )
+                .dimmed()
+            );
+        }
+        return;
+    }
+
+    if !sim.vs_base.is_empty() {
+        println!(
+            "{}",
+            format!(
+                "Worktree → base conflicts ({} worktree(s)):",
+                sim.vs_base.len()
+            )
+            .yellow()
+            .bold()
+        );
+        for bc in &sim.vs_base {
+            println!(
+                "  {} → {} ({} file(s))",
+                bc.ticket.cyan(),
+                bc.base_branch.dimmed(),
+                bc.files.len()
+            );
+            for f in &bc.files {
+                println!("    {} {}", "●".red(), f);
+            }
+        }
+    }
+
+    if !sim.cross.is_empty() {
+        if !sim.vs_base.is_empty() {
+            println!();
+        }
+        println!(
+            "{}",
+            format!("Cross-worktree conflicts ({} pair(s)):", sim.cross.len())
+                .yellow()
+                .bold()
+        );
+        for cc in &sim.cross {
+            println!(
+                "  {} ↔ {} ({} file(s))",
+                cc.ticket_a.cyan(),
+                cc.ticket_b.cyan(),
+                cc.files.len()
+            );
+            for f in &cc.files {
+                println!("    {} {}", "●".red(), f);
+            }
+        }
+    }
+
+    if !sim.skipped.is_empty() {
+        println!(
+            "{}",
+            format!(
+                "note: {} worktree(s) skipped: {}",
+                sim.skipped.len(),
+                sim.skipped.join(", ")
+            )
+            .dimmed()
+        );
     }
 }
 
@@ -1211,5 +1290,89 @@ pub fn print_reviews(entries: &[super::ReviewEntry]) {
                 .green()
                 .bold()
         );
+    }
+}
+
+/// Render the `parsec test` results table — one row per worktree, with
+/// status (✓/✗), duration, and cache indicator.
+pub fn print_test_results(results: &[super::TestResult]) {
+    if results.is_empty() {
+        println!("{}", "No worktrees to test.".dimmed());
+        return;
+    }
+
+    #[derive(Tabled)]
+    struct Row {
+        #[tabled(rename = "Ticket")]
+        ticket: String,
+        #[tabled(rename = "Status")]
+        status: String,
+        #[tabled(rename = "Duration")]
+        duration: String,
+        #[tabled(rename = "Cache")]
+        cache: String,
+    }
+
+    let rows: Vec<Row> = results
+        .iter()
+        .map(|r| {
+            let status = if r.exit_code == 0 {
+                "✓ pass".green().to_string()
+            } else {
+                format!("✗ exit {}", r.exit_code).red().to_string()
+            };
+            let duration = format!("{}ms", r.duration_ms);
+            let cache = if r.from_cache {
+                "cached".cyan().to_string()
+            } else {
+                "fresh".dimmed().to_string()
+            };
+            Row {
+                ticket: r.ticket.clone(),
+                status,
+                duration,
+                cache,
+            }
+        })
+        .collect();
+
+    let table = Table::new(rows).with(Style::modern()).to_string();
+    println!("{}", "parsec test".bold());
+    println!("{table}");
+
+    let failed = results.iter().filter(|r| r.exit_code != 0).count();
+    let cached = results.iter().filter(|r| r.from_cache).count();
+    println!();
+    if failed == 0 {
+        println!(
+            "{}",
+            format!(
+                "All {} worktree(s) passed ({} cached).",
+                results.len(),
+                cached
+            )
+            .green()
+            .bold()
+        );
+    } else {
+        println!(
+            "{}",
+            format!("{}/{} worktree(s) failed.", failed, results.len())
+                .red()
+                .bold()
+        );
+        // Surface stdout tails for failing entries so users can debug.
+        for r in results.iter().filter(|r| r.exit_code != 0) {
+            println!();
+            println!(
+                "{}",
+                format!("--- {} (exit {}) ---", r.ticket, r.exit_code)
+                    .red()
+                    .bold()
+            );
+            if !r.stdout_tail.is_empty() {
+                println!("{}", r.stdout_tail.dimmed());
+            }
+        }
     }
 }

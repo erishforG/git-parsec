@@ -121,6 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -162,10 +163,27 @@ jobs:
           sed -i '/<\/urlset>/i \
             <url>\n    <loc>https://erishforg.github.io/git-parsec/v/'"${VERSION}"'/</loc>\n    <lastmod>'"${DATE}"'</lastmod>\n    <changefreq>never</changefreq>\n    <priority>0.3</priority>\n  </url>\n  <url>\n    <loc>https://erishforg.github.io/git-parsec/v/'"${VERSION}"'/guide/</loc>\n    <lastmod>'"${DATE}"'</lastmod>\n    <changefreq>never</changefreq>\n    <priority>0.3</priority>\n  </url>\n  <url>\n    <loc>https://erishforg.github.io/git-parsec/v/'"${VERSION}"'/reference/</loc>\n    <lastmod>'"${DATE}"'</lastmod>\n    <changefreq>never</changefreq>\n    <priority>0.3</priority>\n  </url>' docs/sitemap.xml
 
-      - name: Commit and push versioned docs
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/v/ docs/versions.json docs/sitemap.xml
-          git commit -m "docs: snapshot versioned docs for v${VERSION}"
-          git push origin main
+      - name: Open snapshot PR (main is protected — push direct is blocked)
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
+        with:
+          base: main
+          branch: docs/snapshot-v${{ needs.release.outputs.version }}
+          commit-message: "docs: snapshot versioned docs for v${{ needs.release.outputs.version }}"
+          title: "docs: snapshot versioned docs for v${{ needs.release.outputs.version }}"
+          body: |
+            Automated docs snapshot for **v${{ needs.release.outputs.version }}** (release run #${{ github.run_id }}).
+
+            Produced by `.github/workflows/release.yml` → `snapshot-docs` job.
+
+            ## Files
+            - `docs/v/${{ needs.release.outputs.version }}/{index,guide/index,reference/index}.html` — versioned docs (with `noindex` meta)
+            - `docs/versions.json` — `latest` bump + history entry
+            - `docs/sitemap.xml` — versioned URLs added
+
+            Safe to merge. No code change, only doc data.
+          labels: |
+            release
+            auto-snapshot
+          author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          committer: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          delete-branch: true

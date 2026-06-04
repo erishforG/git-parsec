@@ -179,9 +179,17 @@ pub enum Command {
 
     /// Detect file conflicts across active worktrees
     ///
-    /// Compares modified files across all active worktrees and reports
-    /// any files that are being edited in more than one workspace.
-    Conflicts,
+    /// Default: filename-overlap heuristic — fast, reports files touched in
+    /// 2+ worktrees.
+    ///
+    /// `--simulate`: run an in-memory three-way merge (git merge-tree) for
+    /// each worktree vs. its base branch AND each worktree pair. Catches
+    /// real line-level conflicts before they bite at merge time. Read-only.
+    Conflicts {
+        /// Run speculative merges to detect line-level conflicts (issue #246)
+        #[arg(long)]
+        simulate: bool,
+    },
 
     /// Check PR/MR CI and review status
     ///
@@ -571,15 +579,81 @@ pub enum Command {
         worktree: Option<String>,
     },
 
+    /// Run tests inside parsec-managed worktrees (issue #247).
+    ///
+    /// Executes a shell command (default: `cargo test`, configurable via
+    /// `[test].command` in `~/.config/parsec/config.toml`) inside one or
+    /// every active worktree. Supports parallel execution via `--jobs N`
+    /// and tree-hash result caching via `--cache`.
+    ///
+    /// Selection logic (in order):
+    ///   1. `--all`        → all active worktrees
+    ///   2. `[TICKET]`     → the named worktree only
+    ///   3. auto-detect    → the worktree whose path contains `cwd`
+    Test {
+        /// Ticket identifier (auto-detects current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Run tests in every active worktree
+        #[arg(long)]
+        all: bool,
+
+        /// Number of worktrees to test in parallel (default: 1).
+        ///
+        /// Only takes effect together with `--all`. Falls back to the
+        /// configured `[test].jobs` value when omitted.
+        #[arg(long, short = 'j', default_value = "0")]
+        jobs: usize,
+
+        /// Cache test results by worktree tree-hash.
+        ///
+        /// Successful runs are persisted under `.parsec/test-cache/<hash>.json`
+        /// and replayed instantly on subsequent runs while the tree-hash
+        /// is unchanged.
+        #[arg(long)]
+        cache: bool,
+
+        /// Override the configured `[test].command`.
+        ///
+        /// Useful for ad-hoc invocations (e.g. `--command 'pytest -x'`)
+        /// and for the integration tests of this command.
+        #[arg(long)]
+        command: Option<String>,
+    },
+
     /// Show PR review status across all active worktrees (issue #301).
     ///
     /// Scans each active worktree, finds its associated open GitHub PR, and
     /// prints a unified review table showing review decisions and CI status.
     ///
-    /// Phase 2 will add `--requested` to show PRs from *others* where you are
-    /// a requested reviewer (uses GitHub Search API).
+    /// Use `--requested` to show PRs from *others* where you are a requested
+    /// reviewer (Phase 2 — uses GitHub Search API).
     #[command(name = "reviews", alias = "rv")]
-    Reviews,
+    Reviews {
+        /// Show PRs from others where you are a requested reviewer.
+        ///
+        /// Uses the GitHub Search API to find open PRs in this repo where
+        /// the authenticated user (`gh auth status`) is listed as a reviewer.
+        #[arg(long, short = 'r')]
+        requested: bool,
+    },
+
+    /// Launch interactive TUI dashboard (alias: dash) — issue #248.
+    ///
+    /// Opens a real-time terminal UI showing every active worktree, its CI
+    /// status, and the associated GitHub PR — all in a single view. Built on
+    /// `ratatui` + `crossterm`.
+    ///
+    /// Keys: `q` / Esc to quit · `r` to refresh now · `?` for help.
+    #[command(alias = "dash")]
+    Dashboard {
+        /// Refresh interval in seconds (default: 10)
+        #[arg(long, default_value_t = 10)]
+        refresh: u64,
+        /// Disable network calls (CI/PR overlay)
+        #[arg(long)]
+        no_overlay: bool,
+    },
 
     /// Internal: emit dynamic completion candidates (issue #291).
     ///
@@ -672,7 +746,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Ticket { .. } => "ticket",
         Command::Ship { .. } => "ship",
         Command::Clean { .. } => "clean",
-        Command::Conflicts => "conflicts",
+        Command::Conflicts { .. } => "conflicts",
         Command::PrStatus { .. } => "pr-status",
         Command::Merge { .. } => "merge",
         Command::Ci { .. } => "ci",
@@ -698,7 +772,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Commit { .. } => "commit",
         Command::Smartlog { .. } => "smartlog",
         Command::Complete { .. } => "__complete",
-        Command::Reviews => "reviews",
+        Command::Reviews { .. } => "reviews",
+        Command::Dashboard { .. } => "dashboard",
+        Command::Test { .. } => "test",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -874,7 +950,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             stat,
             name_only,
         } => commands::diff(&repo_path, ticket.as_deref(), stat, name_only, output_mode).await,
-        Command::Conflicts => commands::conflicts(&repo_path, output_mode).await,
+        Command::Conflicts { simulate } => {
+            commands::conflicts(&repo_path, simulate, output_mode).await
+        }
         Command::Switch { ticket } => {
             commands::switch(&repo_path, ticket.as_deref(), output_mode).await
         }
@@ -1017,7 +1095,45 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
-        Command::Reviews => commands::reviews(&repo_path, output_mode).await,
+        Command::Reviews { requested } => {
+            commands::reviews(&repo_path, requested, output_mode).await
+        }
+        Command::Dashboard {
+            refresh,
+            no_overlay,
+        } => {
+            if cli.json {
+                anyhow::bail!(
+                    "TUI dashboard does not support --json. \
+                     Use `parsec list --json` or `parsec reviews --json` instead."
+                );
+            }
+            if cli.quiet {
+                anyhow::bail!(
+                    "TUI dashboard does not support --quiet. \
+                     Use `parsec list --quiet` or `parsec reviews --quiet` instead."
+                );
+            }
+            commands::dashboard(&repo_path, refresh, no_overlay).await
+        }
+        Command::Test {
+            ticket,
+            all,
+            jobs,
+            cache,
+            command,
+        } => {
+            commands::test(
+                &repo_path,
+                ticket.as_deref(),
+                all,
+                jobs,
+                cache,
+                command.as_deref(),
+                output_mode,
+            )
+            .await
+        }
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
     };
 

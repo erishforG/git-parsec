@@ -2007,3 +2007,433 @@ fn test_health_no_overlay_json_has_ci_status_key() {
         "JSON entry must have 'pr_number' key"
     );
 }
+
+// ---------------------------------------------------------------------------
+// test (parsec test — issue #247)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_test_help_shows_command() {
+    parsec()
+        .args(["test", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("worktree"));
+}
+
+#[test]
+fn test_test_runs_in_single_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T01", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args([
+            "test",
+            "TEST-T01",
+            "--command",
+            "exit 0",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TEST-T01"));
+}
+
+#[test]
+fn test_test_all_runs_each_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T02", "--repo", repo_path])
+        .assert()
+        .success();
+    parsec()
+        .args(["start", "TEST-T03", "--repo", repo_path])
+        .assert()
+        .success();
+
+    parsec()
+        .args(["test", "--all", "--command", "exit 0", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TEST-T02"))
+        .stdout(predicate::str::contains("TEST-T03"));
+}
+
+#[test]
+fn test_test_cache_skips_second_run() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T04", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // First run: populates the cache.
+    parsec()
+        .args([
+            "test",
+            "TEST-T04",
+            "--cache",
+            "--command",
+            "exit 0",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+
+    // Second run: must serve from cache (from_cache = true in JSON).
+    let output = parsec()
+        .args([
+            "--json",
+            "test",
+            "TEST-T04",
+            "--cache",
+            "--command",
+            "exit 0",
+            "--repo",
+            repo_path,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "second cached run must exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("test --json must emit valid JSON");
+    let arr = parsed.as_array().expect("test --json must be an array");
+    assert_eq!(arr.len(), 1);
+    let entry = &arr[0];
+    assert_eq!(
+        entry["from_cache"].as_bool(),
+        Some(true),
+        "second invocation must hit the tree-hash cache"
+    );
+    assert_eq!(entry["exit_code"].as_i64(), Some(0));
+}
+
+#[test]
+fn test_test_failure_propagates_nonzero() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T05", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args([
+            "--json",
+            "test",
+            "TEST-T05",
+            "--command",
+            "exit 7",
+            "--repo",
+            repo_path,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "test with failing command must exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("\"exit_code\": 7") || stdout.contains("\"exit_code\":7"),
+        "JSON must surface the underlying exit code; got: {stdout}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_test_jobs_parallel_completes() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "TEST-T06", "--repo", repo_path])
+        .assert()
+        .success();
+    parsec()
+        .args(["start", "TEST-T07", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let started = std::time::Instant::now();
+    parsec()
+        .args([
+            "test",
+            "--all",
+            "--jobs",
+            "4",
+            "--command",
+            "sleep 0.2",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+    let elapsed = started.elapsed();
+
+    // Two sequential sleeps would take >= 0.4s. Parallel must beat that
+    // comfortably even with process spawn overhead.
+    assert!(
+        elapsed < std::time::Duration::from_millis(2_000),
+        "parallel --jobs run should finish well under 2s, took {:?}",
+        elapsed
+    );
+}
+
+// ---------------------------------------------------------------------------
+// conflicts --simulate (issue #246: speculative merge)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_conflicts_simulate_empty_repo() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "conflicts",
+            "--simulate",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("clean").or(predicate::str::contains("No")));
+}
+
+#[test]
+fn test_conflicts_simulate_json_empty_is_object() {
+    let repo = setup_repo();
+    let out = parsec()
+        .args([
+            "conflicts",
+            "--simulate",
+            "--json",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "exit must be 0 for empty simulate");
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("simulate --json must emit valid JSON");
+    assert!(v.get("vs_base").is_some(), "JSON must contain vs_base");
+    assert!(v.get("cross").is_some(), "JSON must contain cross");
+    assert!(v.get("skipped").is_some(), "JSON must contain skipped");
+    assert_eq!(v["vs_base"].as_array().unwrap().len(), 0);
+    assert_eq!(v["cross"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn test_conflicts_simulate_single_clean_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+
+    parsec()
+        .args(["start", "SIM-1", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Worktree exists but no changes → simulate should report clean.
+    parsec()
+        .args([
+            "conflicts",
+            "--simulate",
+            "--repo",
+            repo_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("clean").or(predicate::str::contains("No")));
+}
+
+#[test]
+fn test_conflicts_simulate_detects_cross_worktree_line_conflict() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path();
+    let repo_name = repo_path.file_name().unwrap().to_string_lossy().to_string();
+
+    // Seed a shared file on main so both worktrees fork from the same base.
+    std::fs::write(repo_path.join("shared.txt"), "hello\nworld\n").unwrap();
+    StdCommand::new("git")
+        .args(["add", "shared.txt"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "seed shared file"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["push", "origin", "main"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+
+    // Two worktrees, each modifying the SAME line of shared.txt → real line-level conflict.
+    parsec()
+        .args(["start", "SIM-A", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+    parsec()
+        .args(["start", "SIM-B", "--repo", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let wt_a = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.SIM-A", repo_name));
+    let wt_b = repo_path
+        .parent()
+        .unwrap()
+        .join(format!("{}.SIM-B", repo_name));
+
+    std::fs::write(wt_a.join("shared.txt"), "hello\nALPHA\n").unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-am", "alpha change"])
+        .current_dir(&wt_a)
+        .output()
+        .unwrap();
+
+    std::fs::write(wt_b.join("shared.txt"), "hello\nBETA\n").unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-am", "beta change"])
+        .current_dir(&wt_b)
+        .output()
+        .unwrap();
+
+    // JSON output to introspect the cross-pair section reliably.
+    let out = parsec()
+        .args([
+            "conflicts",
+            "--simulate",
+            "--json",
+            "--repo",
+            repo_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .expect("simulate --json must emit valid JSON even with conflicts");
+
+    let cross = v["cross"].as_array().expect("cross array expected");
+    assert!(
+        !cross.is_empty(),
+        "expected at least one cross-worktree conflict, got: {}",
+        stdout
+    );
+    // The conflict must mention shared.txt as a conflicting file.
+    let mentions_shared = cross.iter().any(|c| {
+        c["files"]
+            .as_array()
+            .map(|f| f.iter().any(|x| x.as_str() == Some("shared.txt")))
+            .unwrap_or(false)
+    });
+    assert!(
+        mentions_shared,
+        "expected shared.txt in a cross conflict, got: {}",
+        stdout
+    );
+}
+
+// ---------------------------------------------------------------------------
+// dashboard (#248) — TUI command smoke tests
+//
+// We deliberately do not try to drive the actual TUI here (entering raw mode
+// in `cargo test` would corrupt the test runner's terminal). Instead, verify
+// the command surface: --help works for both the primary name and the alias,
+// and --json / --quiet are rejected with an actionable error.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_dashboard_help_shows_command() {
+    parsec()
+        .args(["dashboard", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("dashboard"))
+        .stdout(predicate::str::contains("--refresh"))
+        .stdout(predicate::str::contains("--no-overlay"));
+}
+
+#[test]
+fn test_dashboard_alias_dash_help() {
+    parsec()
+        .args(["dash", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--refresh"));
+}
+
+#[test]
+fn test_dashboard_json_rejected() {
+    let repo = setup_repo();
+    // Error path emits via the global JSON error wrapper, which writes to
+    // stdout — so check both streams for the message.
+    let output = parsec()
+        .args([
+            "--json",
+            "dashboard",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "expected non-zero exit");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("--json"),
+        "expected helpful message mentioning --json, got: {}",
+        combined
+    );
+}
+
+#[test]
+fn test_dashboard_quiet_rejected() {
+    let repo = setup_repo();
+    let output = parsec()
+        .args([
+            "--quiet",
+            "dashboard",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "expected non-zero exit");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("--quiet"),
+        "expected helpful message mentioning --quiet, got: {}",
+        combined
+    );
+}

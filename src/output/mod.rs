@@ -2,7 +2,7 @@ mod human;
 mod json;
 
 use crate::config::ParsecConfig;
-use crate::conflict::FileConflict;
+use crate::conflict::{FileConflict, MergeSimulation};
 use crate::oplog::OpEntry;
 use crate::tracker::jira::{InboxTicket, SprintInfo};
 use crate::tracker::Ticket as TrackerTicket;
@@ -60,6 +60,20 @@ pub struct HealthRecord {
     pub ci_status: Option<String>,
     /// GitHub PR number linked to this worktree's branch, if any.
     pub pr_number: Option<u64>,
+}
+
+/// Per-worktree test outcome produced by `parsec test` (issue #247).
+pub struct TestResult {
+    /// Ticket identifier of the worktree the command ran in.
+    pub ticket: String,
+    /// Process exit code (`0` = success). `-1` indicates a spawn / join failure.
+    pub exit_code: i32,
+    /// Wall-clock duration of the command, in milliseconds.
+    pub duration_ms: u64,
+    /// `true` when the result was served from the tree-hash cache (no command run).
+    pub from_cache: bool,
+    /// Tail of the captured stdout/stderr (last 40 lines).
+    pub stdout_tail: String,
 }
 
 /// One entry in the `parsec reviews` output — one open PR per worktree.
@@ -121,6 +135,7 @@ dispatch_output!(print_status, workspaces: &[Workspace], ticket_infos: &[Option<
 dispatch_output!(print_ship, result: &ShipResult);
 dispatch_output!(print_clean, removed: &[Workspace], dry_run: bool);
 dispatch_output!(print_conflicts, conflicts: &[FileConflict]);
+dispatch_output!(print_conflict_simulation, sim: &MergeSimulation);
 dispatch_output!(print_switch, workspace: &Workspace);
 dispatch_output!(print_config_init);
 dispatch_output!(print_log, entries: &[&OpEntry]);
@@ -163,6 +178,7 @@ dispatch_output!(
 );
 dispatch_output!(print_reviews, entries: &[ReviewEntry]);
 dispatch_output!(print_create, ticket_id: &str, title: &str, url: &str);
+dispatch_output!(print_test_results, results: &[TestResult]);
 
 pub fn print_diff_full_json(files: &[(String, String)], ticket: &str) {
     json::print_diff_full(files, ticket);

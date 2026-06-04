@@ -1,0 +1,11 @@
+# Windows-only: bump the binary's main-thread stack to 16 MB.
+# Default on Windows (1 MB) overflows after the v0.5 TUI dashboard added
+# ratatui + crossterm on top of tokio + reqwest — bitbucket integration tests
+# that spawn parsec.exe as a subprocess panicked with "thread 'main' has
+# overflowed its stack" on windows-latest runners.
+#
+# RUST_MIN_STACK only affects Rust-spawned threads, so it can't fix the OS-level
+# main-thread stack. The /STACK linker flag does. macOS / Linux already use an
+# 8 MB default and are unaffected.
+[target.'cfg(windows)']
+rustflags = ["-C", "link-arg=/STACK:16777216"]
