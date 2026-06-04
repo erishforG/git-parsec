@@ -11,6 +11,7 @@ mod execlog;
 mod git;
 mod github;
 mod gitlab;
+mod mcp;
 mod oplog;
 mod output;
 mod tracker;
