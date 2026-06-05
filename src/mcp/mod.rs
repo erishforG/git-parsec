@@ -30,11 +30,13 @@
 //! - **Phase 2** (#293): stdio JSON-RPC echo server (`parsec mcp serve`).
 //! - **Phase 3** (#293): wire real implementations to registered tools.
 
-// Phase 1 skeleton: items are defined but the JSON-RPC dispatcher (Phase 2)
-// has not been wired yet. Suppress dead_code until Phase 2 lands.
+// Phase 2: McpServer (stdio JSON-RPC) is in server.rs.
 #![allow(dead_code)]
 
+pub mod server;
 pub mod tools;
+
+pub use server::McpServer;
 
 /// Context passed to every MCP tool handler.
 ///

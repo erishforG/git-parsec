@@ -664,6 +664,32 @@ pub enum Command {
         #[command(subcommand)]
         kind: CompleteKind,
     },
+
+    /// Start the MCP server (stdio JSON-RPC 2.0) for AI agent integration.
+    ///
+    /// Exposes parsec tools to Claude Desktop, Cursor, and any other MCP-
+    /// capable AI client.  The server reads requests from stdin and writes
+    /// responses to stdout (newline-delimited compact JSON).
+    ///
+    /// ## Claude Desktop setup
+    ///
+    /// Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+    ///
+    /// ```json
+    /// {
+    ///   "mcpServers": {
+    ///     "git-parsec": {
+    ///       "command": "parsec",
+    ///       "args": ["mcp", "serve"],
+    ///       "env": { "GITHUB_TOKEN": "<your-pat>" }
+    ///     }
+    ///   }
+    /// }
+    /// ```
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
 }
 
 /// Candidate sets the dynamic completion subcommand can emit.
@@ -673,6 +699,16 @@ pub enum CompleteKind {
     Worktrees,
     /// Print local branch names, one per line.
     Branches,
+}
+
+/// Sub-actions available under `parsec mcp`.
+#[derive(Subcommand)]
+pub enum McpAction {
+    /// Start the stdio JSON-RPC 2.0 server (Phase 2, issue #293).
+    ///
+    /// Reads MCP requests from stdin, dispatches to parsec tool handlers,
+    /// and writes JSON-RPC 2.0 responses to stdout.
+    Serve,
 }
 
 #[derive(Subcommand)]
@@ -772,6 +808,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Commit { .. } => "commit",
         Command::Smartlog { .. } => "smartlog",
         Command::Complete { .. } => "__complete",
+        Command::Mcp { .. } => "mcp",
         Command::Reviews { .. } => "reviews",
         Command::Dashboard { .. } => "dashboard",
         Command::Test { .. } => "test",
@@ -1135,6 +1172,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             .await
         }
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
+        Command::Mcp { action } => match action {
+            McpAction::Serve => commands::mcp_serve(&repo_path, cli.dry_run).await,
+        },
     };
 
     // Record execution entry (best-effort, never fail the command)
