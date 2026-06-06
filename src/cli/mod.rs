@@ -664,6 +664,30 @@ pub enum Command {
         #[command(subcommand)]
         kind: CompleteKind,
     },
+
+    /// MCP (Model Context Protocol) server commands
+    ///
+    /// Exposes parsec's worktree-native workflow as an MCP server so AI agents
+    /// (Claude Desktop, Cursor, etc.) can manage worktrees programmatically.
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+}
+
+/// Actions available under `parsec mcp`.
+#[derive(Subcommand)]
+pub enum McpAction {
+    /// Start the MCP stdio JSON-RPC 2.0 server (Refs #293)
+    ///
+    /// Listens on stdin for newline-delimited JSON-RPC 2.0 requests and writes
+    /// responses to stdout. Register in Claude Desktop / Cursor as:
+    ///
+    ///   { "command": "parsec", "args": ["mcp", "serve"] }
+    ///
+    /// Phase 2: initialize + tools/list + tools/call stub.
+    /// Phase 3 (#293) will wire real tool handlers.
+    Serve,
 }
 
 /// Candidate sets the dynamic completion subcommand can emit.
@@ -772,6 +796,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Commit { .. } => "commit",
         Command::Smartlog { .. } => "smartlog",
         Command::Complete { .. } => "__complete",
+        Command::Mcp { .. } => "mcp",
         Command::Reviews { .. } => "reviews",
         Command::Dashboard { .. } => "dashboard",
         Command::Test { .. } => "test",
@@ -1135,6 +1160,11 @@ pub async fn run(cli: Cli) -> Result<()> {
             .await
         }
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
+        Command::Mcp { action } => match action {
+            McpAction::Serve => tokio::task::spawn_blocking(crate::mcp::server::run)
+                .await
+                .unwrap_or_else(|e| Err(anyhow::anyhow!("MCP server task panicked: {e}"))),
+        },
     };
 
     // Record execution entry (best-effort, never fail the command)

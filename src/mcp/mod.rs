@@ -34,6 +34,7 @@
 // has not been wired yet. Suppress dead_code until Phase 2 lands.
 #![allow(dead_code)]
 
+pub mod server;
 pub mod tools;
 
 /// Context passed to every MCP tool handler.
