@@ -1,7 +1,7 @@
 # git-parsec MCP Tool Specification
 
 **Version**: 0.1 (draft)  
-**Date**: 2026-06-04  
+**Date**: 2026-06-07  
 **Milestone**: v1.0  
 **Refs**: #292, #241
 
@@ -15,6 +15,81 @@ ship code across isolated git worktrees.
 The transport is **stdio JSON-RPC 2.0** (`parsec mcp serve`). All tools
 follow the MCP `tools/call` schema with `name`, `description`, and
 `inputSchema` (JSON Schema draft-07).
+
+---
+
+## Protocol Contract
+
+Phase 2 fixes the server boundary that later implementation phases must
+preserve. The server speaks newline-delimited JSON-RPC 2.0 over stdio and
+does not emit progress logs on stdout. Human-readable diagnostics go to
+stderr so MCP clients can treat stdout as a pure protocol stream.
+
+### Methods
+
+| Method | Direction | Purpose |
+|---|---|---|
+| `initialize` | client -> server | Negotiate protocol version and server capabilities |
+| `tools/list` | client -> server | Return the catalogue in this document |
+| `tools/call` | client -> server | Invoke one registered parsec tool |
+
+`tools/list` returns the registry from `src/mcp/mod.rs` and each tool's
+`inputSchema`. `tools/call` accepts:
+
+```json
+{
+  "name": "worktree_status",
+  "arguments": {
+    "ticket": "PROJ-123",
+    "repo": "/repo"
+  }
+}
+```
+
+### Shared Inputs
+
+All tools accept these common optional fields unless the individual tool
+schema narrows them:
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `repo` | string | current working directory | Absolute paths are preferred; relative paths resolve against server CWD |
+| `dry_run` | boolean | tool-specific | Mutating tools must preview side effects when true |
+
+Tools that call GitHub APIs require a delegated token from the MCP caller
+context. They must not read `GITHUB_TOKEN` or `GH_TOKEN` directly.
+
+### Shared Response Envelope
+
+Successful `tools/call` responses use MCP content blocks with one JSON payload
+block. The payload is the tool-specific response shown below:
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"ticket\":\"PROJ-123\",\"ahead\":3,\"behind\":0}"
+    }
+  ],
+  "isError": false
+}
+```
+
+Errors use the same envelope with `isError: true` and the standard error body
+defined in the Error Schema section. Future clients should key off
+`error.code`, not the English `message`.
+
+### Mutating Tool Rules
+
+Mutating tools are `worktree_start`, `worktree_ship`, and `sync`.
+
+- `dry_run: true` must not create worktrees, push branches, open PRs, rebase,
+  merge, or delete files.
+- `dry_run: false` may perform side effects only after input validation and
+  repository discovery succeed.
+- If a mutation is blocked by dirty state or conflicts, return a structured
+  error and leave recovery to the caller.
 
 ---
 
@@ -542,12 +617,13 @@ sync                ──► git2
 
 | Phase | Work |
 |---|---|
-| Phase 1 (this PR) | `docs/mcp/spec.md` — tool catalogue + schemas |
-| Phase 2 (#293) | `parsec mcp serve` skeleton — stdio JSON-RPC echo server |
-| Phase 3 (#293) | Wire `worktree_list` + `worktree_status` to real impl |
-| Phase 4 (#293) | Wire remaining tools; `parsec mcp serve` fully functional |
-| Phase 5 (#294) | Auth — PAT delegation + scope checking |
-| Phase 6 (#295) | e2e fixtures + Claude Desktop / Cursor integration tests |
+| Phase 1 | `docs/mcp/spec.md` — tool catalogue + schemas |
+| Phase 2 (this PR) | Protocol contract — JSON-RPC methods, shared inputs, response envelope |
+| Phase 3 (#293) | `parsec mcp serve` skeleton — stdio JSON-RPC echo server |
+| Phase 4 (#293) | Wire `worktree_list` + `worktree_status` to real impl |
+| Phase 5 (#293) | Wire remaining tools; `parsec mcp serve` fully functional |
+| Phase 6 (#294) | Auth — PAT delegation + scope checking |
+| Phase 7 (#295) | e2e fixtures + Claude Desktop / Cursor integration tests |
 
 ---
 
