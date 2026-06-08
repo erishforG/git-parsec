@@ -235,13 +235,14 @@ mod tests {
         }
     }
 
-    /// 우선순위 + 빈값 fallback + 모두 미설정 시나리오를 한 함수에서 sequential 검사.
-    /// `env_lock()` 으로 process-wide 직렬화 (cargo test 병렬 실행 환경에서 sibling
-    /// 테스트가 env 를 클로버하지 않도록). Windows CI 에서 race 발견 (#289).
+    /// Checks token priority, empty-value fallback, and fully unset scenarios
+    /// in sequence. `env_lock()` serializes the process-wide environment so
+    /// sibling cargo tests cannot clobber these values; Windows CI exposed this
+    /// race in #289.
     #[test]
     fn github_token_priority_order_and_fallback() {
         let _guard = env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        // 1. PARSEC_GITHUB_TOKEN 우선
+        // 1. PARSEC_GITHUB_TOKEN wins.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             g.set(PARSEC_GITHUB_TOKEN, "p");
@@ -250,7 +251,7 @@ mod tests {
             assert_eq!(github_token().as_deref(), Some("p"));
             drop(g);
         }
-        // 2. PARSEC_GITHUB_TOKEN 미설정 → GITHUB_TOKEN
+        // 2. Unset PARSEC_GITHUB_TOKEN falls back to GITHUB_TOKEN.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             g.set(GITHUB_TOKEN, "g");
@@ -258,14 +259,14 @@ mod tests {
             assert_eq!(github_token().as_deref(), Some("g"));
             drop(g);
         }
-        // 3. PARSEC_GITHUB_TOKEN / GITHUB_TOKEN 미설정 → GH_TOKEN
+        // 3. Unset PARSEC_GITHUB_TOKEN and GITHUB_TOKEN fall back to GH_TOKEN.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             g.set(GH_TOKEN, "h");
             assert_eq!(github_token().as_deref(), Some("h"));
             drop(g);
         }
-        // 4. 빈 PARSEC_GITHUB_TOKEN 은 무시 → GITHUB_TOKEN
+        // 4. Empty PARSEC_GITHUB_TOKEN is ignored and falls back to GITHUB_TOKEN.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             g.set(PARSEC_GITHUB_TOKEN, "");
@@ -273,8 +274,8 @@ mod tests {
             assert_eq!(github_token().as_deref(), Some("g"));
             drop(g);
         }
-        // 5. 모두 미설정 + gh 실패 → None. CI 환경 (gh 로그인 X) 이 일반.
-        //    local dev 에서 gh auth login 돼있으면 Some(token) 도 허용 (smoke).
+        // 5. All env vars unset and gh unavailable returns None, which is
+        //    common in CI without gh login. Local gh auth may return a token.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             match github_token() {
@@ -290,8 +291,9 @@ mod tests {
 
     #[test]
     fn gh_auth_token_returns_option_string_or_none() {
-        // 외부 gh binary 에 의존 — CI 환경 (로그인 X) 에서는 None 기대.
-        // local dev 에서 gh auth login 돼있으면 Some(token). 둘 다 허용 (smoke check only).
+        // Depends on the external gh binary: CI without login should return
+        // None, while local dev with gh auth may return a token. This is only a
+        // smoke check, so both outcomes are valid.
         match gh_auth_token() {
             None => {}
             Some(t) => {

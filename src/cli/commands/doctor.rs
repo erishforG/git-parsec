@@ -86,9 +86,10 @@ pub async fn doctor(repo: &Path, mode: Mode) -> Result<()> {
     // ------------------------------------------------------------------
     {
         let config_result = crate::config::ParsecConfig::load();
-        // issue #281: gh auth token fallback 은 lib (`crate::env::gh_auth_token`) 에서
-        // 단일 정의 — `ship` / tracker 와 parity. doctor 는 SOURCE 를 사람이 읽기 위한
-        // 진단 메시지로 분기하므로 별도 매핑 유지.
+        // Issue #281: the gh auth token fallback is defined once in lib
+        // (`crate::env::gh_auth_token`) for parity with `ship` and tracker.
+        // doctor keeps its own source mapping because it reports human-readable
+        // diagnostics.
         let from_gh = crate::env::gh_auth_token().is_some();
         let from_env = std::env::var("GITHUB_TOKEN").is_ok();
         let github_token_found = match &config_result {
