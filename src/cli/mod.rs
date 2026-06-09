@@ -71,6 +71,16 @@ pub enum Command {
         hook: Option<String>,
     },
 
+    /// Run parsec as an MCP server for AI clients.
+    ///
+    /// `parsec mcp serve` speaks newline-delimited JSON-RPC 2.0 over stdio.
+    /// The current phase supports initialize/tools-list transport smoke tests;
+    /// real tool execution is wired in a later MCP phase.
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+
     /// List all active worktrees
     ///
     /// Shows a table of all parsec-managed worktrees with ticket, branch,
@@ -676,6 +686,12 @@ pub enum CompleteKind {
 }
 
 #[derive(Subcommand)]
+pub enum McpAction {
+    /// Serve MCP JSON-RPC over stdio.
+    Serve,
+}
+
+#[derive(Subcommand)]
 pub enum ConfigAction {
     /// Interactive configuration setup
     ///
@@ -741,6 +757,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     // Observability: extract command name and set up execution tracking
     let cmd_name = match &cli.command {
         Command::Start { .. } => "start",
+        Command::Mcp { .. } => "mcp",
         Command::List { .. } => "list",
         Command::Status { .. } => "status",
         Command::Ticket { .. } => "ticket",
@@ -809,6 +826,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
+        Command::Mcp { action } => match action {
+            McpAction::Serve => crate::mcp::serve_stdio(cli.dry_run),
+        },
         Command::List { no_pr, full } => commands::list(&repo_path, no_pr, full, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
