@@ -622,7 +622,7 @@ sync                ──► git2
 | Phase 3 (#293) | `parsec mcp serve` skeleton — stdio JSON-RPC echo server |
 | Phase 4 (#293) | Wire `worktree_list` + `worktree_status` to real impl |
 | Phase 5 (#293) | Wire remaining tools; `parsec mcp serve` fully functional |
-| Phase 6 (#294) | Auth — PAT delegation + scope checking |
+| Phase 6 (#294) | Auth — PAT delegation, scope checking, and sandbox rules |
 | Phase 7 (#295) | e2e fixtures + Claude Desktop / Cursor integration tests |
 
 ---
