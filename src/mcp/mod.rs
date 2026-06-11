@@ -494,4 +494,103 @@ mod tests {
         assert_eq!(response["error"]["code"], -32601);
         assert_eq!(response["error"]["message"], "Method not found");
     }
+
+    #[test]
+    fn stdio_recording_fixtures_match_dispatcher() {
+        let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/mcp/fixtures/stdio_smoke.jsonl");
+        let fixture = std::fs::read_to_string(&fixture_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", fixture_path.display()));
+
+        for (line_no, line) in fixture.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            let record: serde_json::Value = serde_json::from_str(trimmed)
+                .unwrap_or_else(|err| panic!("invalid fixture line {}: {err}", line_no + 1));
+            let name = record
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("<unnamed>");
+            let request = record
+                .get("request")
+                .cloned()
+                .unwrap_or_else(|| panic!("fixture '{name}' missing request"));
+            let response = dispatch_json_rpc(request);
+            let assertions = record
+                .get("assertions")
+                .and_then(serde_json::Value::as_array)
+                .unwrap_or_else(|| panic!("fixture '{name}' missing assertions array"));
+
+            for assertion in assertions {
+                assert_fixture_assertion(name, &response, assertion);
+            }
+        }
+    }
+
+    fn assert_fixture_assertion(
+        name: &str,
+        response: &serde_json::Value,
+        assertion: &serde_json::Value,
+    ) {
+        let pointer = assertion
+            .get("pointer")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("fixture '{name}' assertion missing pointer"));
+        let actual = response
+            .pointer(pointer)
+            .unwrap_or_else(|| panic!("fixture '{name}' pointer '{pointer}' did not match"));
+
+        if let Some(expected) = assertion.get("equals") {
+            assert_eq!(
+                actual, expected,
+                "fixture '{name}' expected {pointer} to equal {expected}"
+            );
+        }
+
+        if let Some(min_len) = assertion.get("min_len").and_then(serde_json::Value::as_u64) {
+            let actual_len = actual
+                .as_array()
+                .unwrap_or_else(|| panic!("fixture '{name}' pointer '{pointer}' is not an array"))
+                .len() as u64;
+            assert!(
+                actual_len >= min_len,
+                "fixture '{name}' expected {pointer} length >= {min_len}, got {actual_len}"
+            );
+        }
+
+        if let Some(kind) = assertion.get("kind").and_then(serde_json::Value::as_str) {
+            let matches = match kind {
+                "array" => actual.is_array(),
+                "boolean" => actual.is_boolean(),
+                "null" => actual.is_null(),
+                "number" => actual.is_number(),
+                "object" => actual.is_object(),
+                "string" => actual.is_string(),
+                _ => panic!("fixture '{name}' has unsupported kind '{kind}'"),
+            };
+            assert!(
+                matches,
+                "fixture '{name}' expected {pointer} to be {kind}, got {actual}"
+            );
+        }
+
+        if let Some(tool_name) = assertion
+            .get("contains_tool")
+            .and_then(serde_json::Value::as_str)
+        {
+            let tools = actual
+                .as_array()
+                .unwrap_or_else(|| panic!("fixture '{name}' pointer '{pointer}' is not an array"));
+            assert!(
+                tools
+                    .iter()
+                    .any(|tool| tool.get("name").and_then(serde_json::Value::as_str)
+                        == Some(tool_name)),
+                "fixture '{name}' expected {pointer} to contain tool '{tool_name}'"
+            );
+        }
+    }
 }
