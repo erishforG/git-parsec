@@ -8,6 +8,7 @@ Each non-empty, non-comment line has this shape:
 
 ```json
 {"name":"initialize","request":{"jsonrpc":"2.0","id":1,"method":"initialize"},"assertions":[{"pointer":"/result/serverInfo/name","equals":"git-parsec"}]}
+{"name":"initialized-notification","request":{"jsonrpc":"2.0","method":"notifications/initialized"},"no_response":true}
 ```
 
 ## Fields
@@ -15,6 +16,8 @@ Each non-empty, non-comment line has this shape:
 - `name`: stable fixture label for failure messages.
 - `request`: JSON-RPC request sent to `parsec mcp serve`.
 - `assertions`: checks applied to the dispatcher response.
+- `no_response`: set to `true` for JSON-RPC notifications that must not emit
+  a response.
 
 Supported assertion keys:
 
