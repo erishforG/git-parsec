@@ -221,18 +221,29 @@ where
 
         let response = match serde_json::from_str::<serde_json::Value>(&line) {
             Ok(request) => dispatch_json_rpc(request),
-            Err(err) => json_rpc_error(serde_json::Value::Null, -32700, "Parse error", err),
+            Err(err) => Some(json_rpc_error(
+                serde_json::Value::Null,
+                -32700,
+                "Parse error",
+                err,
+            )),
         };
 
-        serde_json::to_writer(&mut writer, &response)?;
-        writeln!(writer)?;
-        writer.flush()?;
+        if let Some(response) = response {
+            serde_json::to_writer(&mut writer, &response)?;
+            writeln!(writer)?;
+            writer.flush()?;
+        }
     }
 
     Ok(())
 }
 
-fn dispatch_json_rpc(request: serde_json::Value) -> serde_json::Value {
+fn dispatch_json_rpc(request: serde_json::Value) -> Option<serde_json::Value> {
+    if is_notification(&request) {
+        return None;
+    }
+
     let id = request
         .get("id")
         .cloned()
@@ -243,7 +254,7 @@ fn dispatch_json_rpc(request: serde_json::Value) -> serde_json::Value {
         .unwrap_or_default();
 
     match method {
-        "initialize" => json_rpc_result(
+        "initialize" => Some(json_rpc_result(
             id,
             serde_json::json!({
                 "protocolVersion": "2025-03-26",
@@ -255,27 +266,38 @@ fn dispatch_json_rpc(request: serde_json::Value) -> serde_json::Value {
                     "tools": {},
                 },
             }),
-        ),
+        )),
         "tools/list" => match tools_list_payload() {
-            Ok(payload) => json_rpc_result(id, payload),
-            Err(err) => json_rpc_error(id, -32603, "Internal error", err),
+            Ok(payload) => Some(json_rpc_result(id, payload)),
+            Err(err) => Some(json_rpc_error(id, -32603, "Internal error", err)),
         },
-        "echo" => json_rpc_result(
+        "echo" => Some(json_rpc_result(
             id,
             request
                 .get("params")
                 .cloned()
                 .unwrap_or(serde_json::Value::Null),
-        ),
-        "tools/call" => json_rpc_error(
+        )),
+        "tools/call" => Some(json_rpc_error(
             id,
             -32601,
             "Method not implemented",
             "tools/call dispatch is planned for the next MCP phase",
-        ),
-        "" => json_rpc_error(id, -32600, "Invalid Request", "missing method"),
-        _ => json_rpc_error(id, -32601, "Method not found", method),
+        )),
+        "" => Some(json_rpc_error(
+            id,
+            -32600,
+            "Invalid Request",
+            "missing method",
+        )),
+        _ => Some(json_rpc_error(id, -32601, "Method not found", method)),
     }
+}
+
+fn is_notification(request: &serde_json::Value) -> bool {
+    request
+        .as_object()
+        .is_some_and(|object| !object.contains_key("id"))
 }
 
 fn json_rpc_result(id: serde_json::Value, result: serde_json::Value) -> serde_json::Value {
@@ -442,7 +464,7 @@ mod tests {
             "params": {}
         });
 
-        let response = dispatch_json_rpc(request);
+        let response = dispatch_json_rpc(request).expect("initialize should produce a response");
 
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], 1);
@@ -458,7 +480,7 @@ mod tests {
             "method": "tools/list"
         });
 
-        let response = dispatch_json_rpc(request);
+        let response = dispatch_json_rpc(request).expect("tools/list should produce a response");
         let tools = response["result"]["tools"]
             .as_array()
             .expect("tools/list should return an array");
@@ -476,7 +498,7 @@ mod tests {
             "params": {"ok": true}
         });
 
-        let response = dispatch_json_rpc(request);
+        let response = dispatch_json_rpc(request).expect("echo should produce a response");
 
         assert_eq!(response["result"], serde_json::json!({"ok": true}));
     }
@@ -489,10 +511,22 @@ mod tests {
             "method": "parsec/nope"
         });
 
-        let response = dispatch_json_rpc(request);
+        let response =
+            dispatch_json_rpc(request).expect("unknown method should produce a response");
 
         assert_eq!(response["error"]["code"], -32601);
         assert_eq!(response["error"]["message"], "Method not found");
+    }
+
+    #[test]
+    fn notifications_do_not_produce_responses() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+            "params": {}
+        });
+
+        assert!(dispatch_json_rpc(request).is_none());
     }
 
     #[test]
@@ -519,6 +553,20 @@ mod tests {
                 .cloned()
                 .unwrap_or_else(|| panic!("fixture '{name}' missing request"));
             let response = dispatch_json_rpc(request);
+            if record
+                .get("no_response")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+            {
+                assert!(
+                    response.is_none(),
+                    "fixture '{name}' expected no JSON-RPC response"
+                );
+                continue;
+            }
+
+            let response =
+                response.unwrap_or_else(|| panic!("fixture '{name}' expected a JSON-RPC response"));
             let assertions = record
                 .get("assertions")
                 .and_then(serde_json::Value::as_array)
