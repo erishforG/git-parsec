@@ -38,6 +38,60 @@ pub mod tools;
 
 use std::io::{BufRead, Write};
 
+/// GitHub API capability requested by an MCP tool.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum GithubScope {
+    /// Read pull request metadata, reviews, and mergeability state.
+    PullRequestRead,
+    /// Read GitHub Actions check runs and workflow status.
+    ChecksRead,
+    /// Push branches and create or update pull requests.
+    PullRequestWrite,
+}
+
+impl GithubScope {
+    /// Stable identifier used by MCP metadata and future auth errors.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PullRequestRead => "pull_request:read",
+            Self::ChecksRead => "checks:read",
+            Self::PullRequestWrite => "pull_request:write",
+        }
+    }
+}
+
+/// Delegated GitHub token that redacts its secret in debug output.
+#[derive(Clone, Eq, PartialEq)]
+pub struct DelegatedGithubToken {
+    token: String,
+}
+
+impl DelegatedGithubToken {
+    /// Create a delegated token from client-provided session auth.
+    #[must_use]
+    pub fn new(token: impl Into<String>) -> Self {
+        Self {
+            token: token.into(),
+        }
+    }
+
+    /// Borrow the raw token for the GitHub client boundary.
+    #[must_use]
+    pub fn expose_secret(&self) -> &str {
+        &self.token
+    }
+}
+
+impl std::fmt::Debug for DelegatedGithubToken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DelegatedGithubToken")
+            .field("token", &"<redacted>")
+            .finish()
+    }
+}
+
 /// Context passed to every MCP tool handler.
 ///
 /// Carries repository path, auth tokens (delegated by the caller), and
@@ -50,7 +104,7 @@ pub struct McpContext {
 
     /// GitHub Personal Access Token delegated by the MCP caller.
     /// `None` when the tool does not require GitHub API access.
-    pub github_token: Option<String>,
+    pub github_token: Option<DelegatedGithubToken>,
 
     /// When `true`, all mutating operations are previewed without
     /// side effects. Tools must check this before any state change.
@@ -71,7 +125,7 @@ impl McpContext {
     /// Attach a GitHub PAT to the context.
     #[must_use]
     pub fn with_github_token(mut self, token: impl Into<String>) -> Self {
-        self.github_token = Some(token.into());
+        self.github_token = Some(DelegatedGithubToken::new(token));
         self
     }
 }
@@ -91,6 +145,8 @@ pub struct ToolDef {
     pub mutating: bool,
     /// Whether this tool requires GitHub API credentials for normal operation.
     pub requires_github: bool,
+    /// Minimum GitHub API scopes needed before dispatch.
+    pub github_scopes: &'static [GithubScope],
 }
 
 /// All tools exposed by the parsec MCP server.
@@ -104,6 +160,7 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"repo":{"type":"string"},"include_pr":{"type":"boolean","default":true},"include_ci":{"type":"boolean","default":false}},"required":[]}"#,
         mutating: false,
         requires_github: false,
+        github_scopes: &[GithubScope::PullRequestRead, GithubScope::ChecksRead],
     },
     ToolDef {
         name: "worktree_start",
@@ -111,6 +168,7 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"base":{"type":"string"},"title":{"type":"string"},"on":{"type":"string"},"dry_run":{"type":"boolean","default":false}},"required":["ticket"]}"#,
         mutating: true,
         requires_github: false,
+        github_scopes: &[],
     },
     ToolDef {
         name: "worktree_status",
@@ -119,6 +177,7 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"}},"required":["ticket"]}"#,
         mutating: false,
         requires_github: false,
+        github_scopes: &[GithubScope::PullRequestRead],
     },
     ToolDef {
         name: "worktree_ship",
@@ -127,6 +186,7 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"draft":{"type":"boolean","default":false},"no_cleanup":{"type":"boolean","default":false},"dry_run":{"type":"boolean","default":false}},"required":["ticket"]}"#,
         mutating: true,
         requires_github: true,
+        github_scopes: &[GithubScope::PullRequestWrite],
     },
     ToolDef {
         name: "smartlog",
@@ -135,6 +195,7 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"repo":{"type":"string"},"ticket":{"type":"string"},"limit":{"type":"integer","default":50,"minimum":1,"maximum":500},"no_color":{"type":"boolean","default":true}},"required":[]}"#,
         mutating: false,
         requires_github: false,
+        github_scopes: &[GithubScope::PullRequestRead, GithubScope::ChecksRead],
     },
     ToolDef {
         name: "ci_status",
@@ -142,6 +203,7 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"limit":{"type":"integer","default":10}},"required":["ticket"]}"#,
         mutating: false,
         requires_github: true,
+        github_scopes: &[GithubScope::ChecksRead],
     },
     ToolDef {
         name: "pr_status",
@@ -150,6 +212,7 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"}},"required":["ticket"]}"#,
         mutating: false,
         requires_github: true,
+        github_scopes: &[GithubScope::PullRequestRead],
     },
     ToolDef {
         name: "health_check",
@@ -158,6 +221,7 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"include_ci":{"type":"boolean","default":false}},"required":[]}"#,
         mutating: false,
         requires_github: false,
+        github_scopes: &[GithubScope::ChecksRead],
     },
     ToolDef {
         name: "reviews",
@@ -166,6 +230,7 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"repo":{"type":"string"},"filter":{"type":"string","enum":["incoming","outgoing","all"],"default":"all"},"limit":{"type":"integer","default":20}},"required":[]}"#,
         mutating: false,
         requires_github: true,
+        github_scopes: &[GithubScope::PullRequestRead],
     },
     ToolDef {
         name: "sync",
@@ -173,8 +238,15 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"strategy":{"type":"string","enum":["rebase","merge"],"default":"rebase"},"dry_run":{"type":"boolean","default":true},"stale_days":{"type":"integer","default":5}},"required":[]}"#,
         mutating: true,
         requires_github: false,
+        github_scopes: &[],
     },
 ];
+
+/// Return the registered definition for a tool name.
+#[must_use]
+pub fn tool_by_name(name: &str) -> Option<&'static ToolDef> {
+    TOOLS.iter().find(|tool| tool.name == name)
+}
 
 /// Render tool metadata in the shape required by MCP `tools/list`.
 ///
@@ -189,6 +261,14 @@ pub fn tools_list_payload() -> anyhow::Result<serde_json::Value> {
                 "name": tool.name,
                 "description": tool.description,
                 "inputSchema": input_schema,
+                "annotations": {
+                    "mutating": tool.mutating,
+                    "requiresGithub": tool.requires_github,
+                    "githubScopes": tool.github_scopes
+                        .iter()
+                        .map(|scope| scope.as_str())
+                        .collect::<Vec<_>>(),
+                },
             }))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -440,6 +520,35 @@ mod tests {
     }
 
     #[test]
+    fn github_tools_declare_scope_metadata() {
+        for tool in TOOLS.iter().filter(|tool| tool.requires_github) {
+            assert!(
+                !tool.github_scopes.is_empty(),
+                "GitHub tool '{}' must declare minimum scopes",
+                tool.name
+            );
+        }
+    }
+
+    #[test]
+    fn tools_list_exposes_auth_annotations() {
+        let payload = tools_list_payload().expect("tools/list payload should render");
+        let tools = payload["tools"]
+            .as_array()
+            .expect("tools/list payload must contain an array");
+        let pr_status = tools
+            .iter()
+            .find(|tool| tool["name"] == "pr_status")
+            .expect("pr_status should be listed");
+
+        assert_eq!(pr_status["annotations"]["requiresGithub"], true);
+        assert_eq!(
+            pr_status["annotations"]["githubScopes"],
+            serde_json::json!(["pull_request:read"])
+        );
+    }
+
+    #[test]
     fn mcp_context_from_cwd() {
         let ctx = McpContext::from_cwd(false).expect("should build context from cwd");
         assert!(!ctx.dry_run);
@@ -452,7 +561,22 @@ mod tests {
             .unwrap()
             .with_github_token("ghp_test");
         assert!(ctx.dry_run);
-        assert_eq!(ctx.github_token.as_deref(), Some("ghp_test"));
+        assert_eq!(
+            ctx.github_token
+                .as_ref()
+                .map(DelegatedGithubToken::expose_secret),
+            Some("ghp_test")
+        );
+    }
+
+    #[test]
+    fn delegated_token_debug_is_redacted() {
+        let token = DelegatedGithubToken::new("ghp_do_not_log");
+
+        let debug = format!("{token:?}");
+
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("ghp_do_not_log"));
     }
 
     #[test]
