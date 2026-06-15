@@ -358,12 +358,7 @@ fn dispatch_json_rpc(request: serde_json::Value) -> Option<serde_json::Value> {
                 .cloned()
                 .unwrap_or(serde_json::Value::Null),
         )),
-        "tools/call" => Some(json_rpc_error(
-            id,
-            -32601,
-            "Method not implemented",
-            "tools/call dispatch is planned for the next MCP phase",
-        )),
+        "tools/call" => Some(handle_tools_call(id, request.get("params"))),
         "" => Some(json_rpc_error(
             id,
             -32600,
@@ -403,6 +398,62 @@ fn json_rpc_error(
             "data": data.to_string(),
         },
     })
+}
+
+fn handle_tools_call(
+    id: serde_json::Value,
+    params: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let Some(params) = params.and_then(serde_json::Value::as_object) else {
+        return json_rpc_error(
+            id,
+            -32602,
+            "Invalid params",
+            "tools/call params must be an object",
+        );
+    };
+    let Some(name) = params.get("name").and_then(serde_json::Value::as_str) else {
+        return json_rpc_error(
+            id,
+            -32602,
+            "Invalid params",
+            "tools/call params.name must be a string",
+        );
+    };
+    if !params
+        .get("arguments")
+        .is_none_or(serde_json::Value::is_object)
+    {
+        return json_rpc_error(
+            id,
+            -32602,
+            "Invalid params",
+            "tools/call params.arguments must be an object when present",
+        );
+    }
+    if tool_by_name(name).is_none() {
+        return json_rpc_error(
+            id,
+            -32602,
+            "Invalid params",
+            format!("unknown MCP tool '{name}'"),
+        );
+    }
+
+    json_rpc_result(
+        id,
+        serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::json!({
+                    "code": "not_implemented",
+                    "message": "tools/call dispatch is planned for the next MCP phase",
+                    "tool": name,
+                }).to_string(),
+            }],
+            "isError": true,
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -640,6 +691,46 @@ mod tests {
 
         assert_eq!(response["error"]["code"], -32601);
         assert_eq!(response["error"]["message"], "Method not found");
+    }
+
+    #[test]
+    fn tools_call_validates_registered_tool_name() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "call",
+            "method": "tools/call",
+            "params": {
+                "name": "nope",
+                "arguments": {}
+            }
+        });
+
+        let response = dispatch_json_rpc(request).expect("tools/call should produce a response");
+
+        assert_eq!(response["error"]["code"], -32602);
+        assert_eq!(response["error"]["message"], "Invalid params");
+    }
+
+    #[test]
+    fn tools_call_returns_mcp_error_envelope_until_dispatch_lands() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "call",
+            "method": "tools/call",
+            "params": {
+                "name": "worktree_status",
+                "arguments": {"ticket": "ABC-123"}
+            }
+        });
+
+        let response = dispatch_json_rpc(request).expect("tools/call should produce a response");
+
+        assert_eq!(response["id"], "call");
+        assert_eq!(response["result"]["isError"], true);
+        assert_eq!(response["result"]["content"][0]["type"], "text");
+        assert!(response["result"]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("\"tool\":\"worktree_status\"")));
     }
 
     #[test]
