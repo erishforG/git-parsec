@@ -28,7 +28,7 @@
 //!
 //! - **Phase 1**: module skeleton + tool registry shape.
 //! - **Phase 2** (this, #293): stdio JSON-RPC skeleton (`parsec mcp serve`).
-//! - **Phase 3** (#293): wire real implementations to registered tools.
+//! - **Phase 3** (#293): replace structured stubs with real tool implementations.
 
 // Phase 1 skeleton: items are defined but the JSON-RPC dispatcher (Phase 2)
 // has not been wired yet. Suppress dead_code until Phase 2 lands.
@@ -279,8 +279,8 @@ pub fn tools_list_payload() -> anyhow::Result<serde_json::Value> {
 /// Serve newline-delimited JSON-RPC 2.0 messages over stdio.
 ///
 /// This Phase 2 skeleton establishes the transport boundary used by MCP
-/// clients. It supports `initialize`, `tools/list`, and an explicit `echo`
-/// method for smoke tests; real tool dispatch lands in the next phase.
+/// clients. It supports `initialize`, `tools/list`, `tools/call`, and an
+/// explicit `echo` method for smoke tests.
 pub fn serve_stdio(dry_run: bool) -> anyhow::Result<()> {
     serve(std::io::stdin().lock(), std::io::stdout().lock(), dry_run)
 }
@@ -290,7 +290,7 @@ where
     R: BufRead,
     W: Write,
 {
-    let _ctx = McpContext::from_cwd(dry_run)?;
+    let ctx = McpContext::from_cwd(dry_run)?;
     let mut writer = writer;
 
     for line in reader.lines() {
@@ -300,7 +300,7 @@ where
         }
 
         let response = match serde_json::from_str::<serde_json::Value>(&line) {
-            Ok(request) => dispatch_json_rpc(request),
+            Ok(request) => dispatch_json_rpc_with_context(request, &ctx),
             Err(err) => Some(json_rpc_error(
                 serde_json::Value::Null,
                 -32700,
@@ -320,6 +320,14 @@ where
 }
 
 fn dispatch_json_rpc(request: serde_json::Value) -> Option<serde_json::Value> {
+    let ctx = McpContext::from_cwd(false).ok()?;
+    dispatch_json_rpc_with_context(request, &ctx)
+}
+
+fn dispatch_json_rpc_with_context(
+    request: serde_json::Value,
+    ctx: &McpContext,
+) -> Option<serde_json::Value> {
     if is_notification(&request) {
         return None;
     }
@@ -358,7 +366,7 @@ fn dispatch_json_rpc(request: serde_json::Value) -> Option<serde_json::Value> {
                 .cloned()
                 .unwrap_or(serde_json::Value::Null),
         )),
-        "tools/call" => Some(handle_tools_call(id, request.get("params"))),
+        "tools/call" => Some(handle_tools_call(id, request.get("params"), ctx)),
         "" => Some(json_rpc_error(
             id,
             -32600,
@@ -403,6 +411,7 @@ fn json_rpc_error(
 fn handle_tools_call(
     id: serde_json::Value,
     params: Option<&serde_json::Value>,
+    ctx: &McpContext,
 ) -> serde_json::Value {
     let Some(params) = params.and_then(serde_json::Value::as_object) else {
         return json_rpc_error(
@@ -440,20 +449,37 @@ fn handle_tools_call(
         );
     }
 
-    json_rpc_result(
-        id,
-        serde_json::json!({
-            "content": [{
-                "type": "text",
-                "text": serde_json::json!({
-                    "code": "not_implemented",
-                    "message": "tools/call dispatch is planned for the next MCP phase",
-                    "tool": name,
-                }).to_string(),
-            }],
-            "isError": true,
-        }),
-    )
+    let arguments = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    match tools::dispatch(name, ctx, arguments) {
+        Ok(payload) => json_rpc_result(id, mcp_content_envelope(payload, false)),
+        Err(err) => json_rpc_result(
+            id,
+            mcp_content_envelope(
+                serde_json::json!({
+                    "error": {
+                        "code": "tool_error",
+                        "message": err.to_string(),
+                        "tool": name,
+                    }
+                }),
+                true,
+            ),
+        ),
+    }
+}
+
+fn mcp_content_envelope(payload: serde_json::Value, is_error: bool) -> serde_json::Value {
+    serde_json::json!({
+        "content": [{
+            "type": "text",
+            "text": payload.to_string(),
+        }],
+        "isError": is_error,
+    })
 }
 
 #[cfg(test)]

@@ -5,5 +5,5 @@ use crate::mcp::McpContext;
 /// `ci_status` — fetch GitHub Actions check-run results for a worktree branch.
 #[allow(dead_code)]
 pub fn status(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<serde_json::Value> {
-    todo!("ci_status: implement in Phase 3 (#293)")
+    Err(super::not_implemented("ci_status"))
 }

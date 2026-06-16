@@ -18,7 +18,7 @@ use crate::mcp::McpContext;
 pub fn list(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<serde_json::Value> {
     // Phase 3: call crate::worktree::manager to enumerate worktrees,
     // optionally fetch PR/CI status via crate::github.
-    todo!("worktree_list: implement in Phase 3 (#293)")
+    Err(super::not_implemented("worktree_list"))
 }
 
 /// `worktree_start` — create a new worktree for a ticket.
@@ -28,7 +28,7 @@ pub fn list(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<serd
 #[allow(dead_code)]
 pub fn start(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<serde_json::Value> {
     // Phase 3: call crate::worktree::lifecycle::create.
-    todo!("worktree_start: implement in Phase 3 (#293)")
+    Err(super::not_implemented("worktree_start"))
 }
 
 /// `worktree_status` — detailed status for a single worktree.
@@ -38,7 +38,7 @@ pub fn start(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<ser
 #[allow(dead_code)]
 pub fn status(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<serde_json::Value> {
     // Phase 3: combine git2 status + github PR/CI queries.
-    todo!("worktree_status: implement in Phase 3 (#293)")
+    Err(super::not_implemented("worktree_status"))
 }
 
 /// `worktree_ship` — push branch, open/update PR, optionally clean up.
@@ -49,5 +49,5 @@ pub fn status(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<se
 pub fn ship(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<serde_json::Value> {
     // Phase 3: call crate::cli::commands::ship internals.
     // Respect ctx.dry_run before any side effects.
-    todo!("worktree_ship: implement in Phase 3 (#293)")
+    Err(super::not_implemented("worktree_ship"))
 }

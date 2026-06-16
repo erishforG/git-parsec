@@ -5,5 +5,5 @@ use crate::mcp::McpContext;
 /// `pr_status` — GitHub PR state, review approvals, and merge readiness.
 #[allow(dead_code)]
 pub fn status(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<serde_json::Value> {
-    todo!("pr_status: implement in Phase 3 (#293)")
+    Err(super::not_implemented("pr_status"))
 }
