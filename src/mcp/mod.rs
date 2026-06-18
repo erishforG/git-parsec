@@ -866,6 +866,19 @@ mod tests {
             );
         }
 
+        if let Some(needle) = assertion
+            .get("contains_text")
+            .and_then(serde_json::Value::as_str)
+        {
+            let actual_text = actual
+                .as_str()
+                .unwrap_or_else(|| panic!("fixture '{name}' pointer '{pointer}' is not a string"));
+            assert!(
+                actual_text.contains(needle),
+                "fixture '{name}' expected {pointer} to contain '{needle}', got '{actual_text}'"
+            );
+        }
+
         if let Some(tool_name) = assertion
             .get("contains_tool")
             .and_then(serde_json::Value::as_str)

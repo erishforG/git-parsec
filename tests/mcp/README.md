@@ -24,6 +24,7 @@ Supported assertion keys:
 - `pointer`: required JSON Pointer into the response.
 - `equals`: exact JSON value match.
 - `kind`: JSON type check (`object`, `array`, `string`, `number`, `boolean`, or `null`).
+- `contains_text`: substring check for deterministic error or content strings.
 - `min_len`: minimum array length.
 - `contains_tool`: checks an array of MCP tool objects for a matching `name`.
 
