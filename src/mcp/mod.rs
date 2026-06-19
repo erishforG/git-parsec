@@ -440,13 +440,16 @@ fn handle_tools_call(
             "tools/call params.arguments must be an object when present",
         );
     }
-    if tool_by_name(name).is_none() {
+    let Some(tool) = tool_by_name(name) else {
         return json_rpc_error(
             id,
             -32602,
             "Invalid params",
             format!("unknown MCP tool '{name}'"),
         );
+    };
+    if let Some(auth_error) = validate_tool_auth(tool, ctx) {
+        return json_rpc_result(id, mcp_content_envelope(auth_error, true));
     }
 
     let arguments = params
@@ -470,6 +473,36 @@ fn handle_tools_call(
             ),
         ),
     }
+}
+
+fn validate_tool_auth(tool: &ToolDef, ctx: &McpContext) -> Option<serde_json::Value> {
+    if tool.requires_github && ctx.github_token.is_none() {
+        return Some(serde_json::json!({
+            "error": {
+                "code": "AUTH_REQUIRED",
+                "message": format!("Tool '{}' requires a delegated GitHub token.", tool.name),
+                "detail": format!(
+                    "Pass a session token with {} access.",
+                    github_scope_detail(tool.github_scopes)
+                ),
+                "tool": tool.name,
+            }
+        }));
+    }
+
+    None
+}
+
+fn github_scope_detail(scopes: &[GithubScope]) -> String {
+    if scopes.is_empty() {
+        return "GitHub".to_string();
+    }
+
+    scopes
+        .iter()
+        .map(|scope| scope.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn mcp_content_envelope(payload: serde_json::Value, is_error: bool) -> serde_json::Value {
@@ -757,6 +790,57 @@ mod tests {
         assert!(response["result"]["content"][0]["text"]
             .as_str()
             .is_some_and(|text| text.contains("\"tool\":\"worktree_status\"")));
+    }
+
+    #[test]
+    fn tools_call_rejects_required_github_tool_without_token() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "auth",
+            "method": "tools/call",
+            "params": {
+                "name": "ci_status",
+                "arguments": {"ticket": "ABC-123"}
+            }
+        });
+
+        let response = dispatch_json_rpc(request).expect("tools/call should produce a response");
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP error text should be present");
+
+        assert_eq!(response["id"], "auth");
+        assert_eq!(response["result"]["isError"], true);
+        assert!(text.contains("\"code\":\"AUTH_REQUIRED\""));
+        assert!(text.contains("\"tool\":\"ci_status\""));
+        assert!(text.contains("checks:read"));
+    }
+
+    #[test]
+    fn tools_call_allows_required_github_tool_with_token() {
+        let ctx = McpContext::from_cwd(false)
+            .expect("should build context")
+            .with_github_token("ghp_test");
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "auth-ok",
+            "method": "tools/call",
+            "params": {
+                "name": "ci_status",
+                "arguments": {"ticket": "ABC-123"}
+            }
+        });
+
+        let response = dispatch_json_rpc_with_context(request, &ctx)
+            .expect("tools/call should produce a response");
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP error text should be present");
+
+        assert_eq!(response["id"], "auth-ok");
+        assert_eq!(response["result"]["isError"], true);
+        assert!(!text.contains("AUTH_REQUIRED"));
+        assert!(text.contains("\"tool\":\"ci_status\""));
     }
 
     #[test]
