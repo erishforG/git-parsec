@@ -448,11 +448,16 @@ fn handle_tools_call(
             format!("unknown MCP tool '{name}'"),
         );
     }
+    let tool = tool_by_name(name).expect("tool was checked above");
 
     let arguments = params
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
+
+    if let Some(error) = preflight_tool_call(tool, ctx) {
+        return json_rpc_result(id, mcp_content_envelope(error, true));
+    }
 
     match tools::dispatch(name, ctx, arguments) {
         Ok(payload) => json_rpc_result(id, mcp_content_envelope(payload, false)),
@@ -469,6 +474,50 @@ fn handle_tools_call(
                 true,
             ),
         ),
+    }
+}
+
+fn preflight_tool_call(tool: &ToolDef, ctx: &McpContext) -> Option<serde_json::Value> {
+    if tool.requires_github && ctx.github_token.is_none() {
+        return Some(tool_error_payload(
+            "AUTH_REQUIRED",
+            format!("Tool '{}' requires a delegated GitHub token.", tool.name),
+            format!(
+                "Pass a session token with scopes: {}.",
+                format_github_scopes(tool.github_scopes)
+            ),
+            tool.name,
+        ));
+    }
+
+    None
+}
+
+fn tool_error_payload(
+    code: &'static str,
+    message: String,
+    detail: String,
+    tool: &'static str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "error": {
+            "code": code,
+            "message": message,
+            "detail": detail,
+            "tool": tool,
+        }
+    })
+}
+
+fn format_github_scopes(scopes: &[GithubScope]) -> String {
+    if scopes.is_empty() {
+        "none".to_owned()
+    } else {
+        scopes
+            .iter()
+            .map(|scope| scope.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 

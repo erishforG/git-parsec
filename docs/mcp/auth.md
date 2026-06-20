@@ -111,7 +111,7 @@ Initial error codes:
 |---|---|
 | Phase 1 | Document auth delegation, scope matrix, sandbox rules, and threat model |
 | Phase 2 | Add redacted credential helpers and scope metadata in `src/mcp/` |
-| Phase 3 | Validate required auth before GitHub-backed tool dispatch |
+| Phase 3 | Validate required auth before GitHub-backed tool dispatch (implemented for `AUTH_REQUIRED`) |
 | Phase 4 | Add fixture scrubbing rules for MCP e2e recordings |
 
 *Maintained by the git-parsec team. Auth changes require review by @erishforG.*
