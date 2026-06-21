@@ -30,3 +30,33 @@ Supported assertion keys:
 
 Keep fixtures deterministic. Do not record machine-local paths, auth tokens,
 timestamps, or network-derived fields.
+
+## Redaction Contract
+
+Recording fixtures are committed test inputs, so they must be safe to publish
+and stable across machines. Before adding a new recording, replace volatile or
+secret-bearing values with deterministic placeholders.
+
+| Source value | Fixture placeholder |
+|---|---|
+| GitHub tokens, PATs, bearer tokens | `<redacted-token>` |
+| `Authorization` headers | `<redacted-authorization>` |
+| User home directories or absolute repo paths | `<repo>` |
+| Temporary directories | `<tmp>` |
+| Real user emails | `<user@example.invalid>` |
+| Wall-clock timestamps | `<timestamp>` |
+| Network request IDs | `<request-id>` |
+
+Reviewers should reject fixtures that contain token-shaped strings such as
+`ghp_`, `github_pat_`, `Bearer `, or `Authorization`. Fixture responses should
+also avoid raw stdout/stderr dumps from MCP clients; assert only the stable JSON
+fields needed by the smoke contract.
+
+## Recording Checklist
+
+1. Capture the smallest request/response pair that exercises the behavior.
+2. Redact secrets, local paths, timestamps, and network-generated IDs.
+3. Prefer `contains_text`, `kind`, `min_len`, and `contains_tool` over copying
+   full response payloads.
+4. Run `cargo test --quiet mcp::tests::stdio_recording_fixtures_match_dispatcher`
+   before opening a PR.
