@@ -47,10 +47,10 @@ secret-bearing values with deterministic placeholders.
 | Wall-clock timestamps | `<timestamp>` |
 | Network request IDs | `<request-id>` |
 
-Reviewers should reject fixtures that contain token-shaped strings such as
-`ghp_`, `github_pat_`, `Bearer `, or `Authorization`. Fixture responses should
-also avoid raw stdout/stderr dumps from MCP clients; assert only the stable JSON
-fields needed by the smoke contract.
+The test suite rejects fixtures that contain token-shaped strings such as
+`ghp_`, `github_pat_`, `Bearer `, `Authorization`, or common absolute local
+path prefixes. Fixture responses should also avoid raw stdout/stderr dumps from
+MCP clients; assert only the stable JSON fields needed by the smoke contract.
 
 ## Recording Checklist
 
@@ -58,5 +58,5 @@ fields needed by the smoke contract.
 2. Redact secrets, local paths, timestamps, and network-generated IDs.
 3. Prefer `contains_text`, `kind`, `min_len`, and `contains_tool` over copying
    full response payloads.
-4. Run `cargo test --quiet mcp::tests::stdio_recording_fixtures_match_dispatcher`
+4. Run `cargo test --quiet mcp::tests::stdio_recording_fixtures`
    before opening a PR.

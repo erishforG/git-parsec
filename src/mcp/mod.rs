@@ -772,10 +772,8 @@ mod tests {
 
     #[test]
     fn stdio_recording_fixtures_match_dispatcher() {
-        let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/mcp/fixtures/stdio_smoke.jsonl");
-        let fixture = std::fs::read_to_string(&fixture_path)
-            .unwrap_or_else(|err| panic!("failed to read {}: {err}", fixture_path.display()));
+        let fixture_path = stdio_smoke_fixture_path();
+        let fixture = read_fixture(&fixture_path);
 
         for (line_no, line) in fixture.lines().enumerate() {
             let trimmed = line.trim();
@@ -817,6 +815,47 @@ mod tests {
                 assert_fixture_assertion(name, &response, assertion);
             }
         }
+    }
+
+    #[test]
+    fn stdio_recording_fixtures_are_redacted() {
+        let fixture_path = stdio_smoke_fixture_path();
+        let fixture = read_fixture(&fixture_path);
+        let denied = [
+            "ghp_",
+            "github_pat_",
+            "Bearer ",
+            "Authorization",
+            "/Users/",
+            "/home/",
+            "/var/folders/",
+        ];
+
+        for (line_no, line) in fixture.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            for pattern in denied {
+                assert!(
+                    !trimmed.contains(pattern),
+                    "fixture line {} contains unredacted pattern '{}'",
+                    line_no + 1,
+                    pattern
+                );
+            }
+        }
+    }
+
+    fn stdio_smoke_fixture_path() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/mcp/fixtures/stdio_smoke.jsonl")
+    }
+
+    fn read_fixture(path: &std::path::Path) -> String {
+        std::fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()))
     }
 
     fn assert_fixture_assertion(
