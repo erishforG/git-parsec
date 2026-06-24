@@ -1,7 +1,7 @@
 # git-parsec MCP Tool Specification
 
 **Version**: 0.1 (draft)  
-**Date**: 2026-06-07  
+**Date**: 2026-06-24  
 **Milestone**: v1.0  
 **Refs**: #292, #241
 
@@ -568,10 +568,24 @@ All tools return MCP `isError: true` with a structured body on failure:
 }
 ```
 
+Current Phase 3 transport stubs use the same shape with `tool_error` while a
+registered tool is reachable through `tools/call` but not yet implemented:
+
+```json
+{
+  "error": {
+    "code": "tool_error",
+    "message": "worktree_status: implementation is planned for a later MCP phase (#293)",
+    "tool": "worktree_status"
+  }
+}
+```
+
 **Standard error codes**:
 
 | Code | Meaning |
 |---|---|
+| `tool_error` | Registered tool handler failed or is still a structured stub |
 | `WORKTREE_NOT_FOUND` | Ticket has no managed worktree |
 | `GIT_ERROR` | Underlying git2 / git CLI error |
 | `GITHUB_API_ERROR` | GitHub API call failed (rate limit, auth, network) |
@@ -579,6 +593,10 @@ All tools return MCP `isError: true` with a structured body on failure:
 | `DIRTY_WORKTREE` | Operation blocked by uncommitted changes |
 | `CONFLICT` | Merge/rebase conflict detected |
 | `DRY_RUN` | Preview only; no changes made |
+| `AUTH_REQUIRED` | Tool requires a delegated GitHub token and none was provided |
+| `INSUFFICIENT_SCOPE` | Delegated token does not cover the requested GitHub operation |
+| `SANDBOX_VIOLATION` | Requested repository or path escapes the validated parsec boundary |
+| `DRY_RUN_REQUIRED` | Server policy requires preview mode for the requested mutation |
 
 ---
 
