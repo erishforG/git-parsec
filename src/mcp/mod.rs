@@ -328,18 +328,37 @@ fn dispatch_json_rpc_with_context(
     request: serde_json::Value,
     ctx: &McpContext,
 ) -> Option<serde_json::Value> {
-    if is_notification(&request) {
-        return None;
+    let Some(object) = request.as_object() else {
+        return Some(json_rpc_error(
+            serde_json::Value::Null,
+            -32600,
+            "Invalid Request",
+            "JSON-RPC request must be an object",
+        ));
+    };
+
+    let id = object.get("id").cloned().unwrap_or(serde_json::Value::Null);
+    if !is_valid_json_rpc_id(&id) {
+        return Some(json_rpc_error(
+            serde_json::Value::Null,
+            -32600,
+            "Invalid Request",
+            "JSON-RPC id must be a string, number, or null",
+        ));
     }
 
-    let id = request
-        .get("id")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-    let method = request
-        .get("method")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
+    let Some(method) = object.get("method").and_then(serde_json::Value::as_str) else {
+        return Some(json_rpc_error(
+            id,
+            -32600,
+            "Invalid Request",
+            "JSON-RPC method must be a string",
+        ));
+    };
+
+    if is_notification_object(object) {
+        return None;
+    }
 
     match method {
         "initialize" => Some(json_rpc_result(
@@ -367,20 +386,16 @@ fn dispatch_json_rpc_with_context(
                 .unwrap_or(serde_json::Value::Null),
         )),
         "tools/call" => Some(handle_tools_call(id, request.get("params"), ctx)),
-        "" => Some(json_rpc_error(
-            id,
-            -32600,
-            "Invalid Request",
-            "missing method",
-        )),
         _ => Some(json_rpc_error(id, -32601, "Method not found", method)),
     }
 }
 
-fn is_notification(request: &serde_json::Value) -> bool {
-    request
-        .as_object()
-        .is_some_and(|object| !object.contains_key("id"))
+fn is_notification_object(object: &serde_json::Map<String, serde_json::Value>) -> bool {
+    !object.contains_key("id")
+}
+
+fn is_valid_json_rpc_id(id: &serde_json::Value) -> bool {
+    id.is_null() || id.is_string() || id.is_number()
 }
 
 fn json_rpc_result(id: serde_json::Value, result: serde_json::Value) -> serde_json::Value {
@@ -717,6 +732,46 @@ mod tests {
 
         assert_eq!(response["error"]["code"], -32601);
         assert_eq!(response["error"]["message"], "Method not found");
+    }
+
+    #[test]
+    fn malformed_request_shape_returns_invalid_request() {
+        let response =
+            dispatch_json_rpc(serde_json::json!([])).expect("invalid request should respond");
+
+        assert_eq!(response["id"], serde_json::Value::Null);
+        assert_eq!(response["error"]["code"], -32600);
+        assert_eq!(response["error"]["message"], "Invalid Request");
+    }
+
+    #[test]
+    fn malformed_request_id_returns_invalid_request() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": {"nested": true},
+            "method": "initialize"
+        });
+
+        let response = dispatch_json_rpc(request).expect("invalid id should respond");
+
+        assert_eq!(response["id"], serde_json::Value::Null);
+        assert_eq!(response["error"]["code"], -32600);
+        assert_eq!(response["error"]["message"], "Invalid Request");
+    }
+
+    #[test]
+    fn malformed_request_method_returns_invalid_request() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "bad-method",
+            "method": 123
+        });
+
+        let response = dispatch_json_rpc(request).expect("invalid method should respond");
+
+        assert_eq!(response["id"], "bad-method");
+        assert_eq!(response["error"]["code"], -32600);
+        assert_eq!(response["error"]["message"], "Invalid Request");
     }
 
     #[test]
