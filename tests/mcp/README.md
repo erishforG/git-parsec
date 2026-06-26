@@ -60,3 +60,5 @@ fields needed by the smoke contract.
    full response payloads.
 4. Run `cargo test --quiet mcp::tests::stdio_recording_fixtures_match_dispatcher`
    before opening a PR.
+5. Run `cargo test --quiet mcp::tests::stdio_recording_fixtures_are_redacted`
+   after adding or updating any committed recording.

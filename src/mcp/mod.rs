@@ -819,6 +819,43 @@ mod tests {
         }
     }
 
+    #[test]
+    fn stdio_recording_fixtures_are_redacted() {
+        let fixture_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/mcp/fixtures");
+        let forbidden_fragments = [
+            "ghp_",
+            "github_pat_",
+            "Bearer ",
+            "Authorization",
+            "/Users/",
+            "/home/",
+            "C:\\Users\\",
+        ];
+
+        for entry in std::fs::read_dir(&fixture_dir)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", fixture_dir.display()))
+        {
+            let path = entry
+                .expect("fixture directory entry should be readable")
+                .path();
+            if path.extension().and_then(std::ffi::OsStr::to_str) != Some("jsonl") {
+                continue;
+            }
+
+            let fixture = std::fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+            for fragment in forbidden_fragments {
+                assert!(
+                    !fixture.contains(fragment),
+                    "fixture {} contains unredacted sensitive fragment '{}'",
+                    path.display(),
+                    fragment
+                );
+            }
+        }
+    }
+
     fn assert_fixture_assertion(
         name: &str,
         response: &serde_json::Value,
