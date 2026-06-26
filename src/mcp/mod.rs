@@ -328,18 +328,37 @@ fn dispatch_json_rpc_with_context(
     request: serde_json::Value,
     ctx: &McpContext,
 ) -> Option<serde_json::Value> {
-    if is_notification(&request) {
-        return None;
+    let Some(object) = request.as_object() else {
+        return Some(json_rpc_error(
+            serde_json::Value::Null,
+            -32600,
+            "Invalid Request",
+            "JSON-RPC request must be an object",
+        ));
+    };
+
+    let id = object.get("id").cloned().unwrap_or(serde_json::Value::Null);
+    if !is_valid_json_rpc_id(&id) {
+        return Some(json_rpc_error(
+            serde_json::Value::Null,
+            -32600,
+            "Invalid Request",
+            "JSON-RPC id must be a string, number, or null",
+        ));
     }
 
-    let id = request
-        .get("id")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-    let method = request
-        .get("method")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
+    let Some(method) = object.get("method").and_then(serde_json::Value::as_str) else {
+        return Some(json_rpc_error(
+            id,
+            -32600,
+            "Invalid Request",
+            "JSON-RPC method must be a string",
+        ));
+    };
+
+    if is_notification_object(object) {
+        return None;
+    }
 
     match method {
         "initialize" => Some(json_rpc_result(
@@ -367,20 +386,16 @@ fn dispatch_json_rpc_with_context(
                 .unwrap_or(serde_json::Value::Null),
         )),
         "tools/call" => Some(handle_tools_call(id, request.get("params"), ctx)),
-        "" => Some(json_rpc_error(
-            id,
-            -32600,
-            "Invalid Request",
-            "missing method",
-        )),
         _ => Some(json_rpc_error(id, -32601, "Method not found", method)),
     }
 }
 
-fn is_notification(request: &serde_json::Value) -> bool {
-    request
-        .as_object()
-        .is_some_and(|object| !object.contains_key("id"))
+fn is_notification_object(object: &serde_json::Map<String, serde_json::Value>) -> bool {
+    !object.contains_key("id")
+}
+
+fn is_valid_json_rpc_id(id: &serde_json::Value) -> bool {
+    id.is_null() || id.is_string() || id.is_number()
 }
 
 fn json_rpc_result(id: serde_json::Value, result: serde_json::Value) -> serde_json::Value {
@@ -448,11 +463,16 @@ fn handle_tools_call(
             format!("unknown MCP tool '{name}'"),
         );
     }
+    let tool = tool_by_name(name).expect("tool was checked above");
 
     let arguments = params
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
+
+    if let Some(error) = preflight_tool_call(tool, ctx) {
+        return json_rpc_result(id, mcp_content_envelope(error, true));
+    }
 
     match tools::dispatch(name, ctx, arguments) {
         Ok(payload) => json_rpc_result(id, mcp_content_envelope(payload, false)),
@@ -469,6 +489,50 @@ fn handle_tools_call(
                 true,
             ),
         ),
+    }
+}
+
+fn preflight_tool_call(tool: &ToolDef, ctx: &McpContext) -> Option<serde_json::Value> {
+    if tool.requires_github && ctx.github_token.is_none() {
+        return Some(tool_error_payload(
+            "AUTH_REQUIRED",
+            format!("Tool '{}' requires a delegated GitHub token.", tool.name),
+            format!(
+                "Pass a session token with scopes: {}.",
+                format_github_scopes(tool.github_scopes)
+            ),
+            tool.name,
+        ));
+    }
+
+    None
+}
+
+fn tool_error_payload(
+    code: &'static str,
+    message: String,
+    detail: String,
+    tool: &'static str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "error": {
+            "code": code,
+            "message": message,
+            "detail": detail,
+            "tool": tool,
+        }
+    })
+}
+
+fn format_github_scopes(scopes: &[GithubScope]) -> String {
+    if scopes.is_empty() {
+        "none".to_owned()
+    } else {
+        scopes
+            .iter()
+            .map(|scope| scope.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -720,6 +784,46 @@ mod tests {
     }
 
     #[test]
+    fn malformed_request_shape_returns_invalid_request() {
+        let response =
+            dispatch_json_rpc(serde_json::json!([])).expect("invalid request should respond");
+
+        assert_eq!(response["id"], serde_json::Value::Null);
+        assert_eq!(response["error"]["code"], -32600);
+        assert_eq!(response["error"]["message"], "Invalid Request");
+    }
+
+    #[test]
+    fn malformed_request_id_returns_invalid_request() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": {"nested": true},
+            "method": "initialize"
+        });
+
+        let response = dispatch_json_rpc(request).expect("invalid id should respond");
+
+        assert_eq!(response["id"], serde_json::Value::Null);
+        assert_eq!(response["error"]["code"], -32600);
+        assert_eq!(response["error"]["message"], "Invalid Request");
+    }
+
+    #[test]
+    fn malformed_request_method_returns_invalid_request() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "bad-method",
+            "method": 123
+        });
+
+        let response = dispatch_json_rpc(request).expect("invalid method should respond");
+
+        assert_eq!(response["id"], "bad-method");
+        assert_eq!(response["error"]["code"], -32600);
+        assert_eq!(response["error"]["message"], "Invalid Request");
+    }
+
+    #[test]
     fn tools_call_validates_registered_tool_name() {
         let request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -819,6 +923,43 @@ mod tests {
         }
     }
 
+    #[test]
+    fn stdio_recording_fixtures_are_redacted() {
+        let fixture_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/mcp/fixtures");
+        let forbidden_fragments = [
+            "ghp_",
+            "github_pat_",
+            "Bearer ",
+            "Authorization",
+            "/Users/",
+            "/home/",
+            "C:\\Users\\",
+        ];
+
+        for entry in std::fs::read_dir(&fixture_dir)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", fixture_dir.display()))
+        {
+            let path = entry
+                .expect("fixture directory entry should be readable")
+                .path();
+            if path.extension().and_then(std::ffi::OsStr::to_str) != Some("jsonl") {
+                continue;
+            }
+
+            let fixture = std::fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+            for fragment in forbidden_fragments {
+                assert!(
+                    !fixture.contains(fragment),
+                    "fixture {} contains unredacted sensitive fragment '{}'",
+                    path.display(),
+                    fragment
+                );
+            }
+        }
+    }
+
     fn assert_fixture_assertion(
         name: &str,
         response: &serde_json::Value,
@@ -863,6 +1004,19 @@ mod tests {
             assert!(
                 matches,
                 "fixture '{name}' expected {pointer} to be {kind}, got {actual}"
+            );
+        }
+
+        if let Some(needle) = assertion
+            .get("contains_text")
+            .and_then(serde_json::Value::as_str)
+        {
+            let actual_text = actual
+                .as_str()
+                .unwrap_or_else(|| panic!("fixture '{name}' pointer '{pointer}' is not a string"));
+            assert!(
+                actual_text.contains(needle),
+                "fixture '{name}' expected {pointer} to contain '{needle}', got '{actual_text}'"
             );
         }
 
