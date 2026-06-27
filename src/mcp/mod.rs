@@ -347,6 +347,15 @@ fn dispatch_json_rpc_with_context(
         ));
     }
 
+    if object.get("jsonrpc").and_then(serde_json::Value::as_str) != Some("2.0") {
+        return Some(json_rpc_error(
+            id,
+            -32600,
+            "Invalid Request",
+            "JSON-RPC version must be exactly '2.0'",
+        ));
+    }
+
     let Some(method) = object.get("method").and_then(serde_json::Value::as_str) else {
         return Some(json_rpc_error(
             id,
@@ -806,6 +815,24 @@ mod tests {
         assert_eq!(response["id"], serde_json::Value::Null);
         assert_eq!(response["error"]["code"], -32600);
         assert_eq!(response["error"]["message"], "Invalid Request");
+    }
+
+    #[test]
+    fn malformed_json_rpc_version_returns_invalid_request() {
+        let request = serde_json::json!({
+            "jsonrpc": "1.0",
+            "id": "bad-version",
+            "method": "initialize"
+        });
+
+        let response = dispatch_json_rpc(request).expect("invalid version should respond");
+
+        assert_eq!(response["id"], "bad-version");
+        assert_eq!(response["error"]["code"], -32600);
+        assert_eq!(response["error"]["message"], "Invalid Request");
+        assert!(response["error"]["data"]
+            .as_str()
+            .is_some_and(|text| text.contains("JSON-RPC version")));
     }
 
     #[test]
