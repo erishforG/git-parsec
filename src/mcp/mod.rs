@@ -907,6 +907,7 @@ mod tests {
             .join("tests/mcp/fixtures/stdio_smoke.jsonl");
         let fixture = std::fs::read_to_string(&fixture_path)
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", fixture_path.display()));
+        let mut fixture_names = std::collections::HashSet::new();
 
         for (line_no, line) in fixture.lines().enumerate() {
             let trimmed = line.trim();
@@ -920,6 +921,7 @@ mod tests {
                 .get("name")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("<unnamed>");
+            validate_stdio_fixture_record(name, &record, line_no + 1, &mut fixture_names);
             let request = record
                 .get("request")
                 .cloned()
@@ -987,6 +989,46 @@ mod tests {
         }
     }
 
+    fn validate_stdio_fixture_record(
+        name: &str,
+        record: &serde_json::Value,
+        line_no: usize,
+        fixture_names: &mut std::collections::HashSet<String>,
+    ) {
+        assert_ne!(
+            name, "<unnamed>",
+            "fixture line {line_no} must declare a string name"
+        );
+        assert!(
+            fixture_names.insert(name.to_owned()),
+            "fixture name '{name}' is duplicated"
+        );
+        assert!(
+            record.get("request").is_some(),
+            "fixture '{name}' must declare a request"
+        );
+
+        let expects_no_response = record
+            .get("no_response")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let assertions = record
+            .get("assertions")
+            .and_then(serde_json::Value::as_array);
+
+        if expects_no_response {
+            assert!(
+                assertions.is_none(),
+                "fixture '{name}' cannot combine no_response with assertions"
+            );
+        } else {
+            assert!(
+                assertions.is_some_and(|items| !items.is_empty()),
+                "fixture '{name}' must declare at least one assertion"
+            );
+        }
+    }
+
     fn assert_fixture_assertion(
         name: &str,
         response: &serde_json::Value,
@@ -999,6 +1041,15 @@ mod tests {
         let actual = response
             .pointer(pointer)
             .unwrap_or_else(|| panic!("fixture '{name}' pointer '{pointer}' did not match"));
+        let has_matcher = assertion.get("equals").is_some()
+            || assertion.get("min_len").is_some()
+            || assertion.get("kind").is_some()
+            || assertion.get("contains_text").is_some()
+            || assertion.get("contains_tool").is_some();
+        assert!(
+            has_matcher,
+            "fixture '{name}' assertion for {pointer} must declare a matcher"
+        );
 
         if let Some(expected) = assertion.get("equals") {
             assert_eq!(
