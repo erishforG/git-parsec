@@ -19,6 +19,10 @@ Each non-empty, non-comment line has this shape:
 - `no_response`: set to `true` for JSON-RPC notifications that must not emit
   a response.
 
+Fixture names must be unique within a recording file. Response fixtures must
+declare at least one assertion, while notification fixtures use `no_response`
+without assertions.
+
 Supported assertion keys:
 
 - `pointer`: required JSON Pointer into the response.
