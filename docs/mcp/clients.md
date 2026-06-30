@@ -124,12 +124,30 @@ The expected `ping` result is an empty JSON object:
 | Tools cannot find repository | Pass an absolute `repo` argument in the tool call |
 | GitHub-backed tools fail auth | Confirm the client delegated a token to MCP context |
 
+## Installer Hook Contract
+
+Future installer hooks may automate the JSON snippets above, but they must keep
+manual registration as the source of truth. The hook should:
+
+- Resolve the `parsec` binary path before writing client config.
+- Detect Claude Desktop and Cursor config files without creating parent
+  directories outside documented client locations.
+- Create a timestamped backup before modifying an existing config file.
+- Preserve unrelated `mcpServers` entries and update only `git-parsec`.
+- Support `--dry-run` output that prints the target file and JSON diff without
+  writing to disk.
+- Refuse to embed `GITHUB_TOKEN`, `GH_TOKEN`, or other credentials in config.
+
+If a client config file cannot be parsed, the hook must stop and print the
+manual JSON block from this document instead of rewriting the file.
+
 ## Next Phases
 
 | Phase | Work |
 |---|---|
-| Phase 4 | Add an automated smoke fixture for client-style `initialize` and `tools/list` |
-| Phase 5 | Document installer hooks once client config paths are finalized |
-| Phase 6 | Add lifecycle `ping` support to the stdio smoke contract |
+| Phase 4 | Automated smoke fixture for client-style `initialize` and `tools/list` |
+| Phase 5 | Fixture contract hardening and redaction checks |
+| Phase 6 | Lifecycle `ping` support in the stdio smoke contract |
+| Phase 7 | Implement opt-in installer hook once client config paths are stable |
 
 *Maintained by the git-parsec team. Client registration changes require review by @erishforG.*
