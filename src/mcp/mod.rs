@@ -279,7 +279,7 @@ pub fn tools_list_payload() -> anyhow::Result<serde_json::Value> {
 /// Serve newline-delimited JSON-RPC 2.0 messages over stdio.
 ///
 /// This Phase 2 skeleton establishes the transport boundary used by MCP
-/// clients. It supports `initialize`, `tools/list`, `tools/call`, and an
+/// clients. It supports `initialize`, `ping`, `tools/list`, `tools/call`, and an
 /// explicit `echo` method for smoke tests.
 pub fn serve_stdio(dry_run: bool) -> anyhow::Result<()> {
     serve(std::io::stdin().lock(), std::io::stdout().lock(), dry_run)
@@ -383,6 +383,7 @@ fn dispatch_json_rpc_with_context(
                 },
             }),
         )),
+        "ping" => Some(json_rpc_result(id, serde_json::json!({}))),
         "tools/list" => match tools_list_payload() {
             Ok(payload) => Some(json_rpc_result(id, payload)),
             Err(err) => Some(json_rpc_error(id, -32603, "Internal error", err)),
@@ -761,6 +762,21 @@ mod tests {
 
         assert_eq!(tools.len(), TOOLS.len());
         assert_eq!(tools[0]["name"], TOOLS[0].name);
+    }
+
+    #[test]
+    fn ping_returns_empty_result_for_client_health_checks() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "ping",
+            "method": "ping"
+        });
+
+        let response = dispatch_json_rpc(request).expect("ping should produce a response");
+
+        assert_eq!(response["jsonrpc"], "2.0");
+        assert_eq!(response["id"], "ping");
+        assert_eq!(response["result"], serde_json::json!({}));
     }
 
     #[test]

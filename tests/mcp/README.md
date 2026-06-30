@@ -9,6 +9,7 @@ Each non-empty, non-comment line has this shape:
 ```json
 {"name":"initialize","request":{"jsonrpc":"2.0","id":1,"method":"initialize"},"assertions":[{"pointer":"/result/serverInfo/name","equals":"git-parsec"}]}
 {"name":"initialized-notification","request":{"jsonrpc":"2.0","method":"notifications/initialized"},"no_response":true}
+{"name":"ping","request":{"jsonrpc":"2.0","id":"ping","method":"ping"},"assertions":[{"pointer":"/result","kind":"object"}]}
 ```
 
 ## Fields

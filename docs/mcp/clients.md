@@ -97,8 +97,8 @@ Disallowed as auth inputs:
 
 ## Smoke Test
 
-After registration, clients should be able to run `initialize` and `tools/list`.
-The expected server identity is:
+After registration, clients should be able to run `initialize`, `ping`, and
+`tools/list`. The expected server identity is:
 
 ```json
 {
@@ -108,6 +108,12 @@ The expected server identity is:
 
 The tool list should include `worktree_list`, `worktree_status`, `smartlog`,
 `ci_status`, `pr_status`, `health_check`, `reviews`, and `sync`.
+
+The expected `ping` result is an empty JSON object:
+
+```json
+{}
+```
 
 ## Troubleshooting
 
@@ -141,7 +147,7 @@ manual JSON block from this document instead of rewriting the file.
 |---|---|
 | Phase 4 | Automated smoke fixture for client-style `initialize` and `tools/list` |
 | Phase 5 | Fixture contract hardening and redaction checks |
-| Phase 6 (this PR) | Installer hook contract for safe client config updates |
+| Phase 6 | Lifecycle `ping` support in the stdio smoke contract |
 | Phase 7 | Implement opt-in installer hook once client config paths are stable |
 
 *Maintained by the git-parsec team. Client registration changes require review by @erishforG.*
