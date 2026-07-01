@@ -10,6 +10,7 @@ Each non-empty, non-comment line has this shape:
 {"name":"initialize","request":{"jsonrpc":"2.0","id":1,"method":"initialize"},"assertions":[{"pointer":"/result/serverInfo/name","equals":"git-parsec"}]}
 {"name":"initialized-notification","request":{"jsonrpc":"2.0","method":"notifications/initialized"},"no_response":true}
 {"name":"ping","request":{"jsonrpc":"2.0","id":"ping","method":"ping"},"assertions":[{"pointer":"/result","kind":"object"}]}
+{"name":"tools-call-worktree-list","request":{"jsonrpc":"2.0","id":"worktrees","method":"tools/call","params":{"name":"worktree_list","arguments":{}}},"assertions":[{"pointer":"/result/isError","equals":false},{"pointer":"/result/content/0/text","contains_text":"\"worktrees\""}]}
 ```
 
 ## Fields
@@ -35,6 +36,8 @@ Supported assertion keys:
 
 Keep fixtures deterministic. Do not record machine-local paths, auth tokens,
 timestamps, or network-derived fields.
+For wired tool calls, assert stable envelope fields and schema keys instead of
+repository-specific counts, paths, branch names, or timestamps.
 
 ## Redaction Contract
 
