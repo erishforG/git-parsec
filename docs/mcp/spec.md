@@ -1,7 +1,7 @@
 # git-parsec MCP Tool Specification
 
 **Version**: 0.1 (draft)  
-**Date**: 2026-06-24  
+**Date**: 2026-07-02  
 **Milestone**: v1.0  
 **Refs**: #292, #241
 
@@ -58,6 +58,77 @@ schema narrows them:
 
 Tools that call GitHub APIs require a delegated token from the MCP caller
 context. They must not read `GITHUB_TOKEN` or `GH_TOKEN` directly.
+
+### Delegated Auth Metadata
+
+Phase 8 clarifies how MCP clients describe delegated GitHub auth without
+placing secrets in the normal tool arguments. Clients may attach auth metadata
+to the session context during initialization or to an out-of-band host channel,
+but `tools/call.params.arguments` must remain limited to tool inputs. Tool
+handlers receive the resolved metadata through `McpContext`, not by parsing
+tool-specific JSON.
+
+The server capability metadata should advertise supported scope identifiers so
+clients can decide whether a token is useful before a tool call:
+
+```json
+{
+  "capabilities": {
+    "tools": {},
+    "gitParsec": {
+      "githubScopes": [
+        "pull_request:read",
+        "checks:read",
+        "pull_request:write"
+      ]
+    }
+  }
+}
+```
+
+When a token is delegated, the client should provide the token value only to
+the MCP host credential boundary. The parsec server receives a redacted
+context equivalent to:
+
+```json
+{
+  "github": {
+    "token": "<delegated-secret>",
+    "scopes": ["pull_request:read", "checks:read"]
+  }
+}
+```
+
+This object is illustrative and must not be serialized into checked-in
+fixtures, stdout protocol responses, or tool result payloads.
+
+### Scope Negotiation
+
+Each registered tool has three auth properties:
+
+| Property | Meaning |
+|---|---|
+| `requires_github` | A token is mandatory before the tool can run normally |
+| `github_scopes` | Minimum scope identifiers needed for GitHub-backed behavior |
+| Optional overlays | Arguments such as `include_pr` and `include_ci` can activate additional scope checks |
+
+The dispatcher should validate mandatory auth before calling a handler. Tools
+with optional GitHub overlays may run without a token only when the caller has
+left those overlays disabled or accepts a degraded local-only response. If the
+caller requests an overlay that needs GitHub access and no suitable token was
+delegated, return the standard MCP error envelope with `AUTH_REQUIRED` or
+`INSUFFICIENT_SCOPE`.
+
+For v1.0 the stable scope identifiers are:
+
+| Scope | Covers |
+|---|---|
+| `pull_request:read` | PR state, reviews, mergeability, review requests |
+| `checks:read` | GitHub Actions check runs and workflow conclusions |
+| `pull_request:write` | Branch push, PR creation, PR update |
+
+`pull_request:write` implies `pull_request:read` for parsec-owned PR
+operations, but it does not imply `checks:read`.
 
 ### Shared Response Envelope
 
