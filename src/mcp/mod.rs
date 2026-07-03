@@ -480,7 +480,7 @@ fn handle_tools_call(
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
 
-    if let Some(error) = preflight_tool_call(tool, ctx) {
+    if let Some(error) = preflight_tool_call(tool, ctx, &arguments) {
         return json_rpc_result(id, mcp_content_envelope(error, true));
     }
 
@@ -502,7 +502,11 @@ fn handle_tools_call(
     }
 }
 
-fn preflight_tool_call(tool: &ToolDef, ctx: &McpContext) -> Option<serde_json::Value> {
+fn preflight_tool_call(
+    tool: &ToolDef,
+    ctx: &McpContext,
+    arguments: &serde_json::Value,
+) -> Option<serde_json::Value> {
     if tool.requires_github && ctx.github_token.is_none() {
         return Some(tool_error_payload(
             "AUTH_REQUIRED",
@@ -515,7 +519,54 @@ fn preflight_tool_call(tool: &ToolDef, ctx: &McpContext) -> Option<serde_json::V
         ));
     }
 
+    let requested_scopes = optional_github_scopes_for_call(tool.name, arguments);
+    if !requested_scopes.is_empty() && ctx.github_token.is_none() {
+        return Some(tool_error_payload(
+            "AUTH_REQUIRED",
+            format!(
+                "Tool '{}' requires a delegated GitHub token for the requested overlay.",
+                tool.name
+            ),
+            format!(
+                "Pass a session token with scopes: {}.",
+                format_github_scopes(&requested_scopes)
+            ),
+            tool.name,
+        ));
+    }
+
     None
+}
+
+fn optional_github_scopes_for_call(
+    tool_name: &str,
+    arguments: &serde_json::Value,
+) -> Vec<GithubScope> {
+    let mut scopes = Vec::new();
+
+    match tool_name {
+        "worktree_list" => {
+            if bool_arg(arguments, "include_pr") {
+                scopes.push(GithubScope::PullRequestRead);
+            }
+            if bool_arg(arguments, "include_ci") {
+                scopes.push(GithubScope::ChecksRead);
+            }
+        }
+        "health_check" if bool_arg(arguments, "include_ci") => {
+            scopes.push(GithubScope::ChecksRead);
+        }
+        _ => {}
+    }
+
+    scopes
+}
+
+fn bool_arg(arguments: &serde_json::Value, key: &str) -> bool {
+    arguments
+        .get(key)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn tool_error_payload(
@@ -904,6 +955,50 @@ mod tests {
         assert!(response["result"]["content"][0]["text"]
             .as_str()
             .is_some_and(|text| text.contains("\"tool\":\"worktree_status\"")));
+    }
+
+    #[test]
+    fn tools_call_requires_auth_for_requested_worktree_pr_overlay() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "worktree-pr-overlay",
+            "method": "tools/call",
+            "params": {
+                "name": "worktree_list",
+                "arguments": {"include_pr": true}
+            }
+        });
+
+        let response = dispatch_json_rpc(request).expect("tools/call should produce a response");
+
+        assert_eq!(response["result"]["isError"], true);
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("tool error body should be text");
+        assert!(text.contains("AUTH_REQUIRED"));
+        assert!(text.contains("pull_request:read"));
+    }
+
+    #[test]
+    fn tools_call_requires_auth_for_requested_health_ci_overlay() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "health-ci-overlay",
+            "method": "tools/call",
+            "params": {
+                "name": "health_check",
+                "arguments": {"include_ci": true}
+            }
+        });
+
+        let response = dispatch_json_rpc(request).expect("tools/call should produce a response");
+
+        assert_eq!(response["result"]["isError"], true);
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("tool error body should be text");
+        assert!(text.contains("AUTH_REQUIRED"));
+        assert!(text.contains("checks:read"));
     }
 
     #[test]

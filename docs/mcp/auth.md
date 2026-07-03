@@ -113,5 +113,6 @@ Initial error codes:
 | Phase 2 | Add redacted credential helpers and scope metadata in `src/mcp/` |
 | Phase 3 | Validate required auth before GitHub-backed tool dispatch (implemented for `AUTH_REQUIRED`) |
 | Phase 4 | Add fixture scrubbing rules for MCP e2e recordings |
+| Phase 5 | Preflight optional GitHub overlays when callers explicitly request PR or CI metadata |
 
 *Maintained by the git-parsec team. Auth changes require review by @erishforG.*
