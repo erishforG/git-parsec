@@ -480,7 +480,7 @@ fn handle_tools_call(
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
 
-    if let Some(error) = preflight_tool_call(tool, ctx) {
+    if let Some(error) = preflight_tool_call(tool, &arguments, ctx) {
         return json_rpc_result(id, mcp_content_envelope(error, true));
     }
 
@@ -502,7 +502,11 @@ fn handle_tools_call(
     }
 }
 
-fn preflight_tool_call(tool: &ToolDef, ctx: &McpContext) -> Option<serde_json::Value> {
+fn preflight_tool_call(
+    tool: &ToolDef,
+    arguments: &serde_json::Value,
+    ctx: &McpContext,
+) -> Option<serde_json::Value> {
     if tool.requires_github && ctx.github_token.is_none() {
         return Some(tool_error_payload(
             "AUTH_REQUIRED",
@@ -515,7 +519,52 @@ fn preflight_tool_call(tool: &ToolDef, ctx: &McpContext) -> Option<serde_json::V
         ));
     }
 
+    if ctx.github_token.is_none() {
+        let requested_scopes = requested_optional_github_scopes(tool, arguments);
+        if !requested_scopes.is_empty() {
+            return Some(tool_error_payload(
+                "AUTH_REQUIRED",
+                format!(
+                    "Tool '{}' requested a GitHub-backed overlay without a delegated token.",
+                    tool.name
+                ),
+                format!(
+                    "Pass a session token with scopes: {}.",
+                    format_github_scopes(&requested_scopes)
+                ),
+                tool.name,
+            ));
+        }
+    }
+
     None
+}
+
+fn requested_optional_github_scopes(
+    tool: &ToolDef,
+    arguments: &serde_json::Value,
+) -> Vec<GithubScope> {
+    let mut scopes = Vec::new();
+
+    if tool.github_scopes.contains(&GithubScope::PullRequestRead)
+        && argument_enabled(arguments, "include_pr")
+    {
+        scopes.push(GithubScope::PullRequestRead);
+    }
+    if tool.github_scopes.contains(&GithubScope::ChecksRead)
+        && argument_enabled(arguments, "include_ci")
+    {
+        scopes.push(GithubScope::ChecksRead);
+    }
+
+    scopes
+}
+
+fn argument_enabled(arguments: &serde_json::Value, name: &str) -> bool {
+    arguments
+        .get(name)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn tool_error_payload(
@@ -904,6 +953,55 @@ mod tests {
         assert!(response["result"]["content"][0]["text"]
             .as_str()
             .is_some_and(|text| text.contains("\"tool\":\"worktree_status\"")));
+    }
+
+    #[test]
+    fn optional_github_overlay_requires_token_when_requested() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "overlay-auth",
+            "method": "tools/call",
+            "params": {
+                "name": "worktree_list",
+                "arguments": {"include_pr": true, "include_ci": true}
+            }
+        });
+
+        let response = dispatch_json_rpc(request).expect("tools/call should produce a response");
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP error envelope should contain text");
+
+        assert_eq!(response["id"], "overlay-auth");
+        assert_eq!(response["result"]["isError"], true);
+        assert!(text.contains("AUTH_REQUIRED"));
+        assert!(text.contains("pull_request:read"));
+        assert!(text.contains("checks:read"));
+    }
+
+    #[test]
+    fn optional_github_overlay_allows_delegated_token() {
+        let ctx = McpContext::from_cwd(false)
+            .expect("context")
+            .with_github_token("ghp_test");
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "overlay-auth-ok",
+            "method": "tools/call",
+            "params": {
+                "name": "worktree_list",
+                "arguments": {"include_pr": true}
+            }
+        });
+
+        let response = dispatch_json_rpc_with_context(request, &ctx)
+            .expect("tools/call should produce a response");
+
+        assert_eq!(response["id"], "overlay-auth-ok");
+        assert!(
+            response.get("error").is_none(),
+            "delegated token should pass overlay preflight"
+        );
     }
 
     #[test]
