@@ -162,6 +162,58 @@ Mutating tools are `worktree_start`, `worktree_ship`, and `sync`.
 - If a mutation is blocked by dirty state or conflicts, return a structured
   error and leave recovery to the caller.
 
+### Agent Workflow Contract
+
+Phase 9 fixes the expected ordering for clients that compose multiple tools
+into a larger coding workflow. These rules keep agent behavior predictable
+without adding client-specific state to the server.
+
+#### Startup Discovery
+
+Agents should call `tools/list` once after `initialize` and cache the returned
+tool metadata for the session. Before mutating repository state, agents should
+also call `worktree_list` or `worktree_status` so they can confirm the target
+ticket, branch, and base branch still match their plan.
+
+#### Create, Inspect, Ship
+
+The default happy path for a new ticket is:
+
+1. `worktree_start` with `dry_run: true` to preview the worktree path, branch,
+   and base commit.
+2. `worktree_start` with `dry_run: false` only after the preview matches the
+   intended ticket and base branch.
+3. `worktree_status` before making edits so the agent records the clean
+   starting state.
+4. Local editing and tests outside MCP.
+5. `health_check` with the target `ticket` before any PR operation.
+6. `worktree_ship` with `dry_run: true` to preview push, PR, and cleanup
+   effects.
+7. `worktree_ship` with `dry_run: false` when the preview is acceptable.
+
+Agents should prefer `smartlog`, `pr_status`, and `ci_status` for inspection
+between those steps instead of inferring branch state from free-form command
+output.
+
+#### Recovery Expectations
+
+Tool failures are resumable unless the error body says otherwise. Agents should
+not retry mutating tools blindly; they should inspect the latest state with
+`worktree_status` or `health_check`, update their plan, then issue a new
+`dry_run: true` preview before attempting the mutation again.
+
+If a client disconnects after sending a mutating request, it must treat the
+operation result as unknown. On reconnect, it should inspect state before
+issuing another mutation. Tools should make successful responses specific
+enough for this reconciliation, including ticket, branch, worktree path, PR
+number or URL, and whether cleanup ran.
+
+#### Idempotency Keys
+
+The v1.0 draft does not require a formal idempotency-key field. Future versions
+may add one, but until then clients should rely on `ticket` plus repository
+state inspection instead of replaying mutation calls.
+
 ---
 
 ## Design Principles
