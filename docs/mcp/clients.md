@@ -75,6 +75,33 @@ Cursor should register the same stdio command shape:
 If Cursor is opened outside the target repository, tool calls should pass the
 `repo` argument explicitly so the server can resolve the intended git root.
 
+## Client Config Files
+
+Manual setup and future installer hooks should target only documented MCP
+configuration files. If a path is missing, print the matching JSON block from
+this document and let the user create the file.
+
+| Client | Platform | Config file |
+|---|---|---|
+| Claude Desktop | macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Claude Desktop | Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Cursor | macOS/Linux | `~/.cursor/mcp.json` |
+| Cursor | Windows | `%USERPROFILE%\.cursor\mcp.json` |
+
+Installer hooks must not guess alternate locations. When client vendors change
+their config path, update this table before changing any automation.
+
+### Merge Rules
+
+When updating an existing config file, automation must:
+
+- Parse the file as JSON before writing.
+- Preserve unrelated top-level keys and unrelated `mcpServers` entries.
+- Replace only the `mcpServers.git-parsec` entry.
+- Keep `command` and `args` as separate fields; do not shell-join them.
+- Stop without writing if the file contains comments, trailing commas, or other
+  non-JSON syntax.
+
 ## Environment
 
 The server must not depend on ambient GitHub credentials. GitHub-backed tools
@@ -130,8 +157,7 @@ Future installer hooks may automate the JSON snippets above, but they must keep
 manual registration as the source of truth. The hook should:
 
 - Resolve the `parsec` binary path before writing client config.
-- Detect Claude Desktop and Cursor config files without creating parent
-  directories outside documented client locations.
+- Detect only the Claude Desktop and Cursor config files listed above.
 - Create a timestamped backup before modifying an existing config file.
 - Preserve unrelated `mcpServers` entries and update only `git-parsec`.
 - Support `--dry-run` output that prints the target file and JSON diff without
@@ -149,5 +175,6 @@ manual JSON block from this document instead of rewriting the file.
 | Phase 5 | Fixture contract hardening and redaction checks |
 | Phase 6 | Lifecycle `ping` support in the stdio smoke contract |
 | Phase 7 | Implement opt-in installer hook once client config paths are stable |
+| Phase 10 | Client config file matrix and merge rules |
 
 *Maintained by the git-parsec team. Client registration changes require review by @erishforG.*
