@@ -384,6 +384,7 @@ fn dispatch_json_rpc_with_context(
             }),
         )),
         "ping" => Some(json_rpc_result(id, serde_json::json!({}))),
+        "shutdown" => Some(json_rpc_result(id, serde_json::Value::Null)),
         "tools/list" => match tools_list_payload() {
             Ok(payload) => Some(json_rpc_result(id, payload)),
             Err(err) => Some(json_rpc_error(id, -32603, "Internal error", err)),
@@ -826,6 +827,21 @@ mod tests {
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], "ping");
         assert_eq!(response["result"], serde_json::json!({}));
+    }
+
+    #[test]
+    fn shutdown_returns_null_result_for_client_lifecycle() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "shutdown",
+            "method": "shutdown"
+        });
+
+        let response = dispatch_json_rpc(request).expect("shutdown should produce a response");
+
+        assert_eq!(response["jsonrpc"], "2.0");
+        assert_eq!(response["id"], "shutdown");
+        assert_eq!(response["result"], serde_json::Value::Null);
     }
 
     #[test]
