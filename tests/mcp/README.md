@@ -10,6 +10,7 @@ Each non-empty, non-comment line has this shape:
 {"name":"initialize","request":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"fixture-client","version":"0.0.0"}}},"assertions":[{"pointer":"/result/serverInfo/name","equals":"git-parsec"}]}
 {"name":"initialized-notification","request":{"jsonrpc":"2.0","method":"notifications/initialized"},"no_response":true}
 {"name":"ping","request":{"jsonrpc":"2.0","id":"ping","method":"ping"},"assertions":[{"pointer":"/result","kind":"object"}]}
+{"name":"shutdown","request":{"jsonrpc":"2.0","id":"shutdown","method":"shutdown"},"assertions":[{"pointer":"/result","equals":null}]}
 {"name":"tools-call-worktree-list","request":{"jsonrpc":"2.0","id":"worktrees","method":"tools/call","params":{"name":"worktree_list","arguments":{}}},"assertions":[{"pointer":"/result/isError","equals":false},{"pointer":"/result/content/0/text","contains_text":"\"worktrees\""}]}
 ```
 

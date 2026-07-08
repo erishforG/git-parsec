@@ -124,8 +124,8 @@ Disallowed as auth inputs:
 
 ## Smoke Test
 
-After registration, clients should be able to run `initialize`, `ping`, and
-`tools/list`. The expected server identity is:
+After registration, clients should be able to run `initialize`, `ping`,
+`tools/list`, and `shutdown`. The expected server identity is:
 
 ```json
 {
@@ -141,6 +141,9 @@ The expected `ping` result is an empty JSON object:
 ```json
 {}
 ```
+
+The expected `shutdown` result is JSON `null`. Clients may then close stdin
+without expecting additional stdout frames.
 
 ## Troubleshooting
 
@@ -176,5 +179,6 @@ manual JSON block from this document instead of rewriting the file.
 | Phase 6 | Lifecycle `ping` support in the stdio smoke contract |
 | Phase 7 | Implement opt-in installer hook once client config paths are stable |
 | Phase 10 | Client config file matrix and merge rules |
+| Phase 11 | Stdio lifecycle fixture for `shutdown` |
 
 *Maintained by the git-parsec team. Client registration changes require review by @erishforG.*
