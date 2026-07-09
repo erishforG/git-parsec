@@ -276,6 +276,21 @@ pub fn tools_list_payload() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::json!({ "tools": tools }))
 }
 
+/// Render parsec-specific capability metadata for MCP initialization.
+#[must_use]
+pub fn initialize_capabilities_payload() -> serde_json::Value {
+    serde_json::json!({
+        "tools": {},
+        "gitParsec": {
+            "githubScopes": [
+                GithubScope::PullRequestRead.as_str(),
+                GithubScope::ChecksRead.as_str(),
+                GithubScope::PullRequestWrite.as_str(),
+            ],
+        },
+    })
+}
+
 /// Serve newline-delimited JSON-RPC 2.0 messages over stdio.
 ///
 /// This Phase 2 skeleton establishes the transport boundary used by MCP
@@ -378,9 +393,7 @@ fn dispatch_json_rpc_with_context(
                     "name": "git-parsec",
                     "version": env!("CARGO_PKG_VERSION"),
                 },
-                "capabilities": {
-                    "tools": {},
-                },
+                "capabilities": initialize_capabilities_payload(),
             }),
         )),
         "ping" => Some(json_rpc_result(id, serde_json::json!({}))),
@@ -750,6 +763,17 @@ mod tests {
     }
 
     #[test]
+    fn initialize_capabilities_advertise_github_scopes() {
+        let payload = initialize_capabilities_payload();
+
+        assert!(payload["tools"].is_object());
+        assert_eq!(
+            payload["gitParsec"]["githubScopes"],
+            serde_json::json!(["pull_request:read", "checks:read", "pull_request:write"])
+        );
+    }
+
+    #[test]
     fn mcp_context_from_cwd() {
         let ctx = McpContext::from_cwd(false).expect("should build context from cwd");
         assert!(!ctx.dry_run);
@@ -795,6 +819,10 @@ mod tests {
         assert_eq!(response["id"], 1);
         assert_eq!(response["result"]["serverInfo"]["name"], "git-parsec");
         assert!(response["result"]["capabilities"]["tools"].is_object());
+        assert_eq!(
+            response["result"]["capabilities"]["gitParsec"]["githubScopes"],
+            serde_json::json!(["pull_request:read", "checks:read", "pull_request:write"])
+        );
     }
 
     #[test]
