@@ -102,6 +102,13 @@ context equivalent to:
 This object is illustrative and must not be serialized into checked-in
 fixtures, stdout protocol responses, or tool result payloads.
 
+If the host can provide scoped metadata, parsec enforces it before dispatching
+GitHub-backed handlers. A token with `pull_request:write` satisfies
+`pull_request:read` for parsec-owned PR operations, but no scope implies
+`checks:read`. Hosts that cannot provide scoped metadata may still pass a token;
+parsec treats that as an unscoped legacy delegation until the MCP host boundary
+can report concrete scopes.
+
 ### Scope Negotiation
 
 Each registered tool has three auth properties:
