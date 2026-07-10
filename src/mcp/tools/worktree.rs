@@ -112,6 +112,7 @@ mod tests {
         let ctx = McpContext {
             repo_path: dir.path().to_path_buf(),
             github_token: None,
+            github_scopes: None,
             dry_run: false,
         };
 

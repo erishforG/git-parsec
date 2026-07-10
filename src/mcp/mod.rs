@@ -106,6 +106,10 @@ pub struct McpContext {
     /// `None` when the tool does not require GitHub API access.
     pub github_token: Option<DelegatedGithubToken>,
 
+    /// Declared scopes for the delegated token.
+    /// `None` means the MCP host did not provide scoped metadata yet.
+    pub github_scopes: Option<Vec<GithubScope>>,
+
     /// When `true`, all mutating operations are previewed without
     /// side effects. Tools must check this before any state change.
     pub dry_run: bool,
@@ -118,6 +122,7 @@ impl McpContext {
         Ok(Self {
             repo_path,
             github_token: None,
+            github_scopes: None,
             dry_run,
         })
     }
@@ -126,6 +131,14 @@ impl McpContext {
     #[must_use]
     pub fn with_github_token(mut self, token: impl Into<String>) -> Self {
         self.github_token = Some(DelegatedGithubToken::new(token));
+        self
+    }
+
+    /// Attach a GitHub PAT and its declared scopes to the context.
+    #[must_use]
+    pub fn with_github_auth(mut self, token: impl Into<String>, scopes: Vec<GithubScope>) -> Self {
+        self.github_token = Some(DelegatedGithubToken::new(token));
+        self.github_scopes = Some(scopes);
         self
     }
 }
@@ -533,6 +546,24 @@ fn preflight_tool_call(
         ));
     }
 
+    if ctx.github_token.is_some() {
+        let required_scopes = requested_github_scopes(tool, arguments);
+        if !token_has_scopes(ctx.github_scopes.as_deref(), &required_scopes) {
+            return Some(tool_error_payload(
+                "INSUFFICIENT_SCOPE",
+                format!(
+                    "Tool '{}' requires delegated GitHub scopes that were not provided.",
+                    tool.name
+                ),
+                format!(
+                    "Pass a session token with scopes: {}.",
+                    format_github_scopes(&required_scopes)
+                ),
+                tool.name,
+            ));
+        }
+    }
+
     if ctx.github_token.is_none() {
         let requested_scopes = requested_optional_github_scopes(tool, arguments);
         if !requested_scopes.is_empty() {
@@ -554,6 +585,16 @@ fn preflight_tool_call(
     None
 }
 
+fn requested_github_scopes(tool: &ToolDef, arguments: &serde_json::Value) -> Vec<GithubScope> {
+    let mut scopes = tool.github_scopes.to_vec();
+    for scope in requested_optional_github_scopes(tool, arguments) {
+        if !scopes.contains(&scope) {
+            scopes.push(scope);
+        }
+    }
+    scopes
+}
+
 fn requested_optional_github_scopes(
     tool: &ToolDef,
     arguments: &serde_json::Value,
@@ -572,6 +613,18 @@ fn requested_optional_github_scopes(
     }
 
     scopes
+}
+
+fn token_has_scopes(delegated: Option<&[GithubScope]>, required: &[GithubScope]) -> bool {
+    let Some(delegated) = delegated else {
+        return true;
+    };
+
+    required.iter().all(|scope| {
+        delegated.contains(scope)
+            || (*scope == GithubScope::PullRequestRead
+                && delegated.contains(&GithubScope::PullRequestWrite))
+    })
 }
 
 fn argument_enabled(arguments: &serde_json::Value, name: &str) -> bool {
@@ -786,12 +839,22 @@ mod tests {
             .unwrap()
             .with_github_token("ghp_test");
         assert!(ctx.dry_run);
+        assert!(ctx.github_scopes.is_none());
         assert_eq!(
             ctx.github_token
                 .as_ref()
                 .map(DelegatedGithubToken::expose_secret),
             Some("ghp_test")
         );
+    }
+
+    #[test]
+    fn mcp_context_with_scoped_token() {
+        let ctx = McpContext::from_cwd(false)
+            .unwrap()
+            .with_github_auth("ghp_test", vec![GithubScope::PullRequestRead]);
+
+        assert_eq!(ctx.github_scopes, Some(vec![GithubScope::PullRequestRead]));
     }
 
     #[test]
@@ -1045,6 +1108,60 @@ mod tests {
         assert!(
             response.get("error").is_none(),
             "delegated token should pass overlay preflight"
+        );
+    }
+
+    #[test]
+    fn scoped_delegated_token_rejects_missing_scope() {
+        let ctx = McpContext::from_cwd(false)
+            .expect("context")
+            .with_github_auth("ghp_test", vec![GithubScope::PullRequestRead]);
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "ci-scope",
+            "method": "tools/call",
+            "params": {
+                "name": "ci_status",
+                "arguments": {"ticket": "ABC-123"}
+            }
+        });
+
+        let response = dispatch_json_rpc_with_context(request, &ctx)
+            .expect("tools/call should produce a response");
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP error envelope should contain text");
+
+        assert_eq!(response["id"], "ci-scope");
+        assert_eq!(response["result"]["isError"], true);
+        assert!(text.contains("INSUFFICIENT_SCOPE"));
+        assert!(text.contains("checks:read"));
+    }
+
+    #[test]
+    fn pull_request_write_scope_satisfies_read_requirement() {
+        let ctx = McpContext::from_cwd(false)
+            .expect("context")
+            .with_github_auth("ghp_test", vec![GithubScope::PullRequestWrite]);
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "pr-scope",
+            "method": "tools/call",
+            "params": {
+                "name": "pr_status",
+                "arguments": {"ticket": "ABC-123"}
+            }
+        });
+
+        let response = dispatch_json_rpc_with_context(request, &ctx)
+            .expect("tools/call should produce a response");
+
+        assert_eq!(response["id"], "pr-scope");
+        assert!(
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .is_some_and(|text| !text.contains("INSUFFICIENT_SCOPE")),
+            "write scope should satisfy pull request read preflight"
         );
     }
 
