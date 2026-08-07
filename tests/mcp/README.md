@@ -18,6 +18,8 @@ Each non-empty, non-comment line has this shape:
 
 - `name`: stable fixture label for failure messages.
 - `request`: JSON-RPC request sent to `parsec mcp serve`.
+- `context`: optional redacted MCP host context used when replaying the
+  request.
 - `assertions`: checks applied to the dispatcher response.
 - `no_response`: set to `true` for JSON-RPC notifications that must not emit
   a response.
@@ -27,6 +29,8 @@ declare at least one assertion, while notification fixtures use `no_response`
 without assertions.
 Initialize fixtures should include deterministic client metadata so the stdio
 contract matches desktop MCP client handshakes without recording local state.
+Auth fixtures may include `context.github.token` and `context.github.scopes`;
+the token must be a placeholder such as `<redacted-token>`.
 
 Supported assertion keys:
 

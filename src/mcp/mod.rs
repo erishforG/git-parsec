@@ -1201,7 +1201,8 @@ mod tests {
                 .get("request")
                 .cloned()
                 .unwrap_or_else(|| panic!("fixture '{name}' missing request"));
-            let response = dispatch_json_rpc(request);
+            let ctx = context_from_stdio_fixture_record(name, &record);
+            let response = dispatch_json_rpc_with_context(request, &ctx);
             if record
                 .get("no_response")
                 .and_then(serde_json::Value::as_bool)
@@ -1282,6 +1283,12 @@ mod tests {
             record.get("request").is_some(),
             "fixture '{name}' must declare a request"
         );
+        if let Some(context) = record.get("context") {
+            assert!(
+                context.is_object(),
+                "fixture '{name}' context must be an object"
+            );
+        }
 
         let expects_no_response = record
             .get("no_response")
@@ -1301,6 +1308,46 @@ mod tests {
                 assertions.is_some_and(|items| !items.is_empty()),
                 "fixture '{name}' must declare at least one assertion"
             );
+        }
+    }
+
+    fn context_from_stdio_fixture_record(name: &str, record: &serde_json::Value) -> McpContext {
+        let mut ctx = McpContext::from_cwd(false).expect("fixture context should load cwd");
+        let Some(github) = record
+            .get("context")
+            .and_then(|context| context.get("github"))
+        else {
+            return ctx;
+        };
+
+        let token = github
+            .get("token")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("fixture '{name}' github context missing token"));
+        let scopes = github
+            .get("scopes")
+            .and_then(serde_json::Value::as_array)
+            .unwrap_or_else(|| panic!("fixture '{name}' github context missing scopes"))
+            .iter()
+            .map(|scope| {
+                let scope = scope
+                    .as_str()
+                    .unwrap_or_else(|| panic!("fixture '{name}' github scope must be a string"));
+                github_scope_from_fixture(name, scope)
+            })
+            .collect();
+
+        ctx.github_token = Some(DelegatedGithubToken::new(token));
+        ctx.github_scopes = Some(scopes);
+        ctx
+    }
+
+    fn github_scope_from_fixture(name: &str, scope: &str) -> GithubScope {
+        match scope {
+            "pull_request:read" => GithubScope::PullRequestRead,
+            "checks:read" => GithubScope::ChecksRead,
+            "pull_request:write" => GithubScope::PullRequestWrite,
+            _ => panic!("fixture '{name}' has unsupported GitHub scope '{scope}'"),
         }
     }
 
