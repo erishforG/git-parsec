@@ -534,6 +534,18 @@ fn preflight_tool_call(
     arguments: &serde_json::Value,
     ctx: &McpContext,
 ) -> Option<serde_json::Value> {
+    if !repo_argument_is_within_boundary(arguments, &ctx.repo_path) {
+        return Some(tool_error_payload(
+            "SANDBOX_VIOLATION",
+            format!(
+                "Tool '{}' requested a repository outside the MCP session boundary.",
+                tool.name
+            ),
+            "Use the repository bound to this MCP server session.".to_owned(),
+            tool.name,
+        ));
+    }
+
     if tool.requires_github && ctx.github_token.is_none() {
         return Some(tool_error_payload(
             "AUTH_REQUIRED",
@@ -583,6 +595,27 @@ fn preflight_tool_call(
     }
 
     None
+}
+
+fn repo_argument_is_within_boundary(
+    arguments: &serde_json::Value,
+    boundary: &std::path::Path,
+) -> bool {
+    let Some(requested) = arguments.get("repo").and_then(serde_json::Value::as_str) else {
+        return true;
+    };
+
+    let requested = std::path::Path::new(requested);
+    let requested = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        boundary.join(requested)
+    };
+
+    match (boundary.canonicalize(), requested.canonicalize()) {
+        (Ok(boundary), Ok(requested)) => requested.starts_with(boundary),
+        _ => false,
+    }
 }
 
 fn requested_github_scopes(tool: &ToolDef, arguments: &serde_json::Value) -> Vec<GithubScope> {
@@ -1163,6 +1196,49 @@ mod tests {
                 .is_some_and(|text| !text.contains("INSUFFICIENT_SCOPE")),
             "write scope should satisfy pull request read preflight"
         );
+    }
+
+    #[test]
+    fn repository_argument_cannot_escape_session_boundary() {
+        let boundary = tempfile::tempdir().expect("temporary repository boundary");
+        let outside = tempfile::tempdir().expect("outside directory");
+        let ctx = McpContext {
+            repo_path: boundary.path().to_path_buf(),
+            github_token: None,
+            github_scopes: None,
+            dry_run: false,
+        };
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "sandbox",
+            "method": "tools/call",
+            "params": {
+                "name": "worktree_list",
+                "arguments": {"repo": outside.path()}
+            }
+        });
+
+        let response = dispatch_json_rpc_with_context(request, &ctx)
+            .expect("tools/call should produce a response");
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP error envelope should contain text");
+
+        assert_eq!(response["result"]["isError"], true);
+        assert!(text.contains("SANDBOX_VIOLATION"));
+        assert!(!text.contains(&outside.path().display().to_string()));
+    }
+
+    #[test]
+    fn repository_argument_allows_descendant_of_session_boundary() {
+        let boundary = tempfile::tempdir().expect("temporary repository boundary");
+        let child = boundary.path().join("worktree");
+        std::fs::create_dir(&child).expect("child directory");
+
+        assert!(repo_argument_is_within_boundary(
+            &serde_json::json!({"repo": child}),
+            boundary.path(),
+        ));
     }
 
     #[test]
