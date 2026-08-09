@@ -104,6 +104,7 @@ Initial error codes:
 | `INSUFFICIENT_SCOPE` | Token was delegated but does not cover the requested operation |
 | `SANDBOX_VIOLATION` | Requested path is outside the resolved repository boundary |
 | `DRY_RUN_REQUIRED` | Server policy requires preview mode for a mutating call |
+| `CONFIRMATION_REQUIRED` | Mutating call omitted `confirm: true` after preview |
 
 ## Implementation Phases
 
@@ -113,5 +114,6 @@ Initial error codes:
 | Phase 2 | Add redacted credential helpers and scope metadata in `src/mcp/` |
 | Phase 3 | Validate required auth before GitHub-backed tool dispatch (implemented for `AUTH_REQUIRED`) |
 | Phase 4 | Add fixture scrubbing rules for MCP e2e recordings |
+| Phase 16 | Require explicit `confirm: true` for non-preview mutating calls |
 
 *Maintained by the git-parsec team. Auth changes require review by @erishforG.*

@@ -178,7 +178,7 @@ pub const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "worktree_start",
         description: "Create an isolated git worktree for a ticket.",
-        input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"base":{"type":"string"},"title":{"type":"string"},"on":{"type":"string"},"dry_run":{"type":"boolean","default":false}},"required":["ticket"]}"#,
+        input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"base":{"type":"string"},"title":{"type":"string"},"on":{"type":"string"},"dry_run":{"type":"boolean","default":false},"confirm":{"type":"boolean","default":false}},"required":["ticket"]}"#,
         mutating: true,
         requires_github: false,
         github_scopes: &[],
@@ -196,7 +196,7 @@ pub const TOOLS: &[ToolDef] = &[
         name: "worktree_ship",
         description:
             "Push the worktree branch to origin, create/update a GitHub PR, and optionally clean up.",
-        input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"draft":{"type":"boolean","default":false},"no_cleanup":{"type":"boolean","default":false},"dry_run":{"type":"boolean","default":false}},"required":["ticket"]}"#,
+        input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"draft":{"type":"boolean","default":false},"no_cleanup":{"type":"boolean","default":false},"dry_run":{"type":"boolean","default":false},"confirm":{"type":"boolean","default":false}},"required":["ticket"]}"#,
         mutating: true,
         requires_github: true,
         github_scopes: &[GithubScope::PullRequestWrite],
@@ -248,7 +248,7 @@ pub const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "sync",
         description: "Rebase or merge-update stale worktrees against the current base branch.",
-        input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"strategy":{"type":"string","enum":["rebase","merge"],"default":"rebase"},"dry_run":{"type":"boolean","default":true},"stale_days":{"type":"integer","default":5}},"required":[]}"#,
+        input_schema: r#"{"type":"object","properties":{"ticket":{"type":"string"},"repo":{"type":"string"},"strategy":{"type":"string","enum":["rebase","merge"],"default":"rebase"},"dry_run":{"type":"boolean","default":true},"confirm":{"type":"boolean","default":false},"stale_days":{"type":"integer","default":5}},"required":[]}"#,
         mutating: true,
         requires_github: false,
         github_scopes: &[],
@@ -546,6 +546,16 @@ fn preflight_tool_call(
         ));
     }
 
+    let dry_run = argument_enabled(arguments, "dry_run") || ctx.dry_run;
+    if tool.mutating && !dry_run && !argument_enabled(arguments, "confirm") {
+        return Some(tool_error_payload(
+            "CONFIRMATION_REQUIRED",
+            format!("Tool '{}' requires explicit confirmation.", tool.name),
+            "Preview with dry_run=true, then retry with confirm=true.".to_owned(),
+            tool.name,
+        ));
+    }
+
     if tool.requires_github && ctx.github_token.is_none() {
         return Some(tool_error_payload(
             "AUTH_REQUIRED",
@@ -803,6 +813,43 @@ mod tests {
                 tool.name
             );
         }
+    }
+
+    #[test]
+    fn mutating_tools_expose_confirmation() {
+        for tool in TOOLS.iter().filter(|tool| tool.mutating) {
+            let schema: serde_json::Value =
+                serde_json::from_str(tool.input_schema).expect("valid tool schema");
+            assert_eq!(
+                schema.pointer("/properties/confirm/type"),
+                Some(&serde_json::json!("boolean")),
+                "Mutating tool '{}' must expose confirm",
+                tool.name
+            );
+        }
+    }
+
+    #[test]
+    fn mutation_requires_confirmation_after_preview() {
+        let ctx = McpContext::from_cwd(false).expect("context");
+        let tool = tool_by_name("worktree_start").expect("registered tool");
+
+        let error = preflight_tool_call(tool, &serde_json::json!({"ticket": "ABC-123"}), &ctx)
+            .expect("unconfirmed mutation should fail");
+        assert_eq!(error["error"]["code"], "CONFIRMATION_REQUIRED");
+
+        assert!(preflight_tool_call(
+            tool,
+            &serde_json::json!({"ticket": "ABC-123", "dry_run": true}),
+            &ctx
+        )
+        .is_none());
+        assert!(preflight_tool_call(
+            tool,
+            &serde_json::json!({"ticket": "ABC-123", "confirm": true}),
+            &ctx
+        )
+        .is_none());
     }
 
     #[test]
