@@ -162,6 +162,43 @@ pub struct ToolDef {
     pub github_scopes: &'static [GithubScope],
 }
 
+/// Privacy-safe outcome recorded for an MCP tool call.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum AuditOutcome {
+    Allowed,
+    Denied,
+    ToolError,
+}
+
+impl AuditOutcome {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Allowed => "allowed",
+            Self::Denied => "denied",
+            Self::ToolError => "tool_error",
+        }
+    }
+}
+
+/// Build one structured event for the stderr audit sink.
+///
+/// Arguments, repository paths, credentials, and error messages are
+/// deliberately excluded so audit output cannot persist caller secrets.
+fn audit_event(tool: &ToolDef, outcome: AuditOutcome, dry_run: bool) -> serde_json::Value {
+    serde_json::json!({
+        "event": "mcp.tool_call",
+        "version": 1,
+        "tool": tool.name,
+        "outcome": outcome.as_str(),
+        "mutating": tool.mutating,
+        "dryRun": dry_run,
+    })
+}
+
+fn emit_audit_event(tool: &ToolDef, outcome: AuditOutcome, dry_run: bool) {
+    eprintln!("{}", audit_event(tool, outcome, dry_run));
+}
+
 /// All tools exposed by the parsec MCP server.
 ///
 /// This slice is the single source of truth for `tools/list` responses.
@@ -507,25 +544,34 @@ fn handle_tools_call(
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
 
+    let dry_run = argument_enabled(&arguments, "dry_run") || ctx.dry_run;
+
     if let Some(error) = preflight_tool_call(tool, &arguments, ctx) {
+        emit_audit_event(tool, AuditOutcome::Denied, dry_run);
         return json_rpc_result(id, mcp_content_envelope(error, true));
     }
 
     match tools::dispatch(name, ctx, arguments) {
-        Ok(payload) => json_rpc_result(id, mcp_content_envelope(payload, false)),
-        Err(err) => json_rpc_result(
-            id,
-            mcp_content_envelope(
-                serde_json::json!({
-                    "error": {
-                        "code": "tool_error",
-                        "message": err.to_string(),
-                        "tool": name,
-                    }
-                }),
-                true,
-            ),
-        ),
+        Ok(payload) => {
+            emit_audit_event(tool, AuditOutcome::Allowed, dry_run);
+            json_rpc_result(id, mcp_content_envelope(payload, false))
+        }
+        Err(err) => {
+            emit_audit_event(tool, AuditOutcome::ToolError, dry_run);
+            json_rpc_result(
+                id,
+                mcp_content_envelope(
+                    serde_json::json!({
+                        "error": {
+                            "code": "tool_error",
+                            "message": err.to_string(),
+                            "tool": name,
+                        }
+                    }),
+                    true,
+                ),
+            )
+        }
     }
 }
 
@@ -722,6 +768,19 @@ mod tests {
     #[test]
     fn tools_list_is_non_empty() {
         assert!(!TOOLS.is_empty(), "TOOLS registry must not be empty");
+    }
+
+    #[test]
+    fn audit_event_contract_excludes_sensitive_call_data() {
+        let tool = tool_by_name("worktree_ship").expect("registered tool");
+        let event = audit_event(tool, AuditOutcome::Denied, false);
+        let serialized = event.to_string();
+
+        assert_eq!(event["tool"], "worktree_ship");
+        assert_eq!(event["outcome"], "denied");
+        for forbidden in ["token", "arguments", "repo_path", "message"] {
+            assert!(!serialized.contains(forbidden));
+        }
     }
 
     #[test]

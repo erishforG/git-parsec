@@ -115,5 +115,11 @@ Initial error codes:
 | Phase 3 | Validate required auth before GitHub-backed tool dispatch (implemented for `AUTH_REQUIRED`) |
 | Phase 4 | Add fixture scrubbing rules for MCP e2e recordings |
 | Phase 16 | Require explicit `confirm: true` for non-preview mutating calls |
+| Phase 17 | Emit privacy-safe structured audit events to stderr for every tool call |
+
+Audit events contain only the event version, registered tool name, outcome,
+mutation classification, and dry-run state. They never contain arguments,
+repository paths, credentials, or error messages. JSON-RPC responses remain on
+stdout; operators may route stderr to their preferred audit sink.
 
 *Maintained by the git-parsec team. Auth changes require review by @erishforG.*
