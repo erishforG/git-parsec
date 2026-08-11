@@ -116,10 +116,16 @@ Initial error codes:
 | Phase 4 | Add fixture scrubbing rules for MCP e2e recordings |
 | Phase 16 | Require explicit `confirm: true` for non-preview mutating calls |
 | Phase 17 | Emit privacy-safe structured audit events to stderr for every tool call |
+| Phase 18 | Add optional privacy-safe correlation IDs for audit tracing |
 
 Audit events contain only the event version, registered tool name, outcome,
 mutation classification, and dry-run state. They never contain arguments,
 repository paths, credentials, or error messages. JSON-RPC responses remain on
 stdout; operators may route stderr to their preferred audit sink.
+
+For request tracing, an event may include `correlationId` copied from the
+JSON-RPC request ID. Numeric IDs are accepted. String IDs must be 1–64 ASCII
+letters, digits, hyphens, underscores, or dots; other strings and null IDs are
+omitted so caller-controlled text cannot become an audit-log secret.
 
 *Maintained by the git-parsec team. Auth changes require review by @erishforG.*
