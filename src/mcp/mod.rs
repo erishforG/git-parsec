@@ -184,19 +184,49 @@ impl AuditOutcome {
 ///
 /// Arguments, repository paths, credentials, and error messages are
 /// deliberately excluded so audit output cannot persist caller secrets.
-fn audit_event(tool: &ToolDef, outcome: AuditOutcome, dry_run: bool) -> serde_json::Value {
-    serde_json::json!({
+fn audit_event(
+    tool: &ToolDef,
+    outcome: AuditOutcome,
+    dry_run: bool,
+    request_id: &serde_json::Value,
+) -> serde_json::Value {
+    let mut event = serde_json::json!({
         "event": "mcp.tool_call",
         "version": 1,
         "tool": tool.name,
         "outcome": outcome.as_str(),
         "mutating": tool.mutating,
         "dryRun": dry_run,
-    })
+    });
+    if let Some(correlation_id) = audit_correlation_id(request_id) {
+        event["correlationId"] = correlation_id;
+    }
+    event
 }
 
-fn emit_audit_event(tool: &ToolDef, outcome: AuditOutcome, dry_run: bool) {
-    eprintln!("{}", audit_event(tool, outcome, dry_run));
+fn audit_correlation_id(request_id: &serde_json::Value) -> Option<serde_json::Value> {
+    match request_id {
+        serde_json::Value::Number(_) => Some(request_id.clone()),
+        serde_json::Value::String(value)
+            if !value.is_empty()
+                && value.len() <= 64
+                && value.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || "-_.".contains(character)
+                }) =>
+        {
+            Some(request_id.clone())
+        }
+        _ => None,
+    }
+}
+
+fn emit_audit_event(
+    tool: &ToolDef,
+    outcome: AuditOutcome,
+    dry_run: bool,
+    request_id: &serde_json::Value,
+) {
+    eprintln!("{}", audit_event(tool, outcome, dry_run, request_id));
 }
 
 /// All tools exposed by the parsec MCP server.
@@ -547,17 +577,17 @@ fn handle_tools_call(
     let dry_run = argument_enabled(&arguments, "dry_run") || ctx.dry_run;
 
     if let Some(error) = preflight_tool_call(tool, &arguments, ctx) {
-        emit_audit_event(tool, AuditOutcome::Denied, dry_run);
+        emit_audit_event(tool, AuditOutcome::Denied, dry_run, &id);
         return json_rpc_result(id, mcp_content_envelope(error, true));
     }
 
     match tools::dispatch(name, ctx, arguments) {
         Ok(payload) => {
-            emit_audit_event(tool, AuditOutcome::Allowed, dry_run);
+            emit_audit_event(tool, AuditOutcome::Allowed, dry_run, &id);
             json_rpc_result(id, mcp_content_envelope(payload, false))
         }
         Err(err) => {
-            emit_audit_event(tool, AuditOutcome::ToolError, dry_run);
+            emit_audit_event(tool, AuditOutcome::ToolError, dry_run, &id);
             json_rpc_result(
                 id,
                 mcp_content_envelope(
@@ -773,14 +803,29 @@ mod tests {
     #[test]
     fn audit_event_contract_excludes_sensitive_call_data() {
         let tool = tool_by_name("worktree_ship").expect("registered tool");
-        let event = audit_event(tool, AuditOutcome::Denied, false);
+        let event = audit_event(
+            tool,
+            AuditOutcome::Denied,
+            false,
+            &serde_json::json!("call-42"),
+        );
         let serialized = event.to_string();
 
         assert_eq!(event["tool"], "worktree_ship");
         assert_eq!(event["outcome"], "denied");
+        assert_eq!(event["correlationId"], "call-42");
         for forbidden in ["token", "arguments", "repo_path", "message"] {
             assert!(!serialized.contains(forbidden));
         }
+    }
+
+    #[test]
+    fn audit_correlation_id_rejects_sensitive_or_oversized_strings() {
+        assert!(audit_correlation_id(&serde_json::json!(42)).is_some());
+        assert!(audit_correlation_id(&serde_json::json!("call_42.a")).is_some());
+        assert!(audit_correlation_id(&serde_json::json!("token secret")).is_none());
+        assert!(audit_correlation_id(&serde_json::json!("x".repeat(65))).is_none());
+        assert!(audit_correlation_id(&serde_json::Value::Null).is_none());
     }
 
     #[test]
