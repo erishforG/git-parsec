@@ -1,0 +1,9 @@
+{
+  "event": "mcp.tool_call",
+  "version": 1,
+  "tool": "worktree_ship",
+  "outcome": "denied",
+  "mutating": true,
+  "dryRun": false,
+  "correlationId": "call-42"
+}
