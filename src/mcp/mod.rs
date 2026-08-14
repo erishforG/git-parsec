@@ -229,7 +229,20 @@ fn emit_audit_event(
     dry_run: bool,
     request_id: &serde_json::Value,
 ) {
-    eprintln!("{}", audit_event(tool, outcome, dry_run, request_id));
+    let stderr = std::io::stderr();
+    let mut sink = stderr.lock();
+    // Audit failures must not change the JSON-RPC response or expose call data.
+    let _ = write_audit_event(&mut sink, tool, outcome, dry_run, request_id);
+}
+
+fn write_audit_event(
+    sink: &mut impl std::io::Write,
+    tool: &ToolDef,
+    outcome: AuditOutcome,
+    dry_run: bool,
+    request_id: &serde_json::Value,
+) -> std::io::Result<()> {
+    writeln!(sink, "{}", audit_event(tool, outcome, dry_run, request_id))
 }
 
 /// All tools exposed by the parsec MCP server.
@@ -837,6 +850,30 @@ mod tests {
 
         assert_eq!(actual, expected);
         assert_eq!(actual["version"], AUDIT_EVENT_VERSION);
+    }
+
+    #[test]
+    fn audit_writer_emits_one_newline_delimited_event() {
+        let tool = tool_by_name("worktree_ship").expect("registered tool");
+        let mut sink = Vec::new();
+
+        write_audit_event(
+            &mut sink,
+            tool,
+            AuditOutcome::Allowed,
+            true,
+            &serde_json::json!(42),
+        )
+        .expect("in-memory audit write");
+
+        let output = String::from_utf8(sink).expect("UTF-8 audit event");
+        assert_eq!(output.lines().count(), 1);
+        assert!(output.ends_with('\n'));
+        let event: serde_json::Value =
+            serde_json::from_str(output.trim_end()).expect("valid JSON audit event");
+        assert_eq!(event["outcome"], "allowed");
+        assert_eq!(event["dryRun"], true);
+        assert_eq!(event["correlationId"], 42);
     }
 
     #[test]
