@@ -170,6 +170,9 @@ enum AuditOutcome {
     ToolError,
 }
 
+/// Schema version emitted with every structured audit event.
+const AUDIT_EVENT_VERSION: u64 = 1;
+
 impl AuditOutcome {
     const fn as_str(self) -> &'static str {
         match self {
@@ -192,7 +195,7 @@ fn audit_event(
 ) -> serde_json::Value {
     let mut event = serde_json::json!({
         "event": "mcp.tool_call",
-        "version": 1,
+        "version": AUDIT_EVENT_VERSION,
         "tool": tool.name,
         "outcome": outcome.as_str(),
         "mutating": tool.mutating,
@@ -817,6 +820,23 @@ mod tests {
         for forbidden in ["token", "arguments", "repo_path", "message"] {
             assert!(!serialized.contains(forbidden));
         }
+    }
+
+    #[test]
+    fn audit_event_matches_versioned_compatibility_fixture() {
+        let tool = tool_by_name("worktree_ship").expect("registered tool");
+        let actual = audit_event(
+            tool,
+            AuditOutcome::Denied,
+            false,
+            &serde_json::json!("call-42"),
+        );
+        let expected: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/mcp/fixtures/audit_event_v1.json"))
+                .expect("valid audit compatibility fixture");
+
+        assert_eq!(actual, expected);
+        assert_eq!(actual["version"], AUDIT_EVENT_VERSION);
     }
 
     #[test]

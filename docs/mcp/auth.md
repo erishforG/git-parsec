@@ -118,6 +118,7 @@ Initial error codes:
 | Phase 17 | Emit privacy-safe structured audit events to stderr for every tool call |
 | Phase 18 | Add optional privacy-safe correlation IDs for audit tracing |
 | Phase 19 | Define audit sink rotation, retention, and failure behavior |
+| Phase 20 | Pin the v1 audit-event schema with a compatibility fixture |
 
 Audit events contain only the event version, registered tool name, outcome,
 mutation classification, and dry-run state. They never contain arguments,
@@ -128,6 +129,11 @@ For request tracing, an event may include `correlationId` copied from the
 JSON-RPC request ID. Numeric IDs are accepted. String IDs must be 1–64 ASCII
 letters, digits, hyphens, underscores, or dots; other strings and null IDs are
 omitted so caller-controlled text cannot become an audit-log secret.
+
+The audit-event `version` identifies its schema. Additive fields may retain the
+same version; removing, renaming, or changing the meaning or type of a field
+requires a new version and a new compatibility fixture. The v1 fixture lives at
+`tests/mcp/fixtures/audit_event_v1.json` and is checked by the MCP unit tests.
 
 ### Audit sink operations
 

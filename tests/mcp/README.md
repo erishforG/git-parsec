@@ -46,6 +46,10 @@ timestamps, or network-derived fields.
 For wired tool calls, assert stable envelope fields and schema keys instead of
 repository-specific counts, paths, branch names, or timestamps.
 
+Audit compatibility fixtures use `audit_event_v<version>.json`. They are exact
+schema snapshots rather than stdio recordings: breaking field changes require
+a new versioned file, while additive changes update the current fixture.
+
 ## Redaction Contract
 
 Recording fixtures are committed test inputs, so they must be safe to publish
