@@ -231,8 +231,18 @@ fn emit_audit_event(
 ) {
     let stderr = std::io::stderr();
     let mut sink = stderr.lock();
+    emit_audit_event_to(&mut sink, tool, outcome, dry_run, request_id);
+}
+
+fn emit_audit_event_to(
+    sink: &mut impl std::io::Write,
+    tool: &ToolDef,
+    outcome: AuditOutcome,
+    dry_run: bool,
+    request_id: &serde_json::Value,
+) {
     // Audit failures must not change the JSON-RPC response or expose call data.
-    let _ = write_audit_event(&mut sink, tool, outcome, dry_run, request_id);
+    let _ = write_audit_event(sink, tool, outcome, dry_run, request_id);
 }
 
 fn write_audit_event(
@@ -811,6 +821,18 @@ fn mcp_content_envelope(payload: serde_json::Value, is_error: bool) -> serde_jso
 mod tests {
     use super::*;
 
+    struct FailingAuditSink;
+
+    impl std::io::Write for FailingAuditSink {
+        fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("audit sink unavailable"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn tools_list_is_non_empty() {
         assert!(!TOOLS.is_empty(), "TOOLS registry must not be empty");
@@ -874,6 +896,20 @@ mod tests {
         assert_eq!(event["outcome"], "allowed");
         assert_eq!(event["dryRun"], true);
         assert_eq!(event["correlationId"], 42);
+    }
+
+    #[test]
+    fn audit_sink_failure_is_best_effort() {
+        let tool = tool_by_name("worktree_ship").expect("registered tool");
+        let mut sink = FailingAuditSink;
+
+        emit_audit_event_to(
+            &mut sink,
+            tool,
+            AuditOutcome::Allowed,
+            false,
+            &serde_json::json!(42),
+        );
     }
 
     #[test]

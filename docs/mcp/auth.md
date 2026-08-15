@@ -120,6 +120,7 @@ Initial error codes:
 | Phase 19 | Define audit sink rotation, retention, and failure behavior |
 | Phase 20 | Pin the v1 audit-event schema with a compatibility fixture |
 | Phase 21 | Route audit emission through a testable newline-delimited writer |
+| Phase 22 | Verify audit sink failures remain best-effort and do not interrupt tool calls |
 
 Audit events contain only the event version, registered tool name, outcome,
 mutation classification, and dry-run state. They never contain arguments,
