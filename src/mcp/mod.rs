@@ -27,8 +27,9 @@
 //! ## Phases
 //!
 //! - **Phase 1**: module skeleton + tool registry shape.
-//! - **Phase 2** (this, #293): stdio JSON-RPC skeleton (`parsec mcp serve`).
-//! - **Phase 3** (#293): replace structured stubs with real tool implementations.
+//! - **Phase 2** (#293): stdio JSON-RPC skeleton (`parsec mcp serve`).
+//! - **Phase 25** (this, #293): `smartlog` wired — sync DAG collection (no GitHub overlay).
+//! - **Phase 3** (#293): wire remaining stubs (`worktree_start`, `worktree_ship`, `ci_status`, `pr_status`, `reviews`, `sync`).
 
 // Phase 1 skeleton: items are defined but the JSON-RPC dispatcher (Phase 2)
 // has not been wired yet. Suppress dead_code until Phase 2 lands.
