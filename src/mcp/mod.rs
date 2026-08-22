@@ -28,8 +28,11 @@
 //!
 //! - **Phase 1**: module skeleton + tool registry shape.
 //! - **Phase 2** (#293): stdio JSON-RPC skeleton (`parsec mcp serve`).
-//! - **Phase 25** (this, #293): `smartlog` wired — sync DAG collection (no GitHub overlay).
-//! - **Phase 3** (#293): wire remaining stubs (`worktree_start`, `worktree_ship`, `ci_status`, `pr_status`, `reviews`, `sync`).
+//! - **Phase 25** (#293): `smartlog` wired — sync DAG collection (no GitHub overlay).
+//! - **Phase 26** (#293): `pr_status` wired via `gh pr view`.
+//! - **Phase 27** (#293): `reviews` wired via `gh pr list`.
+//! - **Phase 28** (#293): `ci_status` wired via `gh pr view --json statusCheckRollup`.
+//! - Remaining stubs: `worktree_start`, `worktree_ship`, `sync`.
 
 // Phase 1 skeleton: items are defined but the JSON-RPC dispatcher (Phase 2)
 // has not been wired yet. Suppress dead_code until Phase 2 lands.
