@@ -32,7 +32,8 @@
 //! - **Phase 26** (#293): `pr_status` wired via `gh pr view`.
 //! - **Phase 27** (#293): `reviews` wired via `gh pr list`.
 //! - **Phase 28** (#293): `ci_status` wired via `gh pr view --json statusCheckRollup`.
-//! - Remaining stubs: `worktree_start`, `worktree_ship`, `sync`.
+//! - **Phase 29** (#293): `sync` wired — rebase/merge worktree against base branch (dry_run + confirm gates).
+//! - Remaining stubs: `worktree_start`, `worktree_ship`.
 
 // Phase 1 skeleton: items are defined but the JSON-RPC dispatcher (Phase 2)
 // has not been wired yet. Suppress dead_code until Phase 2 lands.
