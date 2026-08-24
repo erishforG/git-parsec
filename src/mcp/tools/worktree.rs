@@ -1,10 +1,11 @@
-//! MCP tool stubs for worktree operations.
+//! MCP tool handlers for worktree operations.
 //!
 //! Tools: `worktree_list`, `worktree_start`, `worktree_status`, `worktree_ship`.
 //!
 //! `worktree_list` and `worktree_status` are wired as read-only Phase 4
-//! handlers. `worktree_start` is wired as of Phase 30 (#293). `worktree_ship`
-//! remains a stub until a later phase.
+//! handlers. `worktree_start` is wired as of Phase 30 (#293).
+//! `worktree_ship` is wired as of Phase 31 (#293): push + `gh pr create` +
+//! optional cleanup, guarded by the mandatory dry_run/confirm two-key gate.
 
 use crate::config::ParsecConfig;
 use crate::mcp::McpContext;
@@ -207,13 +208,284 @@ pub fn status(ctx: &McpContext, input: serde_json::Value) -> Result<serde_json::
 
 /// `worktree_ship` — push branch, open/update PR, optionally clean up.
 ///
+/// Phase 31 (#293): wires `worktree_ship` to `WorktreeManager::ship_push` +
+/// `gh pr create` with the mandatory dry_run / confirm two-key gate.
+///
+/// ## Safety model
+///
+/// Same pattern as `sync` and `worktree_start`:
+/// - `dry_run=true` → preview only (default safe)
+/// - `dry_run=false + confirm=true` → push + create PR + optional cleanup
+///
+/// The preflight layer enforces `CONFIRMATION_REQUIRED` before this handler
+/// runs, so `dry_run` and `confirm` can never both be absent here.
+///
+/// ## Output — dry-run (preview)
+///
+/// ```json
+/// {
+///   "ticket": "PROJ-123",
+///   "branch": "feat/PROJ-123",
+///   "base_branch": "main",
+///   "draft": false,
+///   "no_cleanup": false,
+///   "dry_run": true,
+///   "shipped": false,
+///   "message": "would push 'feat/PROJ-123' and open PR against 'main'"
+/// }
+/// ```
+///
+/// ## Output — shipped
+///
+/// ```json
+/// {
+///   "ticket": "PROJ-123",
+///   "branch": "feat/PROJ-123",
+///   "base_branch": "main",
+///   "pr_url": "https://github.com/org/repo/pull/42",
+///   "pr_number": 42,
+///   "draft": false,
+///   "cleaned_up": false,
+///   "dry_run": false,
+///   "shipped": true,
+///   "message": "pushed 'feat/PROJ-123' and opened PR #42"
+/// }
+/// ```
+///
 /// # Errors
-/// Returns an error if the worktree is dirty or the push fails.
-#[allow(dead_code)]
-pub fn ship(_ctx: &McpContext, _input: serde_json::Value) -> anyhow::Result<serde_json::Value> {
-    // Phase 3: call crate::cli::commands::ship internals.
-    // Respect ctx.dry_run before any side effects.
-    Err(super::not_implemented("worktree_ship"))
+///
+/// Returns an error when `ticket` is empty, contains unsafe characters, or has
+/// no registered worktree. The mutation path also returns an error when `git
+/// push` or `gh pr create` fails.
+pub fn ship(ctx: &McpContext, input: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    // --- Parse & validate inputs -------------------------------------------
+
+    let ticket = input
+        .get("ticket")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    crate::worktree::validate_ticket_id(&ticket)?;
+
+    let draft = input
+        .get("draft")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let no_cleanup = input
+        .get("no_cleanup")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let dry_run = input
+        .get("dry_run")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let confirm = input
+        .get("confirm")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
+    // --- Config + manager ---------------------------------------------------
+
+    let config = ParsecConfig::load().context("failed to load parsec config")?;
+    let wt_manager =
+        WorktreeManager::new(&repo_path(ctx, &input), &config).context("failed to open repo")?;
+
+    // Look up the workspace early — validates ticket is registered.
+    let workspace = wt_manager.get(&ticket)?;
+    let branch = workspace.branch.clone();
+    let base_branch = workspace.base_branch.clone();
+    let title = workspace.ticket_title.clone();
+
+    // --- Gate: dry_run=true OR !confirm → preview --------------------------
+
+    if dry_run || !confirm {
+        return Ok(serde_json::json!({
+            "ticket":      ticket,
+            "branch":      branch,
+            "base_branch": base_branch,
+            "draft":       draft,
+            "no_cleanup":  no_cleanup,
+            "dry_run":     true,
+            "shipped":     false,
+            "message": format!(
+                "would push '{}' and open {}PR against '{}'",
+                branch,
+                if draft { "draft " } else { "" },
+                base_branch,
+            ),
+        }));
+    }
+
+    // --- Mutation path: dry_run=false AND confirm=true ----------------------
+
+    let token = ctx
+        .github_token
+        .as_ref()
+        .map(|t| t.expose_secret().to_owned());
+
+    // Step 1: push branch from the worktree.
+    wt_manager
+        .ship_push(&ticket)
+        .with_context(|| format!("failed to push branch '{branch}'"))?;
+
+    // Step 2: create PR via gh CLI.
+    let pr_title = title
+        .as_deref()
+        .map(|t| format!("[{ticket}] {t}"))
+        .unwrap_or_else(|| ticket.clone());
+
+    let repo = repo_path(ctx, &input);
+    let pr_result = create_gh_pr(
+        &repo,
+        &branch,
+        &base_branch,
+        &pr_title,
+        draft,
+        token.as_deref(),
+    );
+
+    let (pr_url, pr_number) = match pr_result {
+        Ok(pair) => pair,
+        Err(e) => {
+            // Push succeeded but PR creation failed — partial result.
+            return Ok(serde_json::json!({
+                "ticket":     ticket,
+                "branch":     branch,
+                "base_branch": base_branch,
+                "draft":      draft,
+                "dry_run":    false,
+                "shipped":    false,
+                "pushed":     true,
+                "pr_created": false,
+                "error": format!("pushed branch but PR creation failed: {e}"),
+            }));
+        }
+    };
+
+    // Step 3: optional cleanup (respects config.ship.auto_cleanup).
+    let cleaned_up = if !no_cleanup {
+        wt_manager.ship_cleanup(&ticket).unwrap_or(false)
+    } else {
+        false
+    };
+
+    Ok(serde_json::json!({
+        "ticket":      ticket,
+        "branch":      branch,
+        "base_branch": base_branch,
+        "pr_url":      pr_url,
+        "pr_number":   pr_number,
+        "draft":       draft,
+        "cleaned_up":  cleaned_up,
+        "dry_run":     false,
+        "shipped":     true,
+        "message": format!(
+            "pushed '{branch}' and opened PR #{pr_number} ({pr_url})",
+        ),
+    }))
+}
+
+/// Call `gh pr create` and return `(url, pr_number)`.
+///
+/// If a PR already exists for the branch, falls back to `gh pr view` to
+/// retrieve the existing URL and number.
+fn create_gh_pr(
+    repo: &std::path::Path,
+    branch: &str,
+    base: &str,
+    title: &str,
+    draft: bool,
+    token: Option<&str>,
+) -> anyhow::Result<(String, u64)> {
+    let mut cmd = std::process::Command::new("gh");
+    cmd.args([
+        "pr",
+        "create",
+        "--head",
+        branch,
+        "--base",
+        base,
+        "--title",
+        title,
+        "--body",
+        "",
+        "--json",
+        "url,number",
+    ]);
+    if draft {
+        cmd.arg("--draft");
+    }
+    cmd.current_dir(repo);
+    if let Some(t) = token {
+        cmd.env("GH_TOKEN", t);
+    }
+
+    let output = cmd.output().context("failed to spawn 'gh pr create'")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // PR already exists — retrieve the existing one instead.
+        if stderr.contains("already exists") || stderr.contains("A pull request for branch") {
+            return find_existing_gh_pr(repo, branch, token);
+        }
+        anyhow::bail!(
+            "gh pr create failed for branch '{}': {}",
+            branch,
+            stderr.trim()
+        );
+    }
+
+    let raw = String::from_utf8(output.stdout).context("gh pr create produced non-UTF-8 output")?;
+    let value: serde_json::Value =
+        serde_json::from_str(&raw).context("failed to parse gh pr create JSON")?;
+
+    let url = value["url"]
+        .as_str()
+        .context("missing 'url' in gh pr create output")?
+        .to_owned();
+    let number = value["number"]
+        .as_u64()
+        .context("missing 'number' in gh pr create output")?;
+
+    Ok((url, number))
+}
+
+/// Retrieve URL + number of an existing PR for the branch via `gh pr view`.
+fn find_existing_gh_pr(
+    repo: &std::path::Path,
+    branch: &str,
+    token: Option<&str>,
+) -> anyhow::Result<(String, u64)> {
+    let mut cmd = std::process::Command::new("gh");
+    cmd.args(["pr", "view", branch, "--json", "url,number"]);
+    cmd.current_dir(repo);
+    if let Some(t) = token {
+        cmd.env("GH_TOKEN", t);
+    }
+
+    let output = cmd.output().context("failed to spawn 'gh pr view'")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "gh pr view failed for branch '{}': {}",
+            branch,
+            stderr.trim()
+        );
+    }
+
+    let raw = String::from_utf8(output.stdout).context("gh pr view produced non-UTF-8 output")?;
+    let value: serde_json::Value =
+        serde_json::from_str(&raw).context("failed to parse gh pr view JSON")?;
+
+    let url = value["url"]
+        .as_str()
+        .context("missing 'url' in gh pr view output")?
+        .to_owned();
+    let number = value["number"]
+        .as_u64()
+        .context("missing 'number' in gh pr view output")?;
+
+    Ok((url, number))
 }
 
 #[cfg(test)]
@@ -421,6 +693,130 @@ mod tests {
         assert!(
             err.to_string().to_lowercase().contains("empty"),
             "expected empty-ticket error, got: {err}"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // worktree_ship — Phase 31 dry-run preview tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn worktree_ship_dry_run_returns_preview() {
+        let (_dir, ctx) = fixture_repo();
+
+        let payload =
+            ship(&ctx, json!({"ticket": "ABC-123", "dry_run": true})).expect("dry-run preview");
+
+        assert_eq!(payload["ticket"], "ABC-123");
+        assert_eq!(payload["dry_run"], true);
+        assert_eq!(payload["shipped"], false);
+        assert_eq!(payload["draft"], false);
+        let msg = payload["message"].as_str().expect("message string");
+        assert!(
+            msg.contains("would push"),
+            "expected preview wording, got: {msg}"
+        );
+        assert!(msg.contains("ABC-123") || msg.contains("feat/"));
+    }
+
+    #[test]
+    fn worktree_ship_without_confirm_returns_preview() {
+        let (_dir, ctx) = fixture_repo();
+
+        // Neither dry_run nor confirm — handler defaults to preview.
+        // (Preflight would block this case in production; here we test
+        //  the handler's own safe-default.)
+        let payload = ship(&ctx, json!({"ticket": "ABC-123"})).expect("handler default preview");
+
+        assert_eq!(payload["shipped"], false);
+        assert_eq!(payload["dry_run"], true);
+    }
+
+    #[test]
+    fn worktree_ship_dry_run_wins_over_confirm() {
+        let (_dir, ctx) = fixture_repo();
+
+        let payload = ship(
+            &ctx,
+            json!({"ticket": "ABC-123", "dry_run": true, "confirm": true}),
+        )
+        .expect("dry_run=true wins even with confirm=true");
+
+        assert_eq!(payload["dry_run"], true);
+        assert_eq!(payload["shipped"], false);
+    }
+
+    #[test]
+    fn worktree_ship_dry_run_draft_flag_in_message() {
+        let (_dir, ctx) = fixture_repo();
+
+        let payload = ship(
+            &ctx,
+            json!({"ticket": "ABC-123", "draft": true, "dry_run": true}),
+        )
+        .expect("draft dry-run preview");
+
+        assert_eq!(payload["draft"], true);
+        let msg = payload["message"].as_str().expect("message");
+        assert!(
+            msg.contains("draft"),
+            "draft flag should appear in preview message, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn worktree_ship_dry_run_no_cleanup_flag_preserved() {
+        let (_dir, ctx) = fixture_repo();
+
+        let payload = ship(
+            &ctx,
+            json!({"ticket": "ABC-123", "no_cleanup": true, "dry_run": true}),
+        )
+        .expect("no_cleanup dry-run preview");
+
+        assert_eq!(payload["no_cleanup"], true);
+        assert_eq!(payload["shipped"], false);
+    }
+
+    #[test]
+    fn worktree_ship_rejects_empty_ticket() {
+        let (_dir, ctx) = fixture_repo();
+
+        let err = ship(&ctx, json!({"ticket": "", "dry_run": true}))
+            .expect_err("empty ticket must be rejected");
+
+        assert!(
+            err.to_string().to_lowercase().contains("empty"),
+            "expected empty-ticket error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn worktree_ship_rejects_unsafe_ticket() {
+        let (_dir, ctx) = fixture_repo();
+
+        let err = ship(&ctx, json!({"ticket": "bad;ticket", "dry_run": true}))
+            .expect_err("unsafe ticket must be rejected");
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unsafe") || msg.contains("ticket"),
+            "expected validation error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn worktree_ship_dry_run_fails_for_nonexistent_ticket() {
+        let (_dir, ctx) = fixture_repo();
+
+        let err = ship(&ctx, json!({"ticket": "UNKNOWN-99", "dry_run": true}))
+            .expect_err("non-existent ticket must fail");
+
+        assert!(
+            err.to_string().contains("UNKNOWN-99")
+                || err.to_string().contains("worktree")
+                || err.to_string().contains("not found"),
+            "error should mention missing ticket: {err}"
         );
     }
 
