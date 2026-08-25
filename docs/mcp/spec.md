@@ -761,17 +761,24 @@ sync                ──► git2
 
 ---
 
-## Next Phases
+## Phase Status
 
-| Phase | Work |
-|---|---|
-| Phase 1 | `docs/mcp/spec.md` — tool catalogue + schemas |
-| Phase 2 (this PR) | Protocol contract — JSON-RPC methods, shared inputs, response envelope |
-| Phase 3 (#293) | `parsec mcp serve` skeleton — stdio JSON-RPC echo server |
-| Phase 4 (#293) | Wire `worktree_list` + `worktree_status` to real impl |
-| Phase 5 (#293) | Wire remaining tools; `parsec mcp serve` fully functional |
-| Phase 6 (#294) | Auth — PAT delegation, scope checking, and sandbox rules |
-| Phase 7 (#295) | e2e fixtures + Claude Desktop / Cursor integration tests |
+| Phase | Work | Status |
+|---|---|---|
+| Phase 1 | `docs/mcp/spec.md` — tool catalogue + schemas | ✅ shipped |
+| Phase 2 | Protocol contract — JSON-RPC methods, shared inputs, response envelope | ✅ shipped |
+| Phase 3 (#293) | `parsec mcp serve` skeleton — stdio JSON-RPC echo server | ✅ shipped |
+| Phase 4 (#293) | Wire `worktree_list` + `worktree_status` to real impl | ✅ shipped |
+| Phases 5–11 (#293) | Audit model, sandbox preflight, scoped auth, mutation gates | ✅ shipped |
+| Phases 12–23 (#293) | Stub-state fixtures, preflight smoke, audit writer | ✅ shipped |
+| Phase 24 (#295) | `health_check` wired | ✅ shipped |
+| Phase 25 (#295) | `smartlog` wired — sync DAG | ✅ shipped |
+| Phases 26–29 (#293) | `pr_status`, `reviews`, `ci_status`, `sync` wired | ✅ shipped |
+| Phase 30 (#293) | `worktree_start` wired — dry_run/confirm gate | ✅ shipped |
+| Phase 31 (#293) | `worktree_ship` wired — push + `gh pr create` + cleanup | ✅ shipped |
+| Phase 32 (#295) | Claude Desktop / Cursor e2e scenario fixtures | ✅ shipped (this PR) |
+| Phase 33 (#293) | `parsec mcp install` — automated client config writer | 🔲 planned |
+| Phase 34 (#295) | Live e2e with sandboxed test repository | 🔲 planned |
 
 ---
 

@@ -60,6 +60,10 @@ pub fn dispatch(
     handler(ctx, input)
 }
 
+/// Produce a structured error for tools that are registered but not yet wired.
+///
+/// All 10 built-in parsec tools are wired as of Phase 31. Use this helper
+/// when adding a new tool before its handler is ready.
 pub(crate) fn not_implemented(tool: &str) -> anyhow::Error {
-    anyhow::anyhow!("{tool}: implementation is planned for a later MCP phase (#293)")
+    anyhow::anyhow!("{tool}: handler is not yet wired (see docs/mcp/spec.md for phase status)")
 }

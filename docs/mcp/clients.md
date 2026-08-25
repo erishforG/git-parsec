@@ -170,15 +170,42 @@ manual registration as the source of truth. The hook should:
 If a client config file cannot be parsed, the hook must stop and print the
 manual JSON block from this document instead of rewriting the file.
 
+## Typical AI Agent Workflow
+
+The table below shows the sequence of MCP calls an AI client (Claude Desktop,
+Cursor, etc.) makes when creating and shipping a feature branch.
+Each step matches a fixture in `tests/mcp/fixtures/stdio_smoke.jsonl`
+(names prefixed `scenario-e2e-`).
+
+| Step | Method / Tool | Key arguments | Expected outcome |
+|---|---|---|---|
+| 1 | `initialize` | `protocolVersion: "2025-03-26"` | Server info + capability advertisement |
+| 2 | `tools/list` | — | Catalogue of ≥10 parsec tools |
+| 3 | `health_check` | — | Lock/uncommitted/stale summary |
+| 4 | `worktree_list` | — | Count + per-worktree metadata |
+| 5 | `worktree_start` | `ticket`, `dry_run: true` | Preview: branch name + base branch |
+| 6 | `worktree_start` | `ticket`, `confirm: true` | Worktree created at `path` |
+| 7 | `worktree_ship` | `ticket`, `dry_run: true`, auth token | Preview: push + PR create plan |
+| 8 | `worktree_ship` | `ticket`, `confirm: true`, auth token | Branch pushed, PR created |
+
+Steps 5 and 7 should always run first (`dry_run: true`) so the AI client can
+explain the planned change to the user before committing side effects.
+Steps 6 and 8 require explicit user confirmation and a delegated GitHub token
+with the `pull_request:write` scope.
+
+Replay fixtures for steps 1–5 and 7 are deterministic without a real
+repository and are exercised by `cargo test --quiet`. Steps 6 and 8 require a
+live git repository and GitHub credentials; they are covered by manual e2e
+recordings in `tests/mcp/fixtures/stdio_smoke.jsonl` (prefix
+`scenario-e2e-`) and the `#295` tracking issue.
+
 ## Next Phases
 
 | Phase | Work |
 |---|---|
-| Phase 4 | Automated smoke fixture for client-style `initialize` and `tools/list` |
-| Phase 5 | Fixture contract hardening and redaction checks |
-| Phase 6 | Lifecycle `ping` support in the stdio smoke contract |
-| Phase 7 | Implement opt-in installer hook once client config paths are stable |
-| Phase 10 | Client config file matrix and merge rules |
-| Phase 11 | Stdio lifecycle fixture for `shutdown` |
+| Phase 4–11 | Automated smoke fixtures, redaction checks, lifecycle fixtures (shipped) |
+| Phase 32 | Claude Desktop / Cursor e2e scenario fixtures — `scenario-e2e-*` (this PR) |
+| Phase 33 | Automated installer hook (`parsec mcp install --client=claude-desktop`) |
+| Phase 34 | Live e2e recording with a sandboxed test repository (issue #295) |
 
 *Maintained by the git-parsec team. Client registration changes require review by @erishforG.*

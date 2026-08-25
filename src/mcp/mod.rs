@@ -37,8 +37,10 @@
 //! - **Phase 31** (#293): `worktree_ship` wired — push + `gh pr create` + optional cleanup.
 //! - All 10 tools wired.
 
-// Phase 1 skeleton: items are defined but the JSON-RPC dispatcher (Phase 2)
-// has not been wired yet. Suppress dead_code until Phase 2 lands.
+// All 10 tools are wired (Phase 31). The allow(dead_code) below covers
+// internal helpers (e.g. AuditOutcome variants) that are constructed only
+// in tests or via the public API, which rustc cannot see across crate
+// boundaries without a full LTO pass.
 #![allow(dead_code)]
 
 pub mod tools;
