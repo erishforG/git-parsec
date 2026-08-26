@@ -778,7 +778,7 @@ sync                ──► git2
 | Phase 31 (#293) | `worktree_ship` wired — push + `gh pr create` + cleanup | ✅ shipped |
 | Phase 32 (#295) | Claude Desktop / Cursor e2e scenario fixtures | ✅ shipped (this PR) |
 | Phase 33 (#293) | `parsec mcp install` — automated client config writer | ✅ shipped |
-| Phase 34 (#295) | Live e2e with sandboxed test repository | 🔲 planned |
+| Phase 34 (#295) | Live e2e with sandboxed test repository — subprocess stdio e2e (10 tests) | ✅ shipped |
 
 ---
 
