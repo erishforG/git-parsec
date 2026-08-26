@@ -205,7 +205,7 @@ recordings in `tests/mcp/fixtures/stdio_smoke.jsonl` (prefix
 |---|---|
 | Phase 4–11 | Automated smoke fixtures, redaction checks, lifecycle fixtures (shipped) |
 | Phase 32 | Claude Desktop / Cursor e2e scenario fixtures — `scenario-e2e-*` (this PR) |
-| Phase 33 | Automated installer hook (`parsec mcp install --client=claude-desktop`) |
+| Phase 33 | Automated installer hook (`parsec mcp install --client=claude-desktop`) | ✅ shipped |
 | Phase 34 | Live e2e recording with a sandboxed test repository (issue #295) |
 
 *Maintained by the git-parsec team. Client registration changes require review by @erishforG.*

@@ -43,6 +43,7 @@
 // boundaries without a full LTO pass.
 #![allow(dead_code)]
 
+pub mod install;
 pub mod tools;
 
 use std::io::{BufRead, Write};

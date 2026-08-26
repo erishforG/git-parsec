@@ -689,6 +689,23 @@ pub enum CompleteKind {
 pub enum McpAction {
     /// Serve MCP JSON-RPC over stdio.
     Serve,
+    /// Register git-parsec in a desktop MCP client config.
+    ///
+    /// Reads the target client's JSON config file (creating it if absent),
+    /// merges the `mcpServers.git-parsec` entry while preserving all other
+    /// keys, creates a timestamped backup of any existing file, then writes
+    /// the result.  Use `--dry-run` to preview the planned JSON without
+    /// touching disk.
+    ///
+    /// Supported clients: `claude-desktop`, `cursor`.
+    Install {
+        /// Target MCP client (`claude-desktop` or `cursor`).
+        #[arg(long, value_name = "CLIENT")]
+        client: String,
+        /// Absolute path to the parsec binary (default: `parsec` on $PATH).
+        #[arg(long, value_name = "PATH")]
+        bin_path: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -828,6 +845,10 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Mcp { action } => match action {
             McpAction::Serve => crate::mcp::serve_stdio(cli.dry_run),
+            McpAction::Install { client, bin_path } => {
+                let target: crate::mcp::install::McpClientTarget = client.parse()?;
+                crate::mcp::install::install(target, cli.dry_run, bin_path.as_deref())
+            }
         },
         Command::List { no_pr, full } => commands::list(&repo_path, no_pr, full, output_mode).await,
         Command::Status { ticket } => {
