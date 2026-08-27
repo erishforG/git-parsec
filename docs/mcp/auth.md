@@ -122,6 +122,7 @@ Initial error codes:
 | Phase 21 | Route audit emission through a testable newline-delimited writer |
 | Phase 22 | Verify audit sink failures remain best-effort and do not interrupt tool calls |
 | Phase 35 | Read `PARSEC_GITHUB_TOKEN` env var in `serve_stdio` → `McpContext.github_token` (non-interactive host support) |
+| Phase 36 | `~/.config/parsec/mcp.toml` config-file support — `[auth]` token + optional scopes; env var wins; `PARSEC_MCP_CONFIG` overrides default path |
 
 Audit events contain only the event version, registered tool name, outcome,
 mutation classification, and dry-run state. They never contain arguments,
@@ -152,5 +153,35 @@ collector independently and fail closed at the process-supervisor boundary if
 their policy requires guaranteed audit delivery. Raw stderr recordings must
 not be promoted into MCP fixtures; fixtures use the redaction contract in
 `tests/mcp/README.md`.
+
+## Config-file Auth (Phase 36)
+
+For deployments where setting environment variables is inconvenient, token and
+scope metadata can be declared in a config file. The server reads (in order):
+
+1. `PARSEC_GITHUB_TOKEN` env var — if set and non-empty, used immediately;
+   config file is skipped entirely.
+2. `PARSEC_MCP_CONFIG` env var — if set, overrides the config-file path.
+3. `~/.config/parsec/mcp.toml` — default path on Linux/macOS;
+   `%APPDATA%\parsec\mcp.toml` on Windows.
+
+Config file format:
+
+```toml
+[auth]
+token = "ghp_your_token_here"
+# Optional: declare scopes so per-tool scope checks are enforced.
+# When omitted, all scopes are treated as available (same as env-var delegation).
+scopes = ["pull_request:read", "checks:read"]
+```
+
+Valid scope strings match the values in the Scope Matrix above:
+`"pull_request:read"`, `"checks:read"`, `"pull_request:write"`.
+Unrecognised scope strings are silently ignored so unknown future scopes do
+not break existing installations.
+
+The config file is read once at server startup; dynamic reload is not
+supported. Token values are never written to stdout, JSON-RPC responses,
+or audit events.
 
 *Maintained by the git-parsec team. Auth changes require review by @erishforG.*
