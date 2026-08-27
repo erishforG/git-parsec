@@ -36,6 +36,8 @@
 //! - **Phase 30** (#293): `worktree_start` wired — dry_run preview + confirmed worktree creation.
 //! - **Phase 31** (#293): `worktree_ship` wired — push + `gh pr create` + optional cleanup.
 //! - All 10 tools wired.
+//! - **Phase 35** (#294): `PARSEC_GITHUB_TOKEN` env var read in `serve_stdio` → `McpContext.github_token`
+//!   (non-interactive host support; distinct from ambient `GITHUB_TOKEN`/`GH_TOKEN`).
 
 // All 10 tools are wired (Phase 31). The allow(dead_code) below covers
 // internal helpers (e.g. AuditOutcome variants) that are constructed only
@@ -135,6 +137,37 @@ impl McpContext {
             github_scopes: None,
             dry_run,
         })
+    }
+
+    /// Create a context from the current working directory, also reading
+    /// `PARSEC_GITHUB_TOKEN` from the environment if it is set and non-empty.
+    ///
+    /// This is the entry point for `parsec mcp serve` on non-interactive hosts
+    /// where the MCP client cannot forward a PAT inline (e.g., Claude Desktop,
+    /// Cursor, systemd service). The env var is treated as a pre-delegated
+    /// token with no declared scopes; scope checks still gate individual tools
+    /// at call time, but `AUTH_REQUIRED` is suppressed for token-bearing calls.
+    ///
+    /// `PARSEC_GITHUB_TOKEN` is intentionally distinct from `GITHUB_TOKEN` /
+    /// `GH_TOKEN` so this server is not implicitly activated by ambient CI
+    /// tokens on workstations or CI runners.
+    pub fn from_env(dry_run: bool) -> anyhow::Result<Self> {
+        Self::from_env_lookup(dry_run, |key| std::env::var(key).ok())
+    }
+
+    /// Like [`from_env`] but accepts an env-lookup closure for unit testing
+    /// without mutating process-global state.
+    fn from_env_lookup<F>(dry_run: bool, lookup: F) -> anyhow::Result<Self>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let mut ctx = Self::from_cwd(dry_run)?;
+        if let Some(token) = lookup("PARSEC_GITHUB_TOKEN") {
+            if !token.is_empty() {
+                ctx = ctx.with_github_token(token);
+            }
+        }
+        Ok(ctx)
     }
 
     /// Attach a GitHub PAT to the context.
@@ -421,7 +454,7 @@ where
     R: BufRead,
     W: Write,
 {
-    let ctx = McpContext::from_cwd(dry_run)?;
+    let ctx = McpContext::from_env(dry_run)?;
     let mut writer = writer;
 
     for line in reader.lines() {
@@ -1142,6 +1175,61 @@ mod tests {
             .with_github_auth("ghp_test", vec![GithubScope::PullRequestRead]);
 
         assert_eq!(ctx.github_scopes, Some(vec![GithubScope::PullRequestRead]));
+    }
+
+    #[test]
+    fn mcp_context_from_env_picks_up_token() {
+        // Use the testable lookup closure to avoid mutating process-global env.
+        let ctx = McpContext::from_env_lookup(false, |key| {
+            if key == "PARSEC_GITHUB_TOKEN" {
+                Some("ghp_env_test".to_owned())
+            } else {
+                None
+            }
+        })
+        .expect("from_env_lookup");
+
+        assert!(
+            ctx.github_token.is_some(),
+            "token should be populated from PARSEC_GITHUB_TOKEN"
+        );
+        assert_eq!(
+            ctx.github_token
+                .as_ref()
+                .map(DelegatedGithubToken::expose_secret),
+            Some("ghp_env_test")
+        );
+        // No declared scopes when loaded from env (all scope checks pass via
+        // the None-means-allow shortcut in token_has_scopes).
+        assert!(
+            ctx.github_scopes.is_none(),
+            "env-loaded token should have no declared scopes"
+        );
+    }
+
+    #[test]
+    fn mcp_context_from_env_ignores_missing_var() {
+        let ctx = McpContext::from_env_lookup(false, |_| None).expect("from_env_lookup no var");
+        assert!(
+            ctx.github_token.is_none(),
+            "no env var → token should remain None"
+        );
+    }
+
+    #[test]
+    fn mcp_context_from_env_ignores_empty_var() {
+        let ctx = McpContext::from_env_lookup(false, |key| {
+            if key == "PARSEC_GITHUB_TOKEN" {
+                Some(String::new())
+            } else {
+                None
+            }
+        })
+        .expect("from_env_lookup empty");
+        assert!(
+            ctx.github_token.is_none(),
+            "empty env var should not populate token"
+        );
     }
 
     #[test]
