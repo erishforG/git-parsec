@@ -1,4 +1,4 @@
-//! Phase 34 (#295): Live e2e integration tests for `parsec mcp serve`.
+//! Phase 34 (#295) + Phase 35 (#294): Live e2e integration tests for `parsec mcp serve`.
 //!
 //! Spawns the real parsec binary in a sandboxed temporary git repository
 //! and exchanges JSON-RPC 2.0 messages over stdin/stdout. This validates
@@ -36,13 +36,28 @@ fn sandbox_repo() -> TempDir {
 /// Spawn `parsec mcp serve`, write requests to stdin, close stdin, wait for
 /// exit, and return newline-delimited stdout as parsed JSON values.
 fn run_serve_session(sandbox: &TempDir, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    run_serve_session_with_env(sandbox, requests, &[])
+}
+
+/// Like [`run_serve_session`] but also injects `(key, value)` pairs into the
+/// subprocess environment before spawning. Use this to test env-var-based
+/// config paths (e.g., `PARSEC_GITHUB_TOKEN`).
+fn run_serve_session_with_env(
+    sandbox: &TempDir,
+    requests: &[serde_json::Value],
+    env_vars: &[(&str, &str)],
+) -> Vec<serde_json::Value> {
     let bin = assert_cmd::cargo::cargo_bin("parsec");
-    let mut child = Command::new(&bin)
-        .args(["mcp", "serve"])
+    let mut cmd = Command::new(&bin);
+    cmd.args(["mcp", "serve"])
         .current_dir(sandbox.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null()) // audit events go to stderr; suppress in tests
+        .stderr(Stdio::null()); // audit events go to stderr; suppress in tests
+    for (key, val) in env_vars {
+        cmd.env(key, val);
+    }
+    let mut child = cmd
         .spawn()
         .unwrap_or_else(|e| panic!("spawn {}: {e}", bin.display()));
 
@@ -213,5 +228,66 @@ fn mcp_serve_mutation_gates() {
     assert!(
         text1.contains("LIVE-2"),
         "dry_run should reference ticket: {text1}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 35 (#294): PARSEC_GITHUB_TOKEN env var → McpContext
+// ---------------------------------------------------------------------------
+
+/// When `PARSEC_GITHUB_TOKEN` is set in the subprocess environment, tools that
+/// previously returned `AUTH_REQUIRED` must proceed past the token gate.
+///
+/// The sandbox repo has no remote, so `pr_status` will fail at the `gh` call
+/// level (tool_error) rather than at the auth gate (AUTH_REQUIRED). This proves
+/// the env var is picked up and forwarded into `McpContext.github_token`.
+#[test]
+fn mcp_serve_env_token_bypasses_auth_required() {
+    let sb = sandbox_repo();
+
+    // Without env var: pr_status should return AUTH_REQUIRED.
+    let res_no_token = run_serve_session(
+        &sb,
+        &[serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "no-token",
+            "method": "tools/call",
+            "params": {
+                "name": "pr_status",
+                "arguments": {"ticket": "TEST-1"}
+            }
+        })],
+    );
+    assert_eq!(res_no_token[0]["result"]["isError"], true);
+    let text_no_token = res_no_token[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    assert!(
+        text_no_token.contains("AUTH_REQUIRED"),
+        "without token, expected AUTH_REQUIRED; got: {text_no_token}"
+    );
+
+    // With env var: pr_status should NOT return AUTH_REQUIRED; it proceeds to
+    // the tool handler which fails at the gh CLI level (no remote configured).
+    let res_with_token = run_serve_session_with_env(
+        &sb,
+        &[serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "with-token",
+            "method": "tools/call",
+            "params": {
+                "name": "pr_status",
+                "arguments": {"ticket": "TEST-1"}
+            }
+        })],
+        &[("PARSEC_GITHUB_TOKEN", "ghp_fake_token_for_e2e_test")],
+    );
+    assert_eq!(res_with_token[0]["result"]["isError"], true);
+    let text_with_token = res_with_token[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    assert!(
+        !text_with_token.contains("AUTH_REQUIRED"),
+        "with PARSEC_GITHUB_TOKEN set, AUTH_REQUIRED must not appear; got: {text_with_token}"
     );
 }
