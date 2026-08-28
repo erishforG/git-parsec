@@ -40,6 +40,8 @@
 //!   (non-interactive host support; distinct from ambient `GITHUB_TOKEN`/`GH_TOKEN`).
 //! - **Phase 36** (#294): `~/.config/parsec/mcp.toml` config-file support — token + optional scopes;
 //!   env var wins over config file; `PARSEC_MCP_CONFIG` overrides default path.
+//! - **Phase 37** (#294): config-file → scope-gate enforcement pipeline integration tests;
+//!   4 new fixture records covering write-scope promotion, `INSUFFICIENT_SCOPE` edge cases.
 
 // All 10 tools are wired (Phase 31). The allow(dead_code) below covers
 // internal helpers (e.g. AuditOutcome variants) that are constructed only
@@ -2101,5 +2103,169 @@ mod tests {
                 "fixture '{name}' expected {pointer} to contain tool '{tool_name}'"
             );
         }
+    }
+
+    // ------------------------------------------------------------------ //
+    // Phase 37: config-file → scope-gate enforcement pipeline tests
+    //
+    // These tests exercise the full pipeline:
+    //   from_env_and_config_lookup (config TOML with scopes)
+    //     → McpContext (github_token + github_scopes)
+    //       → dispatch_json_rpc_with_context
+    //         → preflight_tool_call (scope enforcement)
+    //           → INSUFFICIENT_SCOPE / tool_error
+    //
+    // Phase 36 tests verified loading; Phase 37 tests verify gating.
+    // ------------------------------------------------------------------ //
+
+    /// Config file declares only `pull_request:read`; `ci_status` needs
+    /// `checks:read` → scope gate must deny with INSUFFICIENT_SCOPE.
+    #[test]
+    fn config_file_limited_scope_enforces_insufficient_scope_on_tool_call() {
+        let toml = "[auth]\ntoken = \"ghp_limited\"\nscopes = [\"pull_request:read\"]\n";
+        let ctx =
+            McpContext::from_env_and_config_lookup(false, |_| None, |_| Some(toml.to_owned()))
+                .expect("context with limited scopes");
+
+        // Confirm the context has the expected scopes.
+        assert_eq!(
+            ctx.github_scopes.as_deref(),
+            Some(&[GithubScope::PullRequestRead][..]),
+        );
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "ph37-ci-scope",
+            "method": "tools/call",
+            "params": {"name": "ci_status", "arguments": {"ticket": "PROJ-1"}}
+        });
+        let response =
+            dispatch_json_rpc_with_context(request, &ctx).expect("tools/call should respond");
+
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP error envelope text");
+        assert_eq!(response["result"]["isError"], true);
+        assert!(
+            text.contains("INSUFFICIENT_SCOPE"),
+            "expected INSUFFICIENT_SCOPE, got: {text}"
+        );
+        assert!(
+            text.contains("checks:read"),
+            "error must name missing scope, got: {text}"
+        );
+    }
+
+    /// Config file declares `pull_request:write`; `reviews` needs
+    /// `pull_request:read` — write implies read, so preflight passes;
+    /// the response should be `tool_error` (from gh CLI), not INSUFFICIENT_SCOPE.
+    #[test]
+    fn config_file_write_scope_implies_read_for_reviews_preflight() {
+        let toml = "[auth]\ntoken = \"ghp_writer\"\nscopes = [\"pull_request:write\"]\n";
+        let ctx =
+            McpContext::from_env_and_config_lookup(false, |_| None, |_| Some(toml.to_owned()))
+                .expect("context with write scope");
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "ph37-reviews-write",
+            "method": "tools/call",
+            "params": {"name": "reviews", "arguments": {}}
+        });
+        let response =
+            dispatch_json_rpc_with_context(request, &ctx).expect("tools/call should respond");
+
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP envelope text");
+        // Preflight must pass; tool fails with tool_error (gh CLI not available).
+        assert!(
+            !text.contains("INSUFFICIENT_SCOPE"),
+            "write scope should satisfy read for reviews preflight, got: {text}"
+        );
+        assert!(
+            text.contains("tool_error"),
+            "expected tool_error from gh CLI, got: {text}"
+        );
+    }
+
+    /// Config file declares all three scopes; `worktree_ship` with
+    /// `dry_run=true` should pass the scope gate and the confirmation gate,
+    /// returning a `tool_error` from the underlying gh/git execution.
+    #[test]
+    fn config_file_full_scopes_pass_preflight_for_mutating_tool() {
+        let toml = [
+            "[auth]",
+            "token = \"ghp_full\"",
+            "scopes = [\"pull_request:read\", \"checks:read\", \"pull_request:write\"]",
+        ]
+        .join("\n");
+        let ctx = McpContext::from_env_and_config_lookup(false, |_| None, |_| Some(toml.clone()))
+            .expect("context with full scopes");
+
+        // Verify scope set.
+        let scopes = ctx.github_scopes.as_deref().expect("scopes populated");
+        assert!(scopes.contains(&GithubScope::PullRequestRead));
+        assert!(scopes.contains(&GithubScope::ChecksRead));
+        assert!(scopes.contains(&GithubScope::PullRequestWrite));
+
+        // worktree_ship with dry_run=true passes confirmation gate too.
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "ph37-ship-full",
+            "method": "tools/call",
+            "params": {"name": "worktree_ship", "arguments": {"ticket": "PROJ-1", "dry_run": true}}
+        });
+        let response =
+            dispatch_json_rpc_with_context(request, &ctx).expect("tools/call should respond");
+
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP envelope text");
+        // Must not fail at preflight.
+        assert!(
+            !text.contains("INSUFFICIENT_SCOPE"),
+            "full scopes should satisfy worktree_ship preflight, got: {text}"
+        );
+        assert!(
+            !text.contains("AUTH_REQUIRED"),
+            "full scopes should satisfy auth gate, got: {text}"
+        );
+        assert!(
+            !text.contains("CONFIRMATION_REQUIRED"),
+            "dry_run=true should satisfy confirmation gate, got: {text}"
+        );
+    }
+
+    /// Config file has `pull_request:read` only; `worktree_ship` needs
+    /// `pull_request:write` → INSUFFICIENT_SCOPE even with dry_run=true.
+    #[test]
+    fn config_file_read_only_scope_blocks_worktree_ship() {
+        let toml = "[auth]\ntoken = \"ghp_readonly\"\nscopes = [\"pull_request:read\"]\n";
+        let ctx =
+            McpContext::from_env_and_config_lookup(false, |_| None, |_| Some(toml.to_owned()))
+                .expect("context with read-only scope");
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "ph37-ship-readonly",
+            "method": "tools/call",
+            "params": {"name": "worktree_ship", "arguments": {"ticket": "PROJ-1", "dry_run": true}}
+        });
+        let response =
+            dispatch_json_rpc_with_context(request, &ctx).expect("tools/call should respond");
+
+        let text = response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP envelope text");
+        assert_eq!(response["result"]["isError"], true);
+        assert!(
+            text.contains("INSUFFICIENT_SCOPE"),
+            "read-only scope must not satisfy write requirement, got: {text}"
+        );
+        assert!(
+            text.contains("pull_request:write"),
+            "error must name the missing scope, got: {text}"
+        );
     }
 }
