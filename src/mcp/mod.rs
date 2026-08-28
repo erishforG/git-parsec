@@ -38,6 +38,8 @@
 //! - All 10 tools wired.
 //! - **Phase 35** (#294): `PARSEC_GITHUB_TOKEN` env var read in `serve_stdio` → `McpContext.github_token`
 //!   (non-interactive host support; distinct from ambient `GITHUB_TOKEN`/`GH_TOKEN`).
+//! - **Phase 36** (#294): `~/.config/parsec/mcp.toml` config-file support — token + optional scopes;
+//!   env var wins over config file; `PARSEC_MCP_CONFIG` overrides default path.
 
 // All 10 tools are wired (Phase 31). The allow(dead_code) below covers
 // internal helpers (e.g. AuditOutcome variants) that are constructed only
@@ -71,6 +73,42 @@ impl GithubScope {
             Self::PullRequestWrite => "pull_request:write",
         }
     }
+
+    /// Parse a scope string produced by [`as_str`](Self::as_str).
+    /// Returns `None` for unrecognised strings so unknown scopes are ignored
+    /// rather than causing a hard failure when loading a config file.
+    fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "pull_request:read" => Some(Self::PullRequestRead),
+            "checks:read" => Some(Self::ChecksRead),
+            "pull_request:write" => Some(Self::PullRequestWrite),
+            _ => None,
+        }
+    }
+}
+
+/// TOML schema for `~/.config/parsec/mcp.toml` (or the path given by
+/// `PARSEC_MCP_CONFIG`). Unknown top-level keys are silently ignored.
+#[derive(Debug, serde::Deserialize, Default)]
+struct McpConfigFile {
+    auth: Option<McpConfigAuth>,
+}
+
+/// `[auth]` section of the MCP config file.
+#[derive(Debug, serde::Deserialize)]
+struct McpConfigAuth {
+    /// GitHub personal-access token to delegate to every tool call.
+    token: Option<String>,
+    /// Declared scope strings (e.g. `["pull_request:read", "checks:read"]`).
+    /// When present, scope checks are applied per-tool; when absent, all scopes
+    /// are assumed available (the same behaviour as env-var delegation).
+    scopes: Option<Vec<String>>,
+}
+
+/// Returns the default MCP config path (`~/.config/parsec/mcp.toml` on
+/// Linux/macOS; `%APPDATA%\parsec\mcp.toml` on Windows).
+fn default_mcp_config_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|d| d.join("parsec").join("mcp.toml"))
 }
 
 /// Delegated GitHub token that redacts its secret in debug output.
@@ -140,23 +178,32 @@ impl McpContext {
     }
 
     /// Create a context from the current working directory, also reading
-    /// `PARSEC_GITHUB_TOKEN` from the environment if it is set and non-empty.
+    /// `PARSEC_GITHUB_TOKEN` from the environment **or** from the MCP config
+    /// file if it is set and non-empty.
+    ///
+    /// **Priority** (highest wins):
+    /// 1. `PARSEC_GITHUB_TOKEN` environment variable — token only, no declared scopes.
+    /// 2. Config file at `PARSEC_MCP_CONFIG` or `~/.config/parsec/mcp.toml` —
+    ///    token + optional `scopes` list.
     ///
     /// This is the entry point for `parsec mcp serve` on non-interactive hosts
     /// where the MCP client cannot forward a PAT inline (e.g., Claude Desktop,
-    /// Cursor, systemd service). The env var is treated as a pre-delegated
-    /// token with no declared scopes; scope checks still gate individual tools
-    /// at call time, but `AUTH_REQUIRED` is suppressed for token-bearing calls.
+    /// Cursor, systemd service).
     ///
     /// `PARSEC_GITHUB_TOKEN` is intentionally distinct from `GITHUB_TOKEN` /
     /// `GH_TOKEN` so this server is not implicitly activated by ambient CI
     /// tokens on workstations or CI runners.
     pub fn from_env(dry_run: bool) -> anyhow::Result<Self> {
-        Self::from_env_lookup(dry_run, |key| std::env::var(key).ok())
+        Self::from_env_and_config_lookup(
+            dry_run,
+            |key| std::env::var(key).ok(),
+            |path| std::fs::read_to_string(path).ok(),
+        )
     }
 
     /// Like [`from_env`] but accepts an env-lookup closure for unit testing
-    /// without mutating process-global state.
+    /// without mutating process-global state. Does **not** consult the config
+    /// file; use [`from_env_and_config_lookup`] when both paths are needed.
     fn from_env_lookup<F>(dry_run: bool, lookup: F) -> anyhow::Result<Self>
     where
         F: Fn(&str) -> Option<String>,
@@ -167,6 +214,62 @@ impl McpContext {
                 ctx = ctx.with_github_token(token);
             }
         }
+        Ok(ctx)
+    }
+
+    /// Full resolution with both env and config-file injection, using injectable
+    /// closures so tests never touch the real filesystem or process environment.
+    ///
+    /// - `env_lookup`: returns the value of an env var by name.
+    /// - `file_read`: returns the UTF-8 contents of a path, or `None` when the
+    ///   file does not exist or cannot be read.
+    fn from_env_and_config_lookup<E, R>(
+        dry_run: bool,
+        env_lookup: E,
+        file_read: R,
+    ) -> anyhow::Result<Self>
+    where
+        E: Fn(&str) -> Option<String>,
+        R: Fn(&std::path::Path) -> Option<String>,
+    {
+        let mut ctx = Self::from_cwd(dry_run)?;
+
+        // Priority 1: PARSEC_GITHUB_TOKEN env var (highest — no declared scopes).
+        if let Some(token) = env_lookup("PARSEC_GITHUB_TOKEN") {
+            if !token.is_empty() {
+                ctx = ctx.with_github_token(token);
+                return Ok(ctx); // env var wins; skip config file.
+            }
+        }
+
+        // Priority 2: config file (PARSEC_MCP_CONFIG override or default path).
+        let config_path = match env_lookup("PARSEC_MCP_CONFIG") {
+            Some(p) if !p.is_empty() => Some(std::path::PathBuf::from(p)),
+            _ => default_mcp_config_path(),
+        };
+
+        if let Some(path) = config_path {
+            if let Some(contents) = file_read(&path) {
+                if let Ok(config) = toml::from_str::<McpConfigFile>(&contents) {
+                    if let Some(auth) = config.auth {
+                        if let Some(token) = auth.token.filter(|t| !t.is_empty()) {
+                            let scopes: Vec<GithubScope> = auth
+                                .scopes
+                                .unwrap_or_default()
+                                .iter()
+                                .filter_map(|s| GithubScope::from_str_opt(s))
+                                .collect();
+                            if scopes.is_empty() {
+                                ctx = ctx.with_github_token(token);
+                            } else {
+                                ctx = ctx.with_github_auth(token, scopes);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(ctx)
     }
 
@@ -1230,6 +1333,151 @@ mod tests {
             ctx.github_token.is_none(),
             "empty env var should not populate token"
         );
+    }
+
+    // ------------------------------------------------------------------ //
+    // Phase 36: from_env_and_config_lookup tests
+    // ------------------------------------------------------------------ //
+
+    #[test]
+    fn mcp_config_file_token_loaded_when_no_env_var() {
+        let toml_contents = "[auth]\ntoken = \"ghp_config_test\"\n";
+        let ctx = McpContext::from_env_and_config_lookup(
+            false,
+            |_| None, // no env vars set
+            |_| Some(toml_contents.to_owned()),
+        )
+        .expect("from_env_and_config_lookup");
+
+        assert!(
+            ctx.github_token.is_some(),
+            "token should be populated from config file"
+        );
+        assert_eq!(
+            ctx.github_token
+                .as_ref()
+                .map(DelegatedGithubToken::expose_secret),
+            Some("ghp_config_test")
+        );
+        // No declared scopes when the config omits the `scopes` key.
+        assert!(
+            ctx.github_scopes.is_none(),
+            "missing scopes key should leave github_scopes as None"
+        );
+    }
+
+    #[test]
+    fn mcp_config_file_token_with_scopes() {
+        let toml_contents =
+            "[auth]\ntoken = \"ghp_scoped\"\nscopes = [\"pull_request:read\", \"checks:read\"]\n";
+        let ctx = McpContext::from_env_and_config_lookup(
+            false,
+            |_| None,
+            |_| Some(toml_contents.to_owned()),
+        )
+        .expect("from_env_and_config_lookup with scopes");
+
+        let scopes = ctx
+            .github_scopes
+            .as_deref()
+            .expect("scopes should be populated");
+        assert!(scopes.contains(&GithubScope::PullRequestRead));
+        assert!(scopes.contains(&GithubScope::ChecksRead));
+        assert!(!scopes.contains(&GithubScope::PullRequestWrite));
+    }
+
+    #[test]
+    fn env_var_wins_over_config_file() {
+        // Env var must take priority; config file provides a different token.
+        let toml_contents = "[auth]\ntoken = \"ghp_from_config\"\n";
+        let ctx = McpContext::from_env_and_config_lookup(
+            false,
+            |key| {
+                if key == "PARSEC_GITHUB_TOKEN" {
+                    Some("ghp_from_env".to_owned())
+                } else {
+                    None
+                }
+            },
+            |_| Some(toml_contents.to_owned()),
+        )
+        .expect("env wins over config");
+
+        assert_eq!(
+            ctx.github_token
+                .as_ref()
+                .map(DelegatedGithubToken::expose_secret),
+            Some("ghp_from_env"),
+            "env var token must win over config-file token"
+        );
+    }
+
+    #[test]
+    fn parsec_mcp_config_overrides_default_path() {
+        // When PARSEC_MCP_CONFIG is set we should pass that exact path to
+        // the file reader; verify via path tracking.
+        use std::cell::Cell;
+        let custom_path = std::path::Path::new("/custom/path/mcp.toml");
+        let path_seen = Cell::new(false);
+
+        let _ctx = McpContext::from_env_and_config_lookup(
+            false,
+            |key| {
+                if key == "PARSEC_MCP_CONFIG" {
+                    Some("/custom/path/mcp.toml".to_owned())
+                } else {
+                    None
+                }
+            },
+            |path| {
+                if path == custom_path {
+                    path_seen.set(true);
+                }
+                None // file does not exist; that is fine
+            },
+        )
+        .expect("config path override");
+
+        assert!(
+            path_seen.get(),
+            "PARSEC_MCP_CONFIG should route file_read to the custom path"
+        );
+    }
+
+    #[test]
+    fn mcp_config_missing_file_leaves_token_none() {
+        // Simulates a fresh machine with no config file present.
+        let ctx = McpContext::from_env_and_config_lookup(
+            false,
+            |_| None,
+            |_| None, // file does not exist
+        )
+        .expect("missing config file is not an error");
+
+        assert!(
+            ctx.github_token.is_none(),
+            "missing config file should leave token as None"
+        );
+    }
+
+    #[test]
+    fn mcp_config_unknown_scopes_are_skipped() {
+        // Unknown scope strings must not panic and must be filtered out.
+        let toml_contents =
+            "[auth]\ntoken = \"ghp_scoped\"\nscopes = [\"unknown:future\", \"pull_request:read\"]\n";
+        let ctx = McpContext::from_env_and_config_lookup(
+            false,
+            |_| None,
+            |_| Some(toml_contents.to_owned()),
+        )
+        .expect("unknown scope is skipped");
+
+        let scopes = ctx
+            .github_scopes
+            .as_deref()
+            .expect("known scope should survive filtering");
+        assert_eq!(scopes.len(), 1);
+        assert!(scopes.contains(&GithubScope::PullRequestRead));
     }
 
     #[test]
