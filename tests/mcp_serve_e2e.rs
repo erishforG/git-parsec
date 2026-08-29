@@ -1,4 +1,4 @@
-//! Phase 34 (#295) + Phase 35 (#294): Live e2e integration tests for `parsec mcp serve`.
+//! Phase 34 (#295) + Phase 35 (#294) + Phase 38 (#295): Live e2e integration tests for `parsec mcp serve`.
 //!
 //! Spawns the real parsec binary in a sandboxed temporary git repository
 //! and exchanges JSON-RPC 2.0 messages over stdin/stdout. This validates
@@ -289,5 +289,158 @@ fn mcp_serve_env_token_bypasses_auth_required() {
     assert!(
         !text_with_token.contains("AUTH_REQUIRED"),
         "with PARSEC_GITHUB_TOKEN set, AUTH_REQUIRED must not appear; got: {text_with_token}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 38 (#295): mcp.toml config-file auth source + env-var precedence e2e
+//
+// Validates at the *subprocess binary boundary* that:
+//   1. A token in `mcp.toml` (via PARSEC_MCP_CONFIG) bypasses AUTH_REQUIRED.
+//   2. PARSEC_GITHUB_TOKEN wins over mcp.toml when both are present; in that
+//      case the config-file scope restrictions are also superseded so a tool
+//      that would have hit INSUFFICIENT_SCOPE under the config-file scopes
+//      instead reaches CONFIRMATION_REQUIRED (the mutation gate).
+// ---------------------------------------------------------------------------
+
+/// Write `contents` to a named temp file and return the `TempDir` that keeps
+/// the file alive for the duration of the test, along with the file path.
+fn write_temp_toml(dir: &tempfile::TempDir, filename: &str, contents: &str) -> std::path::PathBuf {
+    let path = dir.path().join(filename);
+    std::fs::write(&path, contents).expect("write temp toml");
+    path
+}
+
+/// A token supplied only through `mcp.toml` (via `PARSEC_MCP_CONFIG`) must be
+/// loaded by the server subprocess and forwarded to `McpContext.github_token`,
+/// which causes tools that previously returned `AUTH_REQUIRED` to proceed past
+/// the auth gate (they fail at the `gh` CLI level instead).
+#[test]
+fn mcp_serve_config_file_token_bypasses_auth_required() {
+    let sb = sandbox_repo();
+    // Config dir is separate from the git sandbox so we can write freely.
+    let cfg_dir = tempfile::TempDir::new().expect("cfg TempDir");
+    let cfg_path = write_temp_toml(
+        &cfg_dir,
+        "mcp.toml",
+        "[auth]\ntoken = \"ghp_config_fake_e2e\"\n",
+    );
+
+    // Without config token (no env var, no PARSEC_MCP_CONFIG): AUTH_REQUIRED.
+    let res_no_cfg = run_serve_session(
+        &sb,
+        &[serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "baseline",
+            "method": "tools/call",
+            "params": { "name": "pr_status", "arguments": { "ticket": "PHASE38-0" } }
+        })],
+    );
+    assert_eq!(res_no_cfg[0]["result"]["isError"], true);
+    let text_baseline = res_no_cfg[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    assert!(
+        text_baseline.contains("AUTH_REQUIRED"),
+        "baseline without config: expected AUTH_REQUIRED; got: {text_baseline}"
+    );
+
+    // With PARSEC_MCP_CONFIG pointing at the temp mcp.toml: AUTH_REQUIRED must
+    // not appear — server picked up the config-file token and passed it through.
+    let res_with_cfg = run_serve_session_with_env(
+        &sb,
+        &[serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "cfg-token",
+            "method": "tools/call",
+            "params": { "name": "pr_status", "arguments": { "ticket": "PHASE38-1" } }
+        })],
+        &[("PARSEC_MCP_CONFIG", cfg_path.to_str().unwrap())],
+    );
+    assert_eq!(res_with_cfg[0]["result"]["isError"], true);
+    let text_with_cfg = res_with_cfg[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    assert!(
+        !text_with_cfg.contains("AUTH_REQUIRED"),
+        "with config-file token, AUTH_REQUIRED must not appear; got: {text_with_cfg}"
+    );
+}
+
+/// When both `PARSEC_GITHUB_TOKEN` (env var) and `mcp.toml` (via
+/// `PARSEC_MCP_CONFIG`) are present, the env var must win.  The env-var path
+/// does **not** load scope restrictions from the config file, so a tool that
+/// would hit `INSUFFICIENT_SCOPE` under the config-file scopes must instead
+/// reach `CONFIRMATION_REQUIRED` — the mutation gate — proving the env var
+/// superseded the config-file token *and* its scope list.
+#[test]
+fn mcp_serve_env_var_wins_over_config_file_scope_restriction() {
+    let sb = sandbox_repo();
+    let cfg_dir = tempfile::TempDir::new().expect("cfg TempDir");
+    // Config file grants only pull_request:read; worktree_ship needs
+    // pull_request:write, so with config-only auth it would get INSUFFICIENT_SCOPE.
+    let cfg_path = write_temp_toml(
+        &cfg_dir,
+        "mcp.toml",
+        "[auth]\ntoken = \"ghp_read_only_config\"\nscopes = [\"pull_request:read\"]\n",
+    );
+
+    // Verify baseline with config-file only: INSUFFICIENT_SCOPE for worktree_ship.
+    let res_cfg_only = run_serve_session_with_env(
+        &sb,
+        &[serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "cfg-only",
+            "method": "tools/call",
+            "params": {
+                "name": "worktree_ship",
+                "arguments": { "ticket": "PHASE38-A", "confirm": true }
+            }
+        })],
+        &[("PARSEC_MCP_CONFIG", cfg_path.to_str().unwrap())],
+    );
+    assert_eq!(res_cfg_only[0]["result"]["isError"], true);
+    let text_cfg_only = res_cfg_only[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    assert!(
+        text_cfg_only.contains("INSUFFICIENT_SCOPE"),
+        "config-file pull_request:read should block worktree_ship; got: {text_cfg_only}"
+    );
+
+    // Now add PARSEC_GITHUB_TOKEN: env var takes priority, discarding the
+    // config-file token AND its scope restrictions.  worktree_ship proceeds
+    // past the scope gate and hits CONFIRMATION_REQUIRED (no dry_run / no
+    // explicit confirm flag combination that passes the mutation gate here),
+    // which is a different error than INSUFFICIENT_SCOPE.
+    let res_env_wins = run_serve_session_with_env(
+        &sb,
+        &[serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "env-wins",
+            "method": "tools/call",
+            "params": {
+                "name": "worktree_ship",
+                "arguments": { "ticket": "PHASE38-B" }
+            }
+        })],
+        &[
+            ("PARSEC_GITHUB_TOKEN", "ghp_env_full_access"),
+            ("PARSEC_MCP_CONFIG", cfg_path.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(res_env_wins[0]["result"]["isError"], true);
+    let text_env_wins = res_env_wins[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    // With env var in play, scope gate passes → must reach CONFIRMATION_REQUIRED,
+    // not INSUFFICIENT_SCOPE.
+    assert!(
+        !text_env_wins.contains("INSUFFICIENT_SCOPE"),
+        "env var must supersede config-file scope restriction; got: {text_env_wins}"
+    );
+    assert!(
+        text_env_wins.contains("CONFIRMATION_REQUIRED"),
+        "env var path should reach mutation gate (CONFIRMATION_REQUIRED); got: {text_env_wins}"
     );
 }
