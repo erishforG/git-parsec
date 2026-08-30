@@ -779,6 +779,7 @@ sync                ──► git2
 | Phase 32 (#295) | Claude Desktop / Cursor e2e scenario fixtures | ✅ shipped (this PR) |
 | Phase 33 (#293) | `parsec mcp install` — automated client config writer | ✅ shipped |
 | Phase 34 (#295) | Live e2e with sandboxed test repository — subprocess stdio e2e (10 tests) | ✅ shipped |
+| Phase 39 (#293) | `docs/mcp-quickstart.md` — end-to-end user quickstart (install → auth → workflows) | ✅ shipped |
 
 ---
 
