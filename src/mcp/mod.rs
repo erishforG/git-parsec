@@ -42,6 +42,11 @@
 //!   env var wins over config file; `PARSEC_MCP_CONFIG` overrides default path.
 //! - **Phase 37** (#294): config-file → scope-gate enforcement pipeline integration tests;
 //!   4 new fixture records covering write-scope promotion, `INSUFFICIENT_SCOPE` edge cases.
+//! - **Phase 38** (#295): `mcp.toml` config-file auth source + env-var precedence e2e —
+//!   3 new fixture records + token-redaction assertions.
+//! - **Phase 39** (#293): `docs/mcp-quickstart.md` end-to-end user quickstart —
+//!   prerequisites, one-command install, auth setup, common AI agent workflows, tool catalogue,
+//!   manual server invocation, and troubleshooting guide.
 
 // All 10 tools are wired (Phase 31). The allow(dead_code) below covers
 // internal helpers (e.g. AuditOutcome variants) that are constructed only
