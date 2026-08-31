@@ -60,6 +60,15 @@ pub struct HealthRecord {
     pub ci_status: Option<String>,
     /// GitHub PR number linked to this worktree's branch, if any.
     pub pr_number: Option<u64>,
+    /// Phase 3: a rebase is in progress in this worktree.
+    /// Detected by the presence of `.git/rebase-merge/` or `.git/rebase-apply/`.
+    pub rebase_in_progress: bool,
+    /// Phase 3: a merge is in progress in this worktree.
+    /// Detected by the presence of `.git/MERGE_HEAD`.
+    pub merge_in_progress: bool,
+    /// Phase 3: a cherry-pick is in progress in this worktree.
+    /// Detected by the presence of `.git/CHERRY_PICK_HEAD`.
+    pub cherry_pick_in_progress: bool,
 }
 
 /// Per-worktree test outcome produced by `parsec test` (issue #247).
