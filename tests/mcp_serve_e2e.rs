@@ -1,4 +1,4 @@
-//! Phase 34 (#295) + Phase 35 (#294) + Phase 38 (#295): Live e2e integration tests for `parsec mcp serve`.
+//! Phase 34 (#295) + Phase 35 (#294) + Phase 38 (#295) + Phase 41 (#294/#295): Live e2e integration tests for `parsec mcp serve`.
 //!
 //! Spawns the real parsec binary in a sandboxed temporary git repository
 //! and exchanges JSON-RPC 2.0 messages over stdin/stdout. This validates
@@ -442,5 +442,102 @@ fn mcp_serve_env_var_wins_over_config_file_scope_restriction() {
     assert!(
         text_env_wins.contains("CONFIRMATION_REQUIRED"),
         "env var path should reach mutation gate (CONFIRMATION_REQUIRED); got: {text_env_wins}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 41 (#294 + #295): Sandbox path-boundary enforcement — subprocess e2e
+//
+// Validates at the *subprocess binary boundary* that the MCP server rejects
+// `repo` arguments that point outside the session-boundary directory.
+//
+// The unit test in `src/mcp/mod.rs::repository_argument_cannot_escape_session_boundary`
+// covers this at the `dispatch_json_rpc_with_context` call level. This test
+// exercises the same invariant through the full transport stack (spawn →
+// stdin JSON-RPC → stdout parse) so CI confirms the sandboxing contract
+// survives the stdio codec and subprocess boundary.
+//
+// Addresses #294 AC: "sandbox: 로컬 worktree 외부 접근 차단"
+// Addresses #295 AC: "CI smoke test 통합" (runs via `cargo test`)
+// ---------------------------------------------------------------------------
+
+/// A `repo` argument that is an absolute path outside the session boundary
+/// must return `SANDBOX_VIOLATION` through the subprocess transport.
+///
+/// The outside path must not appear in the error text (information leak guard).
+#[test]
+fn mcp_serve_sandbox_boundary_violation_rejected() {
+    let sb = sandbox_repo();
+    // Create a distinct temp directory that is *outside* the sandbox repo.
+    // The server process is started in `sb`, so any path that is not a
+    // descendant of `sb.path()` must trigger the sandbox guard.
+    let outside = tempfile::TempDir::new().expect("outside TempDir");
+    let outside_str = outside.path().to_str().expect("outside path to str");
+
+    let res = run_serve_session(
+        &sb,
+        &[serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "sandbox-boundary",
+            "method": "tools/call",
+            "params": {
+                "name": "worktree_list",
+                "arguments": { "repo": outside_str }
+            }
+        })],
+    );
+
+    assert_eq!(
+        res[0]["result"]["isError"], true,
+        "out-of-boundary repo argument must be an error; got: {:?}",
+        res[0]
+    );
+    let text = res[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("MCP error envelope must contain text");
+    assert!(
+        text.contains("SANDBOX_VIOLATION"),
+        "out-of-boundary repo must produce SANDBOX_VIOLATION; got: {text}"
+    );
+    // Information-leak guard: the raw outside path must not appear in the response.
+    assert!(
+        !text.contains(outside_str),
+        "SANDBOX_VIOLATION response must not echo the requested path; got: {text}"
+    );
+}
+
+/// A `repo` argument that resolves to a directory *inside* the session
+/// boundary (a sub-directory of the sandbox root) must not trigger
+/// `SANDBOX_VIOLATION` — the path guard is boundary-inclusive.
+///
+/// The call will still fail (no worktrees under the child path), but the
+/// failure must be a tool-level error rather than a `SANDBOX_VIOLATION`.
+#[test]
+fn mcp_serve_sandbox_descendant_path_allowed() {
+    let sb = sandbox_repo();
+    // Create a sub-directory inside the sandbox boundary to use as `repo`.
+    let child = sb.path().join("inner-worktree");
+    std::fs::create_dir(&child).expect("child directory");
+    let child_str = child.to_str().expect("child path to str");
+
+    let res = run_serve_session(
+        &sb,
+        &[serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "sandbox-child",
+            "method": "tools/call",
+            "params": {
+                "name": "worktree_list",
+                "arguments": { "repo": child_str }
+            }
+        })],
+    );
+
+    let text = res[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("MCP response must contain text");
+    assert!(
+        !text.contains("SANDBOX_VIOLATION"),
+        "descendant path must not trigger SANDBOX_VIOLATION; got: {text}"
     );
 }
