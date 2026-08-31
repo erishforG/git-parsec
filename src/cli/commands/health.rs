@@ -14,6 +14,12 @@
 //! - Configurable stale-threshold via `--stale-days` CLI flag.
 //! - Opt-out via `--no-overlay` for fully offline mode.
 //!
+//! Phase 3 additions:
+//! - Detect in-progress git operations: rebase, merge, cherry-pick.
+//!   Checked via git-dir state files (`rebase-merge/`, `MERGE_HEAD`, etc.).
+//!   Works for both main and linked worktrees (resolves `gitdir:` pointer).
+//!   Failures are soft: detection errors return `false` rather than aborting.
+//!
 //! All checks are read-only; no worktree state is modified.
 
 use std::path::Path;
@@ -70,21 +76,19 @@ pub async fn health(repo: &Path, mode: Mode, stale_days: u64, no_overlay: bool) 
     let mut records: Vec<HealthRecord> = Vec::new();
 
     for ws in &workspaces {
+        // --- resolve effective git directory ---------------------------
+        // For linked worktrees, `.git` is a text file: `gitdir: <path>`.
+        // All per-worktree state files live under that resolved path.
+        let effective_git_dir = resolve_git_dir(&ws.path);
+
         // --- lock file -------------------------------------------------
-        let git_dir = ws.path.join(".git");
-        let lock_path = if git_dir.is_file() {
-            std::fs::read_to_string(&git_dir)
-                .ok()
-                .and_then(|s| {
-                    s.strip_prefix("gitdir: ")
-                        .map(|p| std::path::PathBuf::from(p.trim()))
-                })
-                .unwrap_or_else(|| git_dir.clone())
-                .join("index.lock")
-        } else {
-            git_dir.join("index.lock")
-        };
-        let has_lock = lock_path.exists();
+        let has_lock = effective_git_dir.join("index.lock").exists();
+
+        // --- in-progress git operations (Phase 3) ----------------------
+        let rebase_in_progress = effective_git_dir.join("rebase-merge").is_dir()
+            || effective_git_dir.join("rebase-apply").is_dir();
+        let merge_in_progress = effective_git_dir.join("MERGE_HEAD").exists();
+        let cherry_pick_in_progress = effective_git_dir.join("CHERRY_PICK_HEAD").exists();
 
         // --- uncommitted -----------------------------------------------
         let uncommitted = git::get_uncommitted_files(&ws.path)
@@ -111,11 +115,34 @@ pub async fn health(repo: &Path, mode: Mode, stale_days: u64, no_overlay: bool) 
             has_lock,
             ci_status,
             pr_number,
+            rebase_in_progress,
+            merge_in_progress,
+            cherry_pick_in_progress,
         });
     }
 
     output::print_health(&records, mode);
     Ok(())
+}
+
+/// Resolve the effective git directory for a worktree path.
+///
+/// For a linked worktree, `.git` is a text file containing
+/// `gitdir: <absolute-path>`. For the main worktree, `.git` is a directory.
+/// Returns the resolved path, or `<ws_path>/.git` as a fallback.
+fn resolve_git_dir(ws_path: &Path) -> std::path::PathBuf {
+    let dot_git = ws_path.join(".git");
+    if dot_git.is_file() {
+        std::fs::read_to_string(&dot_git)
+            .ok()
+            .and_then(|s| {
+                s.strip_prefix("gitdir: ")
+                    .map(|p| std::path::PathBuf::from(p.trim()))
+            })
+            .unwrap_or(dot_git)
+    } else {
+        dot_git
+    }
 }
 
 /// Resolve CI status for a worktree branch via the GitHub client.
@@ -150,5 +177,112 @@ async fn fetch_ci_overlay(
             eprintln!("health: CI status fetch failed for PR #{}: {}", pr_num, e);
             (None, Some(pr_num))
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    /// Create a fake main-worktree layout: `<dir>/.git/` is a directory.
+    fn make_main_git_dir(root: &TempDir) -> std::path::PathBuf {
+        let git_dir = root.path().join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+        git_dir
+    }
+
+    /// Create a fake linked-worktree layout:
+    /// `<root>/.git` is a file pointing to `<target>`.
+    fn make_linked_git_dir(root: &TempDir, target: &std::path::Path) {
+        let dot_git = root.path().join(".git");
+        fs::write(&dot_git, format!("gitdir: {}\n", target.display())).unwrap();
+    }
+
+    #[test]
+    fn resolve_git_dir_main_worktree() {
+        let tmp = TempDir::new().unwrap();
+        let git_dir = make_main_git_dir(&tmp);
+        let resolved = resolve_git_dir(tmp.path());
+        assert_eq!(resolved, git_dir, "main worktree: resolved path = .git dir");
+    }
+
+    #[test]
+    fn resolve_git_dir_linked_worktree() {
+        let main_tmp = TempDir::new().unwrap();
+        let linked_tmp = TempDir::new().unwrap();
+        let target = main_tmp.path().join(".git").join("worktrees").join("feat");
+        fs::create_dir_all(&target).unwrap();
+        make_linked_git_dir(&linked_tmp, &target);
+
+        let resolved = resolve_git_dir(linked_tmp.path());
+        assert_eq!(
+            resolved, target,
+            "linked worktree: resolved path = gitdir target"
+        );
+    }
+
+    #[test]
+    fn detects_rebase_merge_dir() {
+        let tmp = TempDir::new().unwrap();
+        let git_dir = make_main_git_dir(&tmp);
+        fs::create_dir_all(git_dir.join("rebase-merge")).unwrap();
+
+        let effective = resolve_git_dir(tmp.path());
+        assert!(effective.join("rebase-merge").is_dir());
+        assert!(effective.join("rebase-merge").is_dir() || effective.join("rebase-apply").is_dir());
+    }
+
+    #[test]
+    fn detects_rebase_apply_dir() {
+        let tmp = TempDir::new().unwrap();
+        let git_dir = make_main_git_dir(&tmp);
+        fs::create_dir_all(git_dir.join("rebase-apply")).unwrap();
+
+        let effective = resolve_git_dir(tmp.path());
+        let rebase_in_progress =
+            effective.join("rebase-merge").is_dir() || effective.join("rebase-apply").is_dir();
+        assert!(
+            rebase_in_progress,
+            "rebase-apply dir should trigger rebase_in_progress"
+        );
+    }
+
+    #[test]
+    fn detects_merge_head() {
+        let tmp = TempDir::new().unwrap();
+        let git_dir = make_main_git_dir(&tmp);
+        fs::write(git_dir.join("MERGE_HEAD"), "abc123\n").unwrap();
+
+        let effective = resolve_git_dir(tmp.path());
+        assert!(effective.join("MERGE_HEAD").exists());
+    }
+
+    #[test]
+    fn detects_cherry_pick_head() {
+        let tmp = TempDir::new().unwrap();
+        let git_dir = make_main_git_dir(&tmp);
+        fs::write(git_dir.join("CHERRY_PICK_HEAD"), "abc123\n").unwrap();
+
+        let effective = resolve_git_dir(tmp.path());
+        assert!(effective.join("CHERRY_PICK_HEAD").exists());
+    }
+
+    #[test]
+    fn no_false_positives_when_clean() {
+        let tmp = TempDir::new().unwrap();
+        make_main_git_dir(&tmp);
+
+        let effective = resolve_git_dir(tmp.path());
+        assert!(!effective.join("rebase-merge").is_dir());
+        assert!(!effective.join("rebase-apply").is_dir());
+        assert!(!effective.join("MERGE_HEAD").exists());
+        assert!(!effective.join("CHERRY_PICK_HEAD").exists());
+        assert!(!effective.join("index.lock").exists());
     }
 }

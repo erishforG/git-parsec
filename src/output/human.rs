@@ -1156,14 +1156,35 @@ pub fn print_health(records: &[super::HealthRecord]) {
 
         let ci_issue = matches!(r.ci_status.as_deref(), Some("failing") | Some("failure"));
 
+        // Phase 3: in-progress git operation tags
+        let rebase_tag = if r.rebase_in_progress {
+            "  ⚠ rebase in progress!".red().to_string()
+        } else {
+            String::new()
+        };
+        let merge_tag = if r.merge_in_progress {
+            "  ⚠ merge in progress!".red().to_string()
+        } else {
+            String::new()
+        };
+        let cherry_tag = if r.cherry_pick_in_progress {
+            "  ⚠ cherry-pick in progress!".red().to_string()
+        } else {
+            String::new()
+        };
+
+        let op_in_progress =
+            r.rebase_in_progress || r.merge_in_progress || r.cherry_pick_in_progress;
+
         let any_issue = r.has_lock
             || r.uncommitted > 0
             || ci_issue
+            || op_in_progress
             || r.stale_days
                 .map(|d| d > r.stale_threshold_days)
                 .unwrap_or(false);
 
-        let icon = if r.has_lock || ci_issue {
+        let icon = if r.has_lock || ci_issue || op_in_progress {
             "✗".red().to_string()
         } else if any_issue {
             "⚠".yellow().to_string()
@@ -1176,13 +1197,16 @@ pub fn print_health(records: &[super::HealthRecord]) {
         }
 
         println!(
-            "  {} {:<20}{}{}{}{}",
+            "  {} {:<20}{}{}{}{}{}{}{}",
             icon,
             r.ticket.bold(),
             uncommitted_tag,
             stale_tag,
             lock_tag,
             ci_tag,
+            rebase_tag,
+            merge_tag,
+            cherry_tag,
         );
     }
     println!();

@@ -380,6 +380,9 @@ pub fn print_health(records: &[super::HealthRecord]) {
                 "ci_status": r.ci_status,
                 "pr_number": r.pr_number,
                 "ci_failing": ci_failing,
+                "rebase_in_progress": r.rebase_in_progress,
+                "merge_in_progress": r.merge_in_progress,
+                "cherry_pick_in_progress": r.cherry_pick_in_progress,
             })
         })
         .collect();
@@ -391,6 +394,9 @@ pub fn print_health(records: &[super::HealthRecord]) {
                 .map(|d| d > r.stale_threshold_days)
                 .unwrap_or(false)
             && !matches!(r.ci_status.as_deref(), Some("failing") | Some("failure"))
+            && !r.rebase_in_progress
+            && !r.merge_in_progress
+            && !r.cherry_pick_in_progress
     });
     println!(
         "{}",
