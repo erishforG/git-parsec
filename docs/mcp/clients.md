@@ -1,26 +1,30 @@
 # git-parsec MCP Client Registration
 
-**Version**: 0.1 (draft)  
-**Date**: 2026-06-13  
+**Version**: 1.0  
+**Date**: 2026-08-31  
 **Milestone**: v1.0  
 **Refs**: #293, #241
 
 ## Goal
 
-This document fixes the Phase 3 registration contract for running
-`parsec mcp serve` from desktop MCP clients. It keeps registration details in
-`docs/mcp/` while the Rust transport continues to evolve in `src/mcp/`.
+This document is the reference for connecting desktop AI clients
+(Claude Desktop, Cursor) to the `parsec mcp serve` stdio transport.
+The automated installer (`parsec mcp install`) is the recommended path;
+manual JSON snippets are provided as a fallback.
+
+All described behaviors are fully implemented as of Phase 39. See
+`docs/mcp-quickstart.md` for the end-to-end user workflow.
 
 ## Server Command
 
-All clients should launch the server with stdio transport:
+All clients launch the server with stdio transport:
 
 ```sh
 parsec mcp serve
 ```
 
 The process reads newline-delimited JSON-RPC 2.0 from stdin and writes only
-JSON-RPC responses to stdout. Human diagnostics must go to stderr so client
+JSON-RPC responses to stdout. Human diagnostics go to stderr so client
 recordings stay protocol-clean.
 
 When testing a local checkout, use an absolute path to the debug binary:
@@ -29,9 +33,37 @@ When testing a local checkout, use an absolute path to the debug binary:
 /path/to/git-parsec/target/debug/parsec mcp serve
 ```
 
-## Claude Desktop
+## Automated Installer (Recommended)
 
-Add a server entry named `git-parsec` to the Claude Desktop MCP configuration:
+Use `parsec mcp install` to write or update client config automatically:
+
+```sh
+# Preview without writing anything
+parsec mcp install --client=claude-desktop --dry-run
+
+# Write Claude Desktop config
+parsec mcp install --client=claude-desktop
+
+# Write Cursor config
+parsec mcp install --client=cursor
+```
+
+The installer:
+- Merges `mcpServers.git-parsec` into the existing client JSON config.
+- Creates a timestamped backup of any previous file before overwriting.
+- Preserves all other `mcpServers` entries and top-level keys.
+- Refuses to write if the file contains non-JSON syntax (comments, trailing commas).
+- Never embeds GitHub tokens or other credentials in client config.
+
+After running the command, **restart the client** to pick up the new server.
+
+## Manual Setup
+
+If you prefer to configure clients by hand, use the snippets below.
+
+### Claude Desktop
+
+Add a `git-parsec` entry to the Claude Desktop MCP configuration:
 
 ```json
 {
@@ -57,9 +89,9 @@ For local development, replace `command` with an absolute binary path:
 }
 ```
 
-## Cursor
+### Cursor
 
-Cursor should register the same stdio command shape:
+Cursor uses the same stdio command shape:
 
 ```json
 {
@@ -72,14 +104,10 @@ Cursor should register the same stdio command shape:
 }
 ```
 
-If Cursor is opened outside the target repository, tool calls should pass the
-`repo` argument explicitly so the server can resolve the intended git root.
+If Cursor is opened outside the target repository, pass the `repo` argument
+explicitly in tool calls so the server can resolve the intended git root.
 
 ## Client Config Files
-
-Manual setup and future installer hooks should target only documented MCP
-configuration files. If a path is missing, print the matching JSON block from
-this document and let the user create the file.
 
 | Client | Platform | Config file |
 |---|---|---|
@@ -88,24 +116,14 @@ this document and let the user create the file.
 | Cursor | macOS/Linux | `~/.cursor/mcp.json` |
 | Cursor | Windows | `%USERPROFILE%\.cursor\mcp.json` |
 
-Installer hooks must not guess alternate locations. When client vendors change
-their config path, update this table before changing any automation.
-
-### Merge Rules
-
-When updating an existing config file, automation must:
-
-- Parse the file as JSON before writing.
-- Preserve unrelated top-level keys and unrelated `mcpServers` entries.
-- Replace only the `mcpServers.git-parsec` entry.
-- Keep `command` and `args` as separate fields; do not shell-join them.
-- Stop without writing if the file contains comments, trailing commas, or other
-  non-JSON syntax.
+The installer resolves these paths automatically. Manual setup should use
+the same paths; if a client vendor changes its config location, update this
+table before changing any automation.
 
 ## Environment
 
-The server must not depend on ambient GitHub credentials. GitHub-backed tools
-should receive delegated credentials from the client session as described in
+The server does not depend on ambient GitHub credentials. GitHub-backed tools
+receive delegated credentials from the client session as described in
 `docs/mcp/auth.md`.
 
 Allowed process environment:
@@ -113,14 +131,16 @@ Allowed process environment:
 | Variable | Required | Notes |
 |---|---|---|
 | `PATH` | Yes | Must locate `parsec` unless `command` is absolute |
+| `PARSEC_GITHUB_TOKEN` | No | Delegated GitHub token for non-interactive hosts |
+| `PARSEC_MCP_CONFIG` | No | Override path for `mcp.toml` config file |
 | `RUST_LOG` | No | Diagnostics only; never write protocol logs to stdout |
 
-Disallowed as auth inputs:
+Disallowed as auth inputs (ambient credentials — use delegated MCP context):
 
 | Variable | Reason |
 |---|---|
-| `GITHUB_TOKEN` | Ambient credential; use delegated MCP context |
-| `GH_TOKEN` | Ambient credential; use delegated MCP context |
+| `GITHUB_TOKEN` | Ambient credential; use `PARSEC_GITHUB_TOKEN` instead |
+| `GH_TOKEN` | Ambient credential; use `PARSEC_GITHUB_TOKEN` instead |
 
 ## Smoke Test
 
@@ -133,7 +153,8 @@ After registration, clients should be able to run `initialize`, `ping`,
 }
 ```
 
-The tool list should include `worktree_list`, `worktree_status`, `smartlog`,
+The tool list must include at least 10 tools: `worktree_list`,
+`worktree_start`, `worktree_status`, `worktree_ship`, `smartlog`,
 `ci_status`, `pr_status`, `health_check`, `reviews`, and `sync`.
 
 The expected `ping` result is an empty JSON object:
@@ -145,37 +166,22 @@ The expected `ping` result is an empty JSON object:
 The expected `shutdown` result is JSON `null`. Clients may then close stdin
 without expecting additional stdout frames.
 
+Fixture-driven smoke tests run automatically via `cargo test`.
+
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| Client cannot start server | Use an absolute binary path and confirm `parsec mcp serve` runs in a shell |
+| Client cannot start server | Use an absolute binary path; confirm `parsec mcp serve` runs in a shell |
 | JSON parse failures | Confirm no logs or prompts are written to stdout |
 | Tools cannot find repository | Pass an absolute `repo` argument in the tool call |
-| GitHub-backed tools fail auth | Confirm the client delegated a token to MCP context |
-
-## Installer Hook Contract
-
-Future installer hooks may automate the JSON snippets above, but they must keep
-manual registration as the source of truth. The hook should:
-
-- Resolve the `parsec` binary path before writing client config.
-- Detect only the Claude Desktop and Cursor config files listed above.
-- Create a timestamped backup before modifying an existing config file.
-- Preserve unrelated `mcpServers` entries and update only `git-parsec`.
-- Support `--dry-run` output that prints the target file and JSON diff without
-  writing to disk.
-- Refuse to embed `GITHUB_TOKEN`, `GH_TOKEN`, or other credentials in config.
-
-If a client config file cannot be parsed, the hook must stop and print the
-manual JSON block from this document instead of rewriting the file.
+| GitHub-backed tools fail auth | Set `PARSEC_GITHUB_TOKEN` or configure `~/.config/parsec/mcp.toml` |
 
 ## Typical AI Agent Workflow
 
-The table below shows the sequence of MCP calls an AI client (Claude Desktop,
-Cursor, etc.) makes when creating and shipping a feature branch.
-Each step matches a fixture in `tests/mcp/fixtures/stdio_smoke.jsonl`
-(names prefixed `scenario-e2e-`).
+The table below shows the sequence of MCP calls an AI client makes when
+creating and shipping a feature branch. Each step matches a fixture in
+`tests/mcp/fixtures/stdio_smoke.jsonl` (names prefixed `scenario-e2e-`).
 
 | Step | Method / Tool | Key arguments | Expected outcome |
 |---|---|---|---|
@@ -193,19 +199,20 @@ explain the planned change to the user before committing side effects.
 Steps 6 and 8 require explicit user confirmation and a delegated GitHub token
 with the `pull_request:write` scope.
 
-Replay fixtures for steps 1–5 and 7 are deterministic without a real
-repository and are exercised by `cargo test --quiet`. Steps 6 and 8 require a
-live git repository and GitHub credentials; they are covered by manual e2e
-recordings in `tests/mcp/fixtures/stdio_smoke.jsonl` (prefix
-`scenario-e2e-`) and the `#295` tracking issue.
+Deterministic fixtures for steps 1–5 and 7 are exercised by `cargo test`.
+Steps 6 and 8 require a live repository and are covered by recordings in
+`tests/mcp/fixtures/stdio_smoke.jsonl` (prefix `scenario-e2e-`).
 
-## Next Phases
+## Implementation Phase History
 
-| Phase | Work |
-|---|---|
-| Phase 4–11 | Automated smoke fixtures, redaction checks, lifecycle fixtures (shipped) |
-| Phase 32 | Claude Desktop / Cursor e2e scenario fixtures — `scenario-e2e-*` (this PR) |
-| Phase 33 | Automated installer hook (`parsec mcp install --client=claude-desktop`) | ✅ shipped |
-| Phase 34 | Live e2e recording with a sandboxed test repository (issue #295) |
+| Phase | Work | Status |
+|---|---|---|
+| Phase 3 | Registration contract, JSON config snippets, smoke-test expectations | ✅ shipped |
+| Phases 4–11 | Automated smoke fixtures, redaction checks, lifecycle fixtures | ✅ shipped |
+| Phase 32 (#295) | Claude Desktop / Cursor e2e scenario fixtures (`scenario-e2e-*`) | ✅ shipped |
+| Phase 33 (#293) | Automated installer (`parsec mcp install --client=claude-desktop/cursor`) | ✅ shipped |
+| Phase 34 (#295) | Live subprocess e2e with sandboxed test repository (10 tests) | ✅ shipped |
+| Phase 39 (#293) | End-to-end user quickstart (`docs/mcp-quickstart.md`) | ✅ shipped |
+| Phase 41 (#293) | Docs finalised to v1.0 — stale draft markers and "future phases" removed | ✅ shipped |
 
 *Maintained by the git-parsec team. Client registration changes require review by @erishforG.*
