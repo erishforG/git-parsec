@@ -1,7 +1,7 @@
 # git-parsec MCP Tool Specification
 
-**Version**: 0.1 (draft)  
-**Date**: 2026-07-02  
+**Version**: 1.0  
+**Date**: 2026-08-31  
 **Milestone**: v1.0  
 **Refs**: #292, #241
 
@@ -698,14 +698,15 @@ All tools return MCP `isError: true` with a structured body on failure:
 }
 ```
 
-Current Phase 3 transport stubs use the same shape with `tool_error` while a
-registered tool is reachable through `tools/call` but not yet implemented:
+Tool handler failures use the same envelope shape. All 10 registered tools are
+fully wired (Phase 31). A `tool_error` now indicates a runtime failure such as
+a git command error or a missing worktree, not a stub:
 
 ```json
 {
   "error": {
     "code": "tool_error",
-    "message": "worktree_status: implementation is planned for a later MCP phase (#293)",
+    "message": "worktree_status: no worktree found for ticket 'PROJ-999'",
     "tool": "worktree_status"
   }
 }
@@ -715,7 +716,7 @@ registered tool is reachable through `tools/call` but not yet implemented:
 
 | Code | Meaning |
 |---|---|
-| `tool_error` | Registered tool handler failed or is still a structured stub |
+| `tool_error` | Registered tool handler encountered a runtime error |
 | `WORKTREE_NOT_FOUND` | Ticket has no managed worktree |
 | `GIT_ERROR` | Underlying git2 / git CLI error |
 | `GITHUB_API_ERROR` | GitHub API call failed (rate limit, auth, network) |
@@ -726,6 +727,7 @@ registered tool is reachable through `tools/call` but not yet implemented:
 | `AUTH_REQUIRED` | Tool requires a delegated GitHub token and none was provided |
 | `INSUFFICIENT_SCOPE` | Delegated token does not cover the requested GitHub operation |
 | `SANDBOX_VIOLATION` | Requested repository or path escapes the validated parsec boundary |
+| `CONFIRMATION_REQUIRED` | Mutating tool called without `dry_run=true` or `confirm=true` |
 | `DRY_RUN_REQUIRED` | Server policy requires preview mode for the requested mutation |
 
 ---
@@ -756,8 +758,8 @@ sync                ──► git2
   not read from env inside tool handlers.
 - `dry_run` is a first-class parameter on all mutating tools and must be
   honoured before any side-effecting call.
-- Response structs derive `serde::Serialize`; schemas in this doc are
-  generated from those structs (to be automated in Phase 2).
+- Response structs derive `serde::Serialize`; schemas in this doc reflect the
+  final wired implementation as of Phase 31.
 
 ---
 
@@ -776,10 +778,15 @@ sync                ──► git2
 | Phases 26–29 (#293) | `pr_status`, `reviews`, `ci_status`, `sync` wired | ✅ shipped |
 | Phase 30 (#293) | `worktree_start` wired — dry_run/confirm gate | ✅ shipped |
 | Phase 31 (#293) | `worktree_ship` wired — push + `gh pr create` + cleanup | ✅ shipped |
-| Phase 32 (#295) | Claude Desktop / Cursor e2e scenario fixtures | ✅ shipped (this PR) |
+| Phase 32 (#295) | Claude Desktop / Cursor e2e scenario fixtures | ✅ shipped |
 | Phase 33 (#293) | `parsec mcp install` — automated client config writer | ✅ shipped |
 | Phase 34 (#295) | Live e2e with sandboxed test repository — subprocess stdio e2e (10 tests) | ✅ shipped |
+| Phase 35 (#294) | `PARSEC_GITHUB_TOKEN` env var → `McpContext.github_token` (non-interactive host) | ✅ shipped |
+| Phase 36 (#294) | `~/.config/parsec/mcp.toml` config-file auth — token + scopes; env var wins | ✅ shipped |
+| Phase 37 (#294) | Config-file → scope-gate enforcement integration tests; 4 new fixture records | ✅ shipped |
+| Phase 38 (#295) | `mcp.toml` auth source + env-var precedence e2e; token-redaction assertions | ✅ shipped |
 | Phase 39 (#293) | `docs/mcp-quickstart.md` — end-to-end user quickstart (install → auth → workflows) | ✅ shipped |
+| Phase 40 (#292) | Spec finalised to v1.0 — Phase Status completed, stale stub notes removed | ✅ shipped |
 
 ---
 
