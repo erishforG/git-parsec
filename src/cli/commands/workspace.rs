@@ -315,7 +315,7 @@ pub async fn list(repo: &Path, no_pr: bool, full: bool, mode: Mode) -> Result<()
             // Fetch live PR status from GitHub
             if let Some(ref remote_url) = remote_url {
                 if let Ok(Some(gh)) = github::GitHubClient::new(remote_url, &config) {
-                    for (_ticket, (pr_num, state)) in pr_map.iter_mut() {
+                    for (pr_num, state) in pr_map.values_mut() {
                         if let Ok(status) = gh.get_pr_status(*pr_num).await {
                             *state = status.state;
                         }
