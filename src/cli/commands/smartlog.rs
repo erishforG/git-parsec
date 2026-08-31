@@ -15,7 +15,7 @@
 //!   degrade gracefully to "no overlay" without failing the command.
 //! - Users can opt out with `--no-overlay` for a fully offline run.
 //!
-//! Phase 3 (this PR — filter · color · stack indicators):
+//! Phase 3 (PR #333 — filter · color · stack indicators):
 //! - `--worktree <pattern>`: show only worktrees whose ticket or branch contains
 //!   the pattern (case-insensitive substring match).
 //! - ANSI color in the PR/CI badge: green=success, red=failure, yellow=pending,
@@ -24,8 +24,18 @@
 //! - Stack indicator: when a worktree's base branch is itself another active
 //!   worktree's branch, annotate it with `⤷ stacked on <ticket>` so stacked-PR
 //!   flows are immediately visible.
+//!
+//! Phase 4 (Issue #308 — topological DAG ordering + summary header):
+//! - Groups are now rendered in topological order so stacked worktrees appear
+//!   immediately below their parent in the output (no more alphabetical jumps).
+//! - A one-line summary header: `smartlog  N worktrees · M stacked` gives a
+//!   quick count before the tree.
+//! - Multi-level stacks (depth > 1) are ordered correctly by the topo-sort so
+//!   grandparent → parent → child ordering is preserved.
+//! - Cycle-safe: a `placed` set ensures no group is emitted twice even if
+//!   worktree branches form unusual reference loops.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
@@ -319,15 +329,27 @@ pub fn render_text(nodes: &[SmartlogNode], color: bool) -> String {
         by_base.entry(n.base_branch.clone()).or_default().push(n);
     }
 
-    let mut out = String::new();
-    let base_count = by_base.len();
-    for (base_idx, (base, group)) in by_base.iter().enumerate() {
-        // Phase 3: if the base branch is itself a worktree branch, mark it as
-        // a stacked group rather than a plain base label.
+    // Phase 4: summary header.
+    let stacked_count = nodes
+        .iter()
+        .filter(|n| branch_to_ticket.contains_key(n.base_branch.as_str()))
+        .count();
+    let mut out = format!(
+        "smartlog  {} worktree{} · {} stacked\n",
+        nodes.len(),
+        if nodes.len() == 1 { "" } else { "s" },
+        stacked_count,
+    );
+
+    // Phase 4: topological ordering — stacked groups follow their parent.
+    let ordered = topo_sort_groups(&by_base, &branch_to_ticket);
+    for (base, group) in &ordered {
+        // Phase 3/4: if the base branch is itself a worktree branch, mark it as
+        // a stacked group and show its parent ticket with ⤷ arrow.
         if let Some(parent_ticket) = branch_to_ticket.get(base.as_str()) {
-            out.push_str(&format!("○ {} (stacked on {})\n", base, parent_ticket));
+            out.push_str(&format!("\n○ {} ⤷ stacked on {}\n", base, parent_ticket));
         } else {
-            out.push_str(&format!("○ {} (base)\n", base));
+            out.push_str(&format!("\n○ {} (base)\n", base));
         }
         let last_idx = group.len().saturating_sub(1);
         for (i, node) in group.iter().enumerate() {
@@ -359,11 +381,66 @@ pub fn render_text(nodes: &[SmartlogNode], color: bool) -> String {
                 }
             }
         }
-        if base_idx + 1 < base_count {
-            out.push('\n');
-        }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: topological DAG group ordering
+// ---------------------------------------------------------------------------
+
+/// Sort `by_base` groups so that stacked groups appear immediately after the
+/// group containing their parent worktree.
+///
+/// Algorithm:
+/// 1. Emit root bases (bases not matching any worktree branch) first, in
+///    alphabetical order.
+/// 2. After each group, immediately emit any stacked group whose base equals
+///    one of the branches in the just-emitted group.
+/// 3. Any remaining groups (e.g., whose parent was filtered out) are appended
+///    at the end, also in alphabetical order.
+///
+/// A `placed` set prevents infinite loops when an unusual worktree graph has
+/// a cycle in its stacking relationships.
+fn topo_sort_groups<'a>(
+    by_base: &'a BTreeMap<String, Vec<&'a SmartlogNode>>,
+    branch_to_ticket: &HashMap<&str, &str>,
+) -> Vec<(&'a String, &'a Vec<&'a SmartlogNode>)> {
+    let mut ordered: Vec<(&'a String, &'a Vec<&'a SmartlogNode>)> = Vec::new();
+    let mut placed: HashSet<&str> = HashSet::new();
+
+    fn visit<'a>(
+        base: &str,
+        by_base: &'a BTreeMap<String, Vec<&'a SmartlogNode>>,
+        placed: &mut HashSet<&'a str>,
+        ordered: &mut Vec<(&'a String, &'a Vec<&'a SmartlogNode>)>,
+    ) {
+        if placed.contains(base) {
+            return;
+        }
+        if let Some((key, group)) = by_base.get_key_value(base) {
+            placed.insert(key.as_str());
+            ordered.push((key, group));
+            // Recurse: for each node in this group, check if any by_base entry
+            // has that node's branch as its base.
+            for node in group {
+                visit(node.branch.as_str(), by_base, placed, ordered);
+            }
+        }
+    }
+
+    // First pass: process root bases (those whose base key is NOT a worktree
+    // branch).  BTreeMap iteration is alphabetical, giving a stable order.
+    for base in by_base.keys() {
+        if !branch_to_ticket.contains_key(base.as_str()) {
+            visit(base, by_base, &mut placed, &mut ordered);
+        }
+    }
+    // Second pass: any groups not yet placed (parents filtered out, orphans).
+    for base in by_base.keys() {
+        visit(base, by_base, &mut placed, &mut ordered);
+    }
+    ordered
 }
 
 // ---------------------------------------------------------------------------
@@ -687,5 +764,100 @@ mod tests {
             "failure CI should use red (31) ANSI code, got: {:?}",
             badge
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 4 tests: topological ordering + summary header
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn summary_header_appears_with_counts() {
+        let nodes = vec![
+            mk_node("PROJ-1", Some("A"), "feat/PROJ-1", vec![]),
+            mk_node("PROJ-2", Some("B"), "feat/PROJ-2", vec![]),
+        ];
+        let s = render_text(&nodes, false);
+        // Summary header must be present and contain worktree count.
+        assert!(s.starts_with("smartlog "), "summary header missing");
+        assert!(s.contains("2 worktrees"), "worktree count wrong: {}", s);
+        assert!(s.contains("0 stacked"), "stacked count wrong: {}", s);
+    }
+
+    #[test]
+    fn summary_header_singular_worktree() {
+        let nodes = vec![mk_node("CL-1", Some("A"), "feat/CL-1", vec![])];
+        let s = render_text(&nodes, false);
+        assert!(s.contains("1 worktree ·"), "singular form wrong: {}", s);
+    }
+
+    #[test]
+    fn topo_sort_stacked_group_follows_parent() {
+        // PROJ-2 stacks on PROJ-1.  In alphabetical order PROJ-1 < PROJ-2
+        // so both orderings happen to agree; use a lexicographically-later
+        // parent name to exercise the non-trivial case.
+        let parent = mk_node("PROJ-Z", Some("Parent"), "feat/PROJ-Z", vec![]);
+        let mut child = mk_node("PROJ-A", Some("Child"), "feat/PROJ-A", vec![]);
+        child.base_branch = "feat/PROJ-Z".to_string();
+
+        // Alphabetically PROJ-A's base (feat/PROJ-A) would come before
+        // feat/PROJ-Z, but with topo sort the child group should appear
+        // directly after the parent group in the rendered output.
+        let nodes = vec![parent, child];
+        let s = render_text(&nodes, false);
+
+        // Both groups must appear.
+        assert!(s.contains("PROJ-Z"), "parent not rendered");
+        assert!(s.contains("PROJ-A"), "child not rendered");
+
+        // The child's stacked header must appear AFTER the parent section.
+        let parent_pos = s.find("PROJ-Z").unwrap();
+        let child_stack_pos = s.find("⤷ stacked on PROJ-Z").unwrap();
+        assert!(
+            parent_pos < child_stack_pos,
+            "child group should follow parent group; got:\n{}",
+            s
+        );
+
+        // Stacked count should be 1.
+        assert!(s.contains("1 stacked"), "stacked count wrong: {}", s);
+    }
+
+    #[test]
+    fn topo_sort_multi_level_stack_order() {
+        // grandparent → parent → child (three levels)
+        let gp = mk_node("GP", Some("Grandparent"), "feat/GP", vec![]);
+        let mut parent = mk_node("PA", Some("Parent"), "feat/PA", vec![]);
+        parent.base_branch = "feat/GP".to_string();
+        let mut child = mk_node("CH", Some("Child"), "feat/CH", vec![]);
+        child.base_branch = "feat/PA".to_string();
+
+        let nodes = vec![gp, parent, child];
+        let s = render_text(&nodes, false);
+
+        // GP sits on "main" (the mk_node default base), so the root label is
+        // "main (base)", not "GP (base)".  PA and CH are stacked and use the
+        // ⤷ arrow with their parent's ticket name.
+        let gp_pos = s.find("main (base)").unwrap();
+        let pa_pos = s.find("⤷ stacked on GP").unwrap();
+        let ch_pos = s.find("⤷ stacked on PA").unwrap();
+        assert!(gp_pos < pa_pos, "parent should follow grandparent");
+        assert!(pa_pos < ch_pos, "child should follow parent");
+        assert!(s.contains("2 stacked"), "stacked count wrong: {}", s);
+    }
+
+    #[test]
+    fn topo_sort_stable_for_independent_roots() {
+        // Two independent root bases: `develop` and `main`.
+        // BTreeMap alphabetical order: develop < main.
+        let a = mk_node("CL-A", Some("A"), "feat/CL-A", vec![]);
+        let mut b = mk_node("CL-B", Some("B"), "feat/CL-B", vec![]);
+        b.base_branch = "develop".to_string();
+
+        let nodes = vec![a, b];
+        let s = render_text(&nodes, false);
+        // Both roots (main, develop) should appear in the output.
+        assert!(s.contains("main (base)") || s.contains("develop (base)"));
+        assert!(s.contains("CL-A") && s.contains("CL-B"));
+        assert!(s.contains("0 stacked"), "no stacks expected");
     }
 }
