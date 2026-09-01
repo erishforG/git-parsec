@@ -34,6 +34,17 @@
 //!   grandparent → parent → child ordering is preserved.
 //! - Cycle-safe: a `placed` set ensures no group is emitted twice even if
 //!   worktree branches form unusual reference loops.
+//!
+//! Phase 5 (Issue #309 — PR merge readiness overlay):
+//! - `SmartlogPrOverlay::merge_ready: Option<bool>` surface the GitHub
+//!   `mergeable` field that `get_pr_status()` already fetches but previously
+//!   discarded before reaching the smartlog layer.
+//! - `format_pr_badge()` appends `⬆ ready` (green) or `⚡ conflicts` (red)
+//!   when the field is populated; open PRs with unknown mergeable state or
+//!   non-open PRs omit the segment so output stays compact.
+//! - Backward-compatible: `merge_ready` is `#[serde(skip_serializing_if =
+//!   "Option::is_none")]` so existing JSON consumers and golden fixtures keep
+//!   working.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal as _;
@@ -87,6 +98,14 @@ pub struct SmartlogPrOverlay {
     /// `approved` / `changes_requested` / `pending` / `no reviews`.
     pub review_status: String,
     pub url: String,
+    /// GitHub merge readiness — `Some(true)` when the PR can be merged
+    /// (no conflicts, all checks green per GitHub's internal verdict),
+    /// `Some(false)` when there are conflicts or blocking checks.
+    /// `None` when GitHub has not yet computed the state (e.g., immediately
+    /// after a push) or the PR is already merged/closed.
+    /// Skip-serialised when absent so existing JSON consumers see no change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge_ready: Option<bool>,
 }
 
 /// Single commit in a worktree's diff against its base.
@@ -198,12 +217,20 @@ async fn fetch_overlay(client: &GitHubClient, branch: &str) -> Result<Option<Sma
         None => return Ok(None),
     };
     let status = client.get_pr_status(pr_num).await?;
+    // Populate merge_ready only for open PRs; merged/closed PRs don't have a
+    // meaningful "can be merged" state from GitHub's perspective.
+    let merge_ready = if status.state == "open" {
+        status.mergeable
+    } else {
+        None
+    };
     Ok(Some(SmartlogPrOverlay {
         number: status.number,
         state: status.state,
         ci_status: status.ci_status,
         review_status: status.review_status,
         url: status.url,
+        merge_ready,
     }))
 }
 
@@ -276,6 +303,18 @@ fn format_pr_badge(pr: &SmartlogPrOverlay, color: bool) -> String {
         // Strip the closing bracket, append review, re-close.
         out.pop();
         out.push_str(&format!(" {}]", r));
+    }
+    // Phase 5: merge readiness segment — only for open PRs.
+    if pr.state == "open" {
+        if let Some(ready) = pr.merge_ready {
+            let segment = if ready {
+                ansi_wrap(32, "⬆ ready", color) // green
+            } else {
+                ansi_wrap(31, "⚡ conflicts", color) // red
+            };
+            out.pop(); // remove ']'
+            out.push_str(&format!(" {}]", segment));
+        }
     }
     out
 }
@@ -613,6 +652,23 @@ mod tests {
             ci_status: ci.to_string(),
             review_status: review.to_string(),
             url: "https://github.com/erishforG/git-parsec/pull/42".to_string(),
+            merge_ready: None,
+        }
+    }
+
+    fn mk_overlay_with_readiness(
+        state: &str,
+        ci: &str,
+        review: &str,
+        merge_ready: Option<bool>,
+    ) -> SmartlogPrOverlay {
+        SmartlogPrOverlay {
+            number: 99,
+            state: state.to_string(),
+            ci_status: ci.to_string(),
+            review_status: review.to_string(),
+            url: "https://github.com/erishforG/git-parsec/pull/99".to_string(),
+            merge_ready,
         }
     }
 
@@ -859,5 +915,103 @@ mod tests {
         assert!(s.contains("main (base)") || s.contains("develop (base)"));
         assert!(s.contains("CL-A") && s.contains("CL-B"));
         assert!(s.contains("0 stacked"), "no stacks expected");
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 5 tests: merge readiness overlay (#309)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn merge_ready_true_appends_ready_segment() {
+        let overlay = mk_overlay_with_readiness("open", "success", "approved", Some(true));
+        let badge = format_pr_badge(&overlay, false);
+        assert!(
+            badge.contains("⬆ ready"),
+            "expected '⬆ ready' in badge but got: {}",
+            badge
+        );
+        assert!(
+            badge.ends_with("⬆ ready]"),
+            "ready segment should be last: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_false_appends_conflicts_segment() {
+        let overlay = mk_overlay_with_readiness("open", "success", "approved", Some(false));
+        let badge = format_pr_badge(&overlay, false);
+        assert!(
+            badge.contains("⚡ conflicts"),
+            "expected '⚡ conflicts' in badge but got: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_none_omits_readiness_segment() {
+        let overlay = mk_overlay_with_readiness("open", "success", "no reviews", None);
+        let badge = format_pr_badge(&overlay, false);
+        assert!(
+            !badge.contains("ready") && !badge.contains("conflicts"),
+            "unknown readiness should omit segment: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_skipped_for_merged_pr() {
+        // A merged PR with merge_ready=Some(true) should NOT show the segment
+        // because the PR is no longer open.
+        let overlay = mk_overlay_with_readiness("merged", "success", "approved", Some(true));
+        let badge = format_pr_badge(&overlay, false);
+        assert!(
+            !badge.contains("⬆ ready"),
+            "merged PR should not show ready segment: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_skipped_for_draft_pr() {
+        // Draft PRs are open but merge_ready is typically None from GitHub;
+        // even if Some(true) somehow arrives, verify the format is correct.
+        let overlay = mk_overlay_with_readiness("draft", "pending", "no reviews", Some(false));
+        let badge = format_pr_badge(&overlay, false);
+        // draft is rendered as state="draft"; open check uses pr.state == "open"
+        // so draft should NOT emit the readiness segment.
+        assert!(
+            !badge.contains("⚡ conflicts"),
+            "draft PR should not show conflicts segment: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_serde_roundtrip_omits_none() {
+        // When merge_ready is None, the serialised JSON must not contain
+        // the field (backward-compat for existing JSON consumers).
+        let overlay = mk_overlay("open", "pending", "no reviews");
+        assert!(overlay.merge_ready.is_none());
+        let json = serde_json::to_string(&overlay).expect("serialize");
+        assert!(
+            !json.contains("merge_ready"),
+            "merge_ready=None should be omitted from JSON, got: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn merge_ready_serde_roundtrip_present() {
+        // When merge_ready is Some, it must survive a JSON round-trip.
+        let overlay = mk_overlay_with_readiness("open", "success", "approved", Some(true));
+        let json = serde_json::to_string(&overlay).expect("serialize");
+        assert!(
+            json.contains("\"merge_ready\":true"),
+            "missing field: {}",
+            json
+        );
+        let back: SmartlogPrOverlay = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.merge_ready, Some(true));
     }
 }
