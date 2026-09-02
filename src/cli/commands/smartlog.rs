@@ -35,6 +35,12 @@
 //! - Cycle-safe: a `placed` set ensures no group is emitted twice even if
 //!   worktree branches form unusual reference loops.
 //!
+//! Phase 1 — #310 (CI overlay): `SmartlogCiOverlay` replaces the
+//!   `serde_json::Value` placeholder in `SmartlogNode.ci`. After the PR
+//!   overlay is attached, `attach_ci_overlay` calls `get_check_runs()` for
+//!   each PR-linked node and populates the typed struct. Text renderer shows
+//!   an inline `[CI: ✓ passed (N/N)]` / `[CI: ✗ failed (F/N)]` line.
+//!
 //! Phase 5 (Issue #309 — PR merge readiness overlay):
 //! - `SmartlogPrOverlay::merge_ready: Option<bool>` surface the GitHub
 //!   `mergeable` field that `get_pr_status()` already fetches but previously
@@ -76,10 +82,35 @@ pub struct SmartlogNode {
     /// Omitted from JSON entirely when no PR was attached (skip_serializing_if).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr: Option<SmartlogPrOverlay>,
-    /// CI overlay — reserved for a follow-up that emits per-check detail
-    /// (Phase 2 folds the CI summary into [`SmartlogPrOverlay::ci_status`]).
+    /// CI overlay — populated by `attach_ci_overlay` (Phase 1 of #310).
+    /// Holds aggregated check-run counts for the PR linked to this worktree.
+    /// Omitted from JSON when no CI data was fetched (backward-compatible).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ci: Option<serde_json::Value>,
+    pub ci: Option<SmartlogCiOverlay>,
+}
+
+/// Aggregated CI check-run overlay for a smartlog node (Phase 1 of #310).
+///
+/// Populated by [`attach_ci_overlay`] when a PR is linked.  Four states
+/// map the raw `CiStatus.overall` from [`GitHubClient::get_check_runs`]:
+///
+/// | `overall` field | meaning |
+/// |---|---|
+/// | `"passed"` | all checks succeeded (or were skipped) |
+/// | `"running"` | at least one check is still in-progress |
+/// | `"failed"` | at least one check failed |
+/// | `"none"` | no check-runs found for the PR |
+///
+/// `total` and `failed` expose counts so the text renderer can display
+/// `✗ failed (2/7)` without an extra API call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SmartlogCiOverlay {
+    /// `"passed"` / `"running"` / `"failed"` / `"none"`.
+    pub overall: String,
+    /// Total number of check runs returned by the GitHub Checks API.
+    pub total: usize,
+    /// Number of failed or timed-out check runs.
+    pub failed: usize,
 }
 
 /// Compact PR/CI summary attached to a smartlog row.
@@ -160,6 +191,7 @@ pub async fn smartlog(
 
     if !no_overlay {
         attach_pr_overlay(repo, &config, &mut nodes).await;
+        attach_ci_overlay(repo, &config, &mut nodes).await;
     }
 
     let color = color_enabled();
@@ -207,6 +239,69 @@ async fn attach_pr_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [Smar
                 );
             }
         }
+    }
+}
+
+/// Fetch GitHub check-run aggregates for each PR-linked node and populate
+/// `node.ci` with a typed [`SmartlogCiOverlay`].
+///
+/// Mirrors the soft-fail pattern of [`attach_pr_overlay`]: network errors are
+/// logged to stderr but never fail the parent command.  Nodes without a PR
+/// overlay are skipped silently.
+async fn attach_ci_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [SmartlogNode]) {
+    // Skip early if no node has a PR — avoids a gratuitous GitHub client init.
+    if nodes.iter().all(|n| n.pr.is_none()) {
+        return;
+    }
+    let remote_url = match git::run_output(repo, &["remote", "get-url", "origin"]) {
+        Ok(url) => url.trim().to_string(),
+        Err(_) => return,
+    };
+    let client = match GitHubClient::new(&remote_url, config) {
+        Ok(Some(c)) => c,
+        _ => return,
+    };
+
+    for node in nodes.iter_mut() {
+        let pr_num = match &node.pr {
+            Some(pr) => pr.number,
+            None => continue,
+        };
+        match client.get_check_runs(pr_num).await {
+            Ok(ci_status) => {
+                let overall = map_ci_overall(&ci_status.overall);
+                let total = ci_status.checks.len();
+                let failed = ci_status
+                    .checks
+                    .iter()
+                    .filter(|c| {
+                        matches!(c.conclusion.as_deref(), Some("failure") | Some("timed_out"))
+                    })
+                    .count();
+                node.ci = Some(SmartlogCiOverlay {
+                    overall,
+                    total,
+                    failed,
+                });
+            }
+            Err(e) => {
+                eprintln!(
+                    "smartlog: CI overlay failed for {} ({}): {}",
+                    node.ticket, node.branch, e
+                );
+            }
+        }
+    }
+}
+
+/// Map the raw `CiStatus.overall` string from [`GitHubClient::get_check_runs`]
+/// to the four canonical `SmartlogCiOverlay.overall` values.
+fn map_ci_overall(raw: &str) -> String {
+    match raw {
+        "passing" => "passed".to_string(),
+        "failing" => "failed".to_string(),
+        "pending" => "running".to_string(),
+        _ => "none".to_string(), // "no checks" or anything unexpected
     }
 }
 
@@ -319,6 +414,27 @@ fn format_pr_badge(pr: &SmartlogPrOverlay, color: bool) -> String {
     out
 }
 
+/// Format a one-line CI check-run summary badge for the smartlog ASCII tree.
+///
+/// Examples (no color):
+/// - `[CI: ✓ passed (7/7)]`
+/// - `[CI: ✗ failed (2/7)]`
+/// - `[CI: ● running (0/5)]`
+/// - `[CI: none]`
+fn format_ci_badge(ci: &SmartlogCiOverlay, color: bool) -> String {
+    let label = match ci.overall.as_str() {
+        "passed" => ansi_wrap(
+            32,
+            &format!("✓ passed ({}/{})", ci.total - ci.failed, ci.total),
+            color,
+        ),
+        "failed" => ansi_wrap(31, &format!("✗ failed ({}/{})", ci.failed, ci.total), color),
+        "running" => ansi_wrap(33, &format!("● running (0/{})", ci.total), color),
+        _ => "none".to_string(),
+    };
+    format!("[CI: {}]", label)
+}
+
 /// Parse a single tab-separated line emitted by our `git log --pretty` format.
 ///
 /// Format: `<sha_short>\t<subject>\t<author_name>\t<author_iso8601>`.
@@ -406,6 +522,10 @@ pub fn render_text(nodes: &[SmartlogNode], color: bool) -> String {
             // Phase 3: badge is now optionally colorized.
             if let Some(pr) = &node.pr {
                 out.push_str(&format!("{}├─ {}\n", prefix, format_pr_badge(pr, color)));
+            }
+            // CI overlay (Phase 1 of #310): check-run counts line.
+            if let Some(ci) = &node.ci {
+                out.push_str(&format!("{}├─ {}\n", prefix, format_ci_badge(ci, color)));
             }
             if node.commits.is_empty() {
                 out.push_str(&format!("{}└─ (no commits since {})\n", prefix, base));
@@ -733,8 +853,12 @@ mod tests {
             pr.get("review_status").and_then(|s| s.as_str()),
             Some("approved")
         );
-        // ci field still omitted — Phase 2 folds CI into the overlay.
-        assert!(v.get("ci").is_none(), "ci field stays omitted in Phase 2");
+        // ci field omitted — attach_ci_overlay was not called on this manually
+        // constructed node (ci is only populated by the async overlay function).
+        assert!(
+            v.get("ci").is_none(),
+            "ci field stays None for manually-built node"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1013,5 +1137,93 @@ mod tests {
         );
         let back: SmartlogPrOverlay = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back.merge_ready, Some(true));
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 1 tests: SmartlogCiOverlay (#310)
+    // -----------------------------------------------------------------------
+
+    fn mk_ci(overall: &str, total: usize, failed: usize) -> SmartlogCiOverlay {
+        SmartlogCiOverlay {
+            overall: overall.to_string(),
+            total,
+            failed,
+        }
+    }
+
+    #[test]
+    fn ci_badge_passed_shows_count() {
+        let ci = mk_ci("passed", 7, 0);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: ✓ passed (7/7)]");
+    }
+
+    #[test]
+    fn ci_badge_failed_shows_failure_count() {
+        let ci = mk_ci("failed", 7, 2);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: ✗ failed (2/7)]");
+    }
+
+    #[test]
+    fn ci_badge_running_shows_total() {
+        let ci = mk_ci("running", 5, 0);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: ● running (0/5)]");
+    }
+
+    #[test]
+    fn ci_badge_none_no_counts() {
+        let ci = mk_ci("none", 0, 0);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: none]");
+    }
+
+    #[test]
+    fn ci_overlay_serde_roundtrip() {
+        let ci = mk_ci("failed", 7, 2);
+        let json = serde_json::to_string(&ci).expect("serialize");
+        let back: SmartlogCiOverlay = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, ci);
+    }
+
+    #[test]
+    fn ci_overlay_omitted_from_node_json_when_none() {
+        let node = mk_node("CL-5", Some("E"), "feat/CL-5", vec![]);
+        assert!(node.ci.is_none());
+        let v: serde_json::Value = serde_json::to_value(&node).unwrap();
+        assert!(v.get("ci").is_none(), "ci=None must be skip-serialized");
+    }
+
+    #[test]
+    fn ci_overlay_present_in_node_json_when_set() {
+        let mut node = mk_node("CL-6", Some("F"), "feat/CL-6", vec![]);
+        node.ci = Some(mk_ci("passed", 7, 0));
+        let v: serde_json::Value = serde_json::to_value(&node).unwrap();
+        let ci = v.get("ci").expect("ci must serialize when Some");
+        assert_eq!(ci.get("overall").and_then(|s| s.as_str()), Some("passed"));
+        assert_eq!(ci.get("total").and_then(|n| n.as_u64()), Some(7));
+        assert_eq!(ci.get("failed").and_then(|n| n.as_u64()), Some(0));
+    }
+
+    #[test]
+    fn render_text_shows_ci_badge_line_when_ci_set() {
+        let mut node = mk_node("CL-7", Some("G"), "feat/CL-7", vec![]);
+        node.ci = Some(mk_ci("failed", 7, 2));
+        let out = render_text(&[node], false);
+        assert!(
+            out.contains("[CI: ✗ failed (2/7)]"),
+            "expected CI badge in render_text output: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn map_ci_overall_maps_all_variants() {
+        assert_eq!(map_ci_overall("passing"), "passed");
+        assert_eq!(map_ci_overall("failing"), "failed");
+        assert_eq!(map_ci_overall("pending"), "running");
+        assert_eq!(map_ci_overall("no checks"), "none");
+        assert_eq!(map_ci_overall("unexpected"), "none");
     }
 }
