@@ -41,6 +41,14 @@
 //!   each PR-linked node and populates the typed struct. Text renderer shows
 //!   an inline `[CI: ✓ passed (N/N)]` / `[CI: ✗ failed (F/N)]` line.
 //!
+//! Phase 2 — #310 (CI overlay running count): `SmartlogCiOverlay` gains a
+//!   `running: usize` field tracking how many check runs are still in-progress
+//!   or queued. `format_ci_badge` now renders `● running (R running / N)`
+//!   instead of the previously hardcoded `(0/N)`. The `running` field is
+//!   `#[serde(default)]` so existing JSON snapshots remain valid on
+//!   deserialization. `attach_ci_overlay` counts runs whose `status` is
+//!   `"in_progress"` or `"queued"` (i.e., started but not yet concluded).
+//!
 //! Phase 5 (Issue #309 — PR merge readiness overlay):
 //! - `SmartlogPrOverlay::merge_ready: Option<bool>` surface the GitHub
 //!   `mergeable` field that `get_pr_status()` already fetches but previously
@@ -89,7 +97,7 @@ pub struct SmartlogNode {
     pub ci: Option<SmartlogCiOverlay>,
 }
 
-/// Aggregated CI check-run overlay for a smartlog node (Phase 1 of #310).
+/// Aggregated CI check-run overlay for a smartlog node (Phase 1+2 of #310).
 ///
 /// Populated by [`attach_ci_overlay`] when a PR is linked.  Four states
 /// map the raw `CiStatus.overall` from [`GitHubClient::get_check_runs`]:
@@ -97,12 +105,13 @@ pub struct SmartlogNode {
 /// | `overall` field | meaning |
 /// |---|---|
 /// | `"passed"` | all checks succeeded (or were skipped) |
-/// | `"running"` | at least one check is still in-progress |
-/// | `"failed"` | at least one check failed |
+/// | `"running"` | at least one check is still in-progress or queued |
+/// | `"failed"` | at least one check failed or timed out |
 /// | `"none"` | no check-runs found for the PR |
 ///
-/// `total` and `failed` expose counts so the text renderer can display
-/// `✗ failed (2/7)` without an extra API call.
+/// `total`, `failed`, and `running` expose counts so the text renderer can
+/// display `✗ failed (2/7)` or `● running (3 running / 7)` without an
+/// extra API call.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SmartlogCiOverlay {
     /// `"passed"` / `"running"` / `"failed"` / `"none"`.
@@ -111,6 +120,10 @@ pub struct SmartlogCiOverlay {
     pub total: usize,
     /// Number of failed or timed-out check runs.
     pub failed: usize,
+    /// Number of check runs still in-progress or queued (Phase 2 of #310).
+    /// Defaults to 0 for backward-compatible JSON deserialization.
+    #[serde(default)]
+    pub running: usize,
 }
 
 /// Compact PR/CI summary attached to a smartlog row.
@@ -278,10 +291,19 @@ async fn attach_ci_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [Smar
                         matches!(c.conclusion.as_deref(), Some("failure") | Some("timed_out"))
                     })
                     .count();
+                // Phase 2 (#310): count checks still actively running or
+                // waiting in the queue so the badge can display an accurate
+                // "N running / M" count instead of the previous "(0/N)".
+                let running = ci_status
+                    .checks
+                    .iter()
+                    .filter(|c| matches!(c.status.as_str(), "in_progress" | "queued"))
+                    .count();
                 node.ci = Some(SmartlogCiOverlay {
                     overall,
                     total,
                     failed,
+                    running,
                 });
             }
             Err(e) => {
@@ -429,7 +451,12 @@ fn format_ci_badge(ci: &SmartlogCiOverlay, color: bool) -> String {
             color,
         ),
         "failed" => ansi_wrap(31, &format!("✗ failed ({}/{})", ci.failed, ci.total), color),
-        "running" => ansi_wrap(33, &format!("● running (0/{})", ci.total), color),
+        // Phase 2 (#310): show accurate running count instead of hardcoded 0.
+        "running" => ansi_wrap(
+            33,
+            &format!("● running ({} running/{})", ci.running, ci.total),
+            color,
+        ),
         _ => "none".to_string(),
     };
     format!("[CI: {}]", label)
@@ -1140,14 +1167,33 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Phase 1 tests: SmartlogCiOverlay (#310)
+    // Phase 1 + Phase 2 tests: SmartlogCiOverlay (#310)
     // -----------------------------------------------------------------------
 
+    /// Construct a `SmartlogCiOverlay` with `running` defaulting to 0
+    /// (mirrors Phase-1 era callers; Phase-2 tests use `mk_ci_running`).
     fn mk_ci(overall: &str, total: usize, failed: usize) -> SmartlogCiOverlay {
         SmartlogCiOverlay {
             overall: overall.to_string(),
             total,
             failed,
+            running: 0,
+        }
+    }
+
+    /// Construct a `SmartlogCiOverlay` with an explicit `running` count
+    /// (Phase 2 of #310).
+    fn mk_ci_running(
+        overall: &str,
+        total: usize,
+        failed: usize,
+        running: usize,
+    ) -> SmartlogCiOverlay {
+        SmartlogCiOverlay {
+            overall: overall.to_string(),
+            total,
+            failed,
+            running,
         }
     }
 
@@ -1165,11 +1211,20 @@ mod tests {
         assert_eq!(badge, "[CI: ✗ failed (2/7)]");
     }
 
+    // Phase 2: running badge now shows accurate running count, not hardcoded 0.
     #[test]
-    fn ci_badge_running_shows_total() {
-        let ci = mk_ci("running", 5, 0);
+    fn ci_badge_running_shows_running_count() {
+        let ci = mk_ci_running("running", 5, 0, 3);
         let badge = format_ci_badge(&ci, false);
-        assert_eq!(badge, "[CI: ● running (0/5)]");
+        assert_eq!(badge, "[CI: ● running (3 running/5)]");
+    }
+
+    #[test]
+    fn ci_badge_running_zero_running_shows_zero() {
+        // Edge case: overall=running but running count is 0 (queued or unusual state).
+        let ci = mk_ci_running("running", 4, 0, 0);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: ● running (0 running/4)]");
     }
 
     #[test]
@@ -1181,10 +1236,23 @@ mod tests {
 
     #[test]
     fn ci_overlay_serde_roundtrip() {
-        let ci = mk_ci("failed", 7, 2);
+        let ci = mk_ci_running("failed", 7, 2, 1);
         let json = serde_json::to_string(&ci).expect("serialize");
         let back: SmartlogCiOverlay = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, ci);
+    }
+
+    // Phase 2: JSON produced before Phase 2 (no "running" key) should
+    // deserialize with running=0 thanks to #[serde(default)].
+    #[test]
+    fn ci_overlay_phase1_json_backward_compat() {
+        let phase1_json = r#"{"overall":"running","total":5,"failed":0}"#;
+        let back: SmartlogCiOverlay =
+            serde_json::from_str(phase1_json).expect("should deserialize without running field");
+        assert_eq!(back.overall, "running");
+        assert_eq!(back.total, 5);
+        assert_eq!(back.failed, 0);
+        assert_eq!(back.running, 0, "missing running key must default to 0");
     }
 
     #[test]
@@ -1198,12 +1266,13 @@ mod tests {
     #[test]
     fn ci_overlay_present_in_node_json_when_set() {
         let mut node = mk_node("CL-6", Some("F"), "feat/CL-6", vec![]);
-        node.ci = Some(mk_ci("passed", 7, 0));
+        node.ci = Some(mk_ci_running("passed", 7, 0, 0));
         let v: serde_json::Value = serde_json::to_value(&node).unwrap();
         let ci = v.get("ci").expect("ci must serialize when Some");
         assert_eq!(ci.get("overall").and_then(|s| s.as_str()), Some("passed"));
         assert_eq!(ci.get("total").and_then(|n| n.as_u64()), Some(7));
         assert_eq!(ci.get("failed").and_then(|n| n.as_u64()), Some(0));
+        assert_eq!(ci.get("running").and_then(|n| n.as_u64()), Some(0));
     }
 
     #[test]
@@ -1214,6 +1283,19 @@ mod tests {
         assert!(
             out.contains("[CI: ✗ failed (2/7)]"),
             "expected CI badge in render_text output: {}",
+            out
+        );
+    }
+
+    // Phase 2: running badge renders correctly in the full text output.
+    #[test]
+    fn render_text_shows_running_ci_badge_with_accurate_count() {
+        let mut node = mk_node("CL-8", Some("H"), "feat/CL-8", vec![]);
+        node.ci = Some(mk_ci_running("running", 6, 0, 2));
+        let out = render_text(&[node], false);
+        assert!(
+            out.contains("[CI: ● running (2 running/6)]"),
+            "expected running CI badge with accurate count in: {}",
             out
         );
     }
