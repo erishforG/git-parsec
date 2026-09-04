@@ -547,6 +547,56 @@ impl GitHubClient {
         })
     }
 
+    /// Fetch check runs directly for a commit SHA (no PR lookup).
+    ///
+    /// Used by `smartlog` Phase 3 of issue #310 to show CI status for
+    /// worktree branches that have no open PR yet.  The result is identical
+    /// in shape to [`get_check_runs`]; `pr_number` is set to 0 as a sentinel
+    /// (the caller uses the struct fields, not `pr_number`).
+    pub async fn get_check_runs_by_sha(&self, sha: &str) -> Result<CiStatus> {
+        let rp = self.repo_path();
+        let checks_resp: ApiCheckRunsResponse =
+            send_with_retry(self.get(&format!("{}/commits/{}/check-runs", rp, sha)))
+                .await?
+                .json()
+                .await?;
+
+        let checks: Vec<CheckRun> = checks_resp
+            .check_runs
+            .into_iter()
+            .map(|c| CheckRun {
+                name: c.name,
+                status: c.status,
+                conclusion: c.conclusion,
+                started_at: c.started_at,
+                completed_at: c.completed_at,
+                html_url: c.html_url,
+            })
+            .collect();
+
+        let overall = if checks.is_empty() {
+            "no checks".to_string()
+        } else if checks
+            .iter()
+            .any(|c| c.conclusion.as_deref() == Some("failure"))
+        {
+            "failing".to_string()
+        } else if checks.iter().all(|c| {
+            c.conclusion.as_deref() == Some("success") || c.conclusion.as_deref() == Some("skipped")
+        }) {
+            "passing".to_string()
+        } else {
+            "pending".to_string()
+        };
+
+        Ok(CiStatus {
+            pr_number: 0,
+            head_sha: sha.to_string(),
+            overall,
+            checks,
+        })
+    }
+
     /// Find an open PR by branch name.
     /// Returns the PR number if found.
     pub async fn find_pr_by_branch(&self, branch: &str) -> Result<Option<u64>> {
