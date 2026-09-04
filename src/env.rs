@@ -164,6 +164,28 @@ pub fn bitbucket_api_base() -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// GitHub API base URL override
+// ---------------------------------------------------------------------------
+
+/// Override the GitHub API base URL (no trailing slash).
+///
+/// Primarily used in tests to route API calls to a mock server without
+/// changing the git remote URL.  Also useful for GitHub Enterprise instances
+/// whose API resides at a custom path.
+///
+/// When unset, [`GitHubRemote::api_base`] derives the URL from the remote host:
+/// `github.com` → `https://api.github.com`, GHE → `https://{host}/api/v3`.
+pub const PARSEC_GITHUB_API_BASE: &str = "PARSEC_GITHUB_API_BASE";
+
+/// Return the GitHub API base URL override when [`PARSEC_GITHUB_API_BASE`] is set.
+pub fn github_api_base() -> Option<String> {
+    std::env::var(PARSEC_GITHUB_API_BASE)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|v| v.trim_end_matches('/').to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Offline mode
 // ---------------------------------------------------------------------------
 

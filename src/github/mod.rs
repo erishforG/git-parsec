@@ -359,7 +359,8 @@ impl GitHubClient {
             None => return Ok(None),
         };
 
-        let api_base = remote.api_base();
+        // Allow test overrides (and GHE custom endpoints) via env var.
+        let api_base = crate::env::github_api_base().unwrap_or_else(|| remote.api_base());
         let client = http_client()?;
 
         Ok(Some(Self {
