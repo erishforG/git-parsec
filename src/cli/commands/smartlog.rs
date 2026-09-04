@@ -49,6 +49,14 @@
 //!   deserialization. `attach_ci_overlay` counts runs whose `status` is
 //!   `"in_progress"` or `"queued"` (i.e., started but not yet concluded).
 //!
+//! Phase 3 — #310 (CI overlay for PR-less branches): `attach_ci_overlay` now
+//!   also covers worktrees that have no open PR.  For each such node it
+//!   resolves the branch-tip SHA with `git rev-parse <branch>` and calls
+//!   `GitHubClient::get_check_runs_by_sha` to fetch check-run aggregate
+//!   directly, without a PR round-trip.  The resulting `SmartlogCiOverlay` is
+//!   attached exactly as for PR-linked nodes.  Network failures degrade
+//!   gracefully (CI badge omitted) without failing the command.
+//!
 //! Phase 5 (Issue #309 — PR merge readiness overlay):
 //! - `SmartlogPrOverlay::merge_ready: Option<bool>` surface the GitHub
 //!   `mergeable` field that `get_pr_status()` already fetches but previously
@@ -262,10 +270,7 @@ async fn attach_pr_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [Smar
 /// logged to stderr but never fail the parent command.  Nodes without a PR
 /// overlay are skipped silently.
 async fn attach_ci_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [SmartlogNode]) {
-    // Skip early if no node has a PR — avoids a gratuitous GitHub client init.
-    if nodes.iter().all(|n| n.pr.is_none()) {
-        return;
-    }
+    // Always init the client: Phase 3 (#310) needs it for PR-less nodes too.
     let remote_url = match git::run_output(repo, &["remote", "get-url", "origin"]) {
         Ok(url) => url.trim().to_string(),
         Err(_) => return,
@@ -276,11 +281,21 @@ async fn attach_ci_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [Smar
     };
 
     for node in nodes.iter_mut() {
-        let pr_num = match &node.pr {
-            Some(pr) => pr.number,
-            None => continue,
+        let ci_status_result = if let Some(pr) = &node.pr {
+            // PR-linked node: fetch check-runs via the existing PR-based lookup
+            // (which resolves the PR head SHA internally).
+            client.get_check_runs(pr.number).await
+        } else {
+            // Phase 3 (#310): PR-less branch — resolve branch-tip SHA with git
+            // and fetch check-runs directly.  Skip if git lookup fails (e.g.
+            // orphan branch or remote not synced).
+            match resolve_branch_tip_sha(repo, &node.branch) {
+                Some(sha) => client.get_check_runs_by_sha(&sha).await,
+                None => continue,
+            }
         };
-        match client.get_check_runs(pr_num).await {
+
+        match ci_status_result {
             Ok(ci_status) => {
                 let overall = map_ci_overall(&ci_status.overall);
                 let total = ci_status.checks.len();
@@ -314,6 +329,19 @@ async fn attach_ci_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [Smar
             }
         }
     }
+}
+
+/// Resolve a branch to its tip commit SHA using `git rev-parse`.
+///
+/// Returns the full 40-character SHA, or `None` when the branch cannot be
+/// resolved (e.g., unborn, orphan, or not yet pushed to remote).
+fn resolve_branch_tip_sha(repo: &Path, branch: &str) -> Option<String> {
+    let sha = git::run_output(repo, &["rev-parse", branch]).ok()?;
+    let sha = sha.trim().to_string();
+    if sha.is_empty() || sha.len() < 7 {
+        return None;
+    }
+    Some(sha)
 }
 
 /// Map the raw `CiStatus.overall` string from [`GitHubClient::get_check_runs`]
@@ -1307,5 +1335,56 @@ mod tests {
         assert_eq!(map_ci_overall("pending"), "running");
         assert_eq!(map_ci_overall("no checks"), "none");
         assert_eq!(map_ci_overall("unexpected"), "none");
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 3 tests: branch-tip CI overlay for PR-less nodes (#310)
+    // -----------------------------------------------------------------------
+
+    /// A node whose CI field is set from a branch-tip lookup (no PR) should
+    /// render the CI badge identically to a PR-linked node.  This validates
+    /// that the `SmartlogCiOverlay` path is shared between both code paths.
+    #[test]
+    fn ci_badge_renders_same_for_pr_less_node() {
+        // Simulate a node that has no PR but got its CI overlay via SHA lookup.
+        let mut node = mk_node("CL-9", Some("I"), "feat/CL-9", vec![]);
+        assert!(node.pr.is_none(), "node must have no PR for this test");
+        node.ci = Some(mk_ci("passed", 4, 0));
+        let out = render_text(&[node], false);
+        assert!(
+            out.contains("[CI: ✓ passed (4/4)]"),
+            "PR-less node should render CI badge: {}",
+            out
+        );
+    }
+
+    /// A node with no PR and CI=none renders the `[CI: none]` badge so the
+    /// user can see that CI is present but no checks were found (e.g., a fresh
+    /// branch not yet linked to a CI pipeline).
+    #[test]
+    fn ci_badge_none_renders_for_pr_less_node() {
+        let mut node = mk_node("CL-10", Some("J"), "feat/CL-10", vec![]);
+        node.ci = Some(mk_ci("none", 0, 0));
+        let out = render_text(&[node], false);
+        assert!(
+            out.contains("[CI: none]"),
+            "PR-less node with no checks should render [CI: none]: {}",
+            out
+        );
+    }
+
+    /// `resolve_branch_tip_sha` must return `None` for obviously invalid inputs
+    /// without panicking (e.g., empty string from a malformed git command).
+    #[test]
+    fn resolve_branch_tip_sha_rejects_empty() {
+        use std::path::Path;
+        // A path that is definitely not a git repo will cause `git rev-parse`
+        // to fail, which should return None rather than panic.
+        let result = resolve_branch_tip_sha(Path::new("/tmp"), "non-existent-branch");
+        assert!(
+            result.is_none(),
+            "non-git-repo path should return None, got: {:?}",
+            result
+        );
     }
 }
