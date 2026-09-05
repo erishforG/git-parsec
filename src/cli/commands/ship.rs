@@ -172,6 +172,7 @@ pub async fn ship(
 
         let pr_body = build_pr_body(
             &result.ticket,
+            &result.branch,
             effective_title,
             ticket_url.as_deref(),
             stack_info.as_ref(),
@@ -421,8 +422,33 @@ fn gather_stack_info(manager: &WorktreeManager, ticket: &str) -> Option<StackPrI
     })
 }
 
+/// Substitute `{{variable}}` placeholders in a PR template string.
+///
+/// Supported variables:
+/// - `{{ticket}}` → the ticket / workspace ID (e.g. `CL-1234`)
+/// - `{{branch}}` → the git branch name pushed for this ticket
+/// - `{{title}}` → PR title; empty string when not available
+/// - `{{ticket_url}}` → tracker URL; empty string when not available
+///
+/// Unknown `{{…}}` tokens are left as-is so templates using other tooling
+/// variables are not silently mangled.
+fn substitute_template_vars(
+    template: &str,
+    ticket: &str,
+    branch: &str,
+    title: Option<&str>,
+    ticket_url: Option<&str>,
+) -> String {
+    template
+        .replace("{{ticket}}", ticket)
+        .replace("{{branch}}", branch)
+        .replace("{{title}}", title.unwrap_or(""))
+        .replace("{{ticket_url}}", ticket_url.unwrap_or(""))
+}
+
 fn build_pr_body(
     ticket: &str,
+    branch: &str,
     title: Option<&str>,
     ticket_url: Option<&str>,
     stack_info: Option<&StackPrInfo>,
@@ -461,10 +487,11 @@ fn build_pr_body(
         body.push('\n');
     }
 
-    // Include PR template content (#233)
+    // Include PR template content (#233 #304) with variable substitution.
     if let Some(tmpl) = template_content {
+        let rendered = substitute_template_vars(tmpl, ticket, branch, title, ticket_url);
         body.push_str("---\n\n");
-        body.push_str(tmpl);
+        body.push_str(&rendered);
         body.push('\n');
     }
 
@@ -503,4 +530,61 @@ fn resolve_template(repo_root: &Path, explicit_path: Option<&str>) -> Option<Str
     }
 
     None
+}
+
+#[cfg(test)]
+mod template_var_tests {
+    use super::*;
+
+    #[test]
+    fn test_substitute_all_vars() {
+        let tmpl = "Ticket: {{ticket}}\nBranch: {{branch}}\nTitle: {{title}}\nURL: {{ticket_url}}";
+        let result = substitute_template_vars(
+            tmpl,
+            "CL-42",
+            "feature/CL-42",
+            Some("My PR"),
+            Some("https://example.com/CL-42"),
+        );
+        assert_eq!(
+            result,
+            "Ticket: CL-42\nBranch: feature/CL-42\nTitle: My PR\nURL: https://example.com/CL-42"
+        );
+    }
+
+    #[test]
+    fn test_substitute_missing_optional_vars_become_empty() {
+        let tmpl = "Ticket: {{ticket}}\nTitle: {{title}}\nURL: {{ticket_url}}";
+        let result = substitute_template_vars(tmpl, "CL-99", "feature/CL-99", None, None);
+        assert_eq!(result, "Ticket: CL-99\nTitle: \nURL: ");
+    }
+
+    #[test]
+    fn test_substitute_unknown_placeholder_left_intact() {
+        let tmpl = "{{ticket}} — {{unknown_var}} — {{branch}}";
+        let result = substitute_template_vars(tmpl, "T-1", "feat/T-1", None, None);
+        assert_eq!(result, "T-1 — {{unknown_var}} — feat/T-1");
+    }
+
+    #[test]
+    fn test_substitute_multiple_occurrences() {
+        let tmpl = "{{ticket}} ({{ticket}}) on {{branch}}";
+        let result = substitute_template_vars(tmpl, "AB-7", "feat/AB-7", None, None);
+        assert_eq!(result, "AB-7 (AB-7) on feat/AB-7");
+    }
+
+    #[test]
+    fn test_build_pr_body_renders_template_vars() {
+        let tmpl = "Refs {{ticket}} on `{{branch}}`";
+        let body = build_pr_body(
+            "T-5",
+            "feat/T-5",
+            Some("Nice title"),
+            None,
+            None,
+            Some(tmpl),
+        );
+        assert!(body.contains("Refs T-5 on `feat/T-5`"), "body: {body}");
+        assert!(body.contains("## Nice title"), "body: {body}");
+    }
 }
