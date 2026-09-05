@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use mockito::Matcher;
 use predicates::prelude::*;
 use std::process::Command as StdCommand;
 use tempfile::TempDir;
@@ -2435,5 +2436,188 @@ fn test_dashboard_quiet_rejected() {
         combined.contains("--quiet"),
         "expected helpful message mentioning --quiet, got: {}",
         combined
+    );
+}
+
+// ---------------------------------------------------------------------------
+// parsec smartlog — overlay integration tests (#309 Phase 6, #310 Phase 4)
+// ---------------------------------------------------------------------------
+
+/// `parsec smartlog --no-overlay` must succeed without any GitHub token and
+/// must not emit PR or CI badges in its output.
+///
+/// Validates issue #309 acceptance: "—no-overlay 시 placeholder 로 fallback".
+#[test]
+fn test_smartlog_no_overlay_skips_github() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "OV-1", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["smartlog", "--no-overlay", "--repo", repo_path])
+        // Strip any inherited GitHub token so the test is hermetic.
+        .env_remove("PARSEC_GITHUB_TOKEN")
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "--no-overlay must succeed without a GitHub token; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("OV-1"),
+        "worktree ticket must appear; got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("[PR #"),
+        "--no-overlay must not emit PR badges; got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("[CI:"),
+        "--no-overlay must not emit CI badges; got:\n{stdout}"
+    );
+}
+
+/// `parsec smartlog` with `PARSEC_GITHUB_API_BASE` pointing at a mockito
+/// server must render PR and CI badges in the ASCII tree when the mock returns
+/// successful check-run data.
+///
+/// Validates:
+/// - issue #309: PR overlay (state, review) surfaced in output
+/// - issue #310: CI check-run aggregate badge surfaced in output
+/// - `PARSEC_GITHUB_API_BASE` env var routes GitHub API calls to the mock
+#[test]
+fn test_smartlog_overlay_with_mock_github() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "OV-2", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // After the worktree is created with the local bare remote, swap `origin`
+    // to a GitHub-style URL so `GitHubClient` can parse owner/repo.  The
+    // `parsec smartlog` command reads this URL but never git-fetches from it.
+    StdCommand::new("git")
+        .args([
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/testowner/testrepo.git",
+        ])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    let branch = "feature/OV-2";
+    let pr_number: u64 = 99;
+    let fake_sha = "aaabbbccc111222333444555666777888999000ab";
+
+    let mut server = mockito::Server::new();
+
+    // 1. find_pr_by_branch → GET /repos/.../pulls?head=testowner:{branch}&state=open
+    let _m_pr_list = server
+        .mock("GET", "/repos/testowner/testrepo/pulls")
+        .match_query(Matcher::Any)
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(format!(r#"[{{"number": {}}}]"#, pr_number))
+        .expect_at_least(1)
+        .create();
+
+    // 2. GET /repos/.../pulls/{n} — called by get_pr_status AND get_check_runs.
+    let _m_pr_detail = server
+        .mock(
+            "GET",
+            format!("/repos/testowner/testrepo/pulls/{}", pr_number).as_str(),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(format!(
+            r#"{{"number":{n},"title":"feat: mock PR","state":"open","mergeable":true,"html_url":"https://github.com/testowner/testrepo/pull/{n}","head":{{"sha":"{sha}","ref":"{branch}"}}}}"#,
+            n = pr_number,
+            sha = fake_sha,
+            branch = branch,
+        ))
+        .expect_at_least(1)
+        .create();
+
+    // 3. GET /repos/.../commits/{sha}/status (get_pr_status inner call)
+    let _m_status = server
+        .mock(
+            "GET",
+            format!("/repos/testowner/testrepo/commits/{}/status", fake_sha).as_str(),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"state":"success"}"#)
+        .expect_at_least(1)
+        .create();
+
+    // 4. GET /repos/.../pulls/{n}/reviews (get_pr_status inner call)
+    let _m_reviews = server
+        .mock(
+            "GET",
+            format!("/repos/testowner/testrepo/pulls/{}/reviews", pr_number).as_str(),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"[{"state":"APPROVED"}]"#)
+        .expect_at_least(1)
+        .create();
+
+    // 5. GET /repos/.../commits/{sha}/check-runs (get_check_runs inner call)
+    let _m_checks = server
+        .mock(
+            "GET",
+            format!(
+                "/repos/testowner/testrepo/commits/{}/check-runs",
+                fake_sha
+            )
+            .as_str(),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"check_runs":[{"name":"CI","status":"completed","conclusion":"success","started_at":"2026-09-04T00:00:00Z","completed_at":"2026-09-04T00:05:00Z","html_url":"https://github.com/actions/runs/1"}]}"#,
+        )
+        .expect_at_least(1)
+        .create();
+
+    let output = parsec()
+        .args(["smartlog", "--repo", repo_path])
+        .env("PARSEC_GITHUB_TOKEN", "fake-token-for-test")
+        .env("PARSEC_GITHUB_API_BASE", server.url())
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "smartlog with mock GitHub must exit 0; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("OV-2"),
+        "ticket must appear; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("[PR #99"),
+        "PR badge must appear; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("[CI: ✓ passed"),
+        "CI badge must show passed; got:\n{stdout}"
     );
 }
