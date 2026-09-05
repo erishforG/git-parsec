@@ -229,6 +229,7 @@ pub async fn stack_submit(repo: &Path, mode: Mode) -> Result<()> {
             Vec::new(), // reviewers
             Vec::new(), // labels
             None,       // template
+            false,      // no_cleanup: use config default during stack ship
             mode,
         )
         .await

@@ -940,6 +940,117 @@ fn test_ship_dry_run() {
         .stdout(predicate::str::contains("DRY-SHIP"));
 }
 
+#[test]
+fn test_ship_no_cleanup_preserves_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "NC-SHIP", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Read worktree path from state.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let state_contents = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_contents).unwrap();
+    let wt_path = state["workspaces"]["NC-SHIP"]["path"]
+        .as_str()
+        .expect("state.json should contain path for NC-SHIP")
+        .to_owned();
+
+    // Commit something so git push has content to send.
+    std::fs::write(format!("{}/nc.txt", wt_path), "no-cleanup test").unwrap();
+    StdCommand::new("git")
+        .args(["add", "nc.txt"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "nc commit"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+
+    // ship --no-pr --no-cleanup: push branch, skip PR creation, skip worktree removal.
+    parsec()
+        .args([
+            "ship",
+            "NC-SHIP",
+            "--no-pr",
+            "--no-cleanup",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+
+    // Worktree must still be listed despite auto_cleanup=true default.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("NC-SHIP"));
+
+    // Worktree directory must physically exist.
+    assert!(
+        std::path::Path::new(&wt_path).exists(),
+        "worktree directory should still exist after --no-cleanup ship"
+    );
+}
+
+#[test]
+fn test_ship_auto_cleanup_removes_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "AC-SHIP", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Read worktree path from state.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let state_contents = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_contents).unwrap();
+    let wt_path = state["workspaces"]["AC-SHIP"]["path"]
+        .as_str()
+        .expect("state.json should contain path for AC-SHIP")
+        .to_owned();
+
+    // Commit something so git push has content to send.
+    std::fs::write(format!("{}/ac.txt", wt_path), "auto-cleanup test").unwrap();
+    StdCommand::new("git")
+        .args(["add", "ac.txt"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "ac commit"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+
+    // ship --no-pr without --no-cleanup: auto_cleanup=true (default) should remove the worktree.
+    parsec()
+        .args(["ship", "AC-SHIP", "--no-pr", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Worktree must no longer be listed.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("AC-SHIP").not());
+
+    // Worktree directory must be physically gone.
+    assert!(
+        !std::path::Path::new(&wt_path).exists(),
+        "worktree directory should be removed after auto_cleanup ship"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // doctor
 // ---------------------------------------------------------------------------
