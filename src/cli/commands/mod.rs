@@ -15,6 +15,7 @@ pub mod smartlog;
 mod stack;
 mod test;
 mod tracker_cmds;
+mod update;
 mod workspace;
 
 pub use ci::*;
@@ -34,4 +35,5 @@ pub use smartlog::smartlog;
 pub use stack::*;
 pub use test::test;
 pub use tracker_cmds::*;
+pub use update::self_update;
 pub use workspace::*;
