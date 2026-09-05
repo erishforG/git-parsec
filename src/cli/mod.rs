@@ -148,6 +148,12 @@ pub enum Command {
         /// Path to PR body template file
         #[arg(long)]
         template: Option<String>,
+
+        /// Skip worktree removal after PR creation.
+        /// Overrides `ship.auto_cleanup = true` in config for this invocation.
+        /// Useful when making incremental commits to the same ticket across multiple ship calls.
+        #[arg(long)]
+        no_cleanup: bool,
     },
 
     /// Remove merged or stale worktrees
@@ -802,14 +808,16 @@ pub async fn run(cli: Cli) -> Result<()> {
             reviewer,
             label,
             template,
+            no_cleanup,
         } => {
             if cli.dry_run {
                 eprintln!(
-                    "[dry-run] Would ship ticket '{}' (draft: {}, no_pr: {}, base: {})",
+                    "[dry-run] Would ship ticket '{}' (draft: {}, no_pr: {}, base: {}, no_cleanup: {})",
                     ticket,
                     draft,
                     no_pr,
-                    base.as_deref().unwrap_or("auto")
+                    base.as_deref().unwrap_or("auto"),
+                    no_cleanup
                 );
                 return Ok(());
             }
@@ -824,6 +832,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 reviewer,
                 label,
                 template,
+                no_cleanup,
                 output_mode,
             )
             .await

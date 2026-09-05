@@ -24,6 +24,7 @@ pub async fn ship(
     reviewers: Vec<String>,
     labels: Vec<String>,
     template: Option<String>,
+    no_cleanup: bool,
     mode: Mode,
 ) -> Result<()> {
     crate::execlog::set_ticket(ticket);
@@ -361,6 +362,22 @@ pub async fn ship(
             ErrorCode::E012,
             "Ship partial: branch pushed but PR/MR creation failed. Worktree preserved."
         );
+    }
+
+    // Phase 3: clean up worktree + local branch (respects config.ship.auto_cleanup).
+    // Skipped when --no-cleanup is passed, e.g. for incremental multi-commit workflows.
+    if !no_cleanup {
+        match manager.ship_cleanup(ticket) {
+            Ok(true) => {
+                if mode == output::Mode::Human {
+                    eprintln!("  Cleaned up worktree for '{}'.", ticket);
+                }
+            }
+            Ok(false) => {} // auto_cleanup=false in config — intentional no-op
+            Err(e) => {
+                eprintln!("warning: failed to clean up worktree after ship: {e}");
+            }
+        }
     }
 
     Ok(())
