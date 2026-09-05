@@ -647,6 +647,16 @@ pub enum Command {
         #[command(subcommand)]
         kind: CompleteKind,
     },
+
+    /// Check for a newer parsec release and print upgrade instructions.
+    ///
+    /// Queries the GitHub releases API to compare the running version with
+    /// the latest published release.  Prints an upgrade command when a newer
+    /// version is available.
+    ///
+    /// Phase 1 — notification only; automatic binary replacement is Phase 2.
+    /// Use the global `--offline` flag to skip the network call.
+    SelfUpdate {},
 }
 
 /// Candidate sets the dynamic completion subcommand can emit.
@@ -757,6 +767,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Reviews { .. } => "reviews",
         Command::Dashboard { .. } => "dashboard",
         Command::Test { .. } => "test",
+        Command::SelfUpdate { .. } => "self-update",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -1104,6 +1115,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             .await
         }
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
+        Command::SelfUpdate {} => commands::self_update(offline).await,
     };
 
     // Record execution entry (best-effort, never fail the command)
