@@ -6,7 +6,7 @@
 //! or in-place replacement is performed; that is deferred to Phase 2.
 
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const GITHUB_REPO: &str = "erishforG/git-parsec";
@@ -121,9 +121,130 @@ pub async fn self_update(offline: bool) -> Result<()> {
     Ok(())
 }
 
+// ── Startup version check (Phase 2) ────────────────────────────────────────
+
+/// Cache filename stored in the OS cache directory (e.g. `~/.cache` on Linux).
+const VERSION_CACHE_FILENAME: &str = ".parsec-version-check";
+/// Minimum seconds between live GitHub API checks (24 h).
+const VERSION_CHECK_THROTTLE_SECS: u64 = 86_400;
+/// Network timeout for a startup background check (2 s — must feel instant).
+const STARTUP_CHECK_TIMEOUT_SECS: u64 = 2;
+
+/// Persisted state for the startup version-check throttle.
+#[derive(Serialize, Deserialize, Default)]
+struct VersionCheckCache {
+    /// Unix epoch seconds of the last check attempt (successful or not).
+    last_checked_secs: u64,
+    /// Latest release tag returned by GitHub (e.g. `"v0.5.1"`).
+    latest_tag: Option<String>,
+}
+
+fn version_cache_path() -> Option<std::path::PathBuf> {
+    dirs::cache_dir().map(|d| d.join(VERSION_CACHE_FILENAME))
+}
+
+fn load_version_cache() -> VersionCheckCache {
+    version_cache_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_version_cache(cache: &VersionCheckCache) {
+    if let Some(path) = version_cache_path() {
+        if let Ok(json) = serde_json::to_string(cache) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+/// Returns `true` when `latest_tag` represents a version newer than the
+/// running binary.  Extracted as a pure function for testability.
+fn should_show_update_hint(latest_tag: Option<&str>) -> bool {
+    latest_tag
+        .map(|tag| cmp_semver(tag.trim_start_matches('v'), CURRENT_VERSION))
+        .map(|ord| ord == std::cmp::Ordering::Greater)
+        .unwrap_or(false)
+}
+
+fn print_update_hint(latest: &str) {
+    eprintln!(
+        "\n  ✦ parsec {latest} available (current: {CURRENT_VERSION})\
+         \n    Run `parsec self-update` for upgrade instructions.\n"
+    );
+}
+
+/// Print a one-line update hint to **stderr** if a newer release is available.
+///
+/// Throttles the live GitHub API call to at most once every 24 hours by
+/// caching the result in [`version_cache_path()`].  Always a no-op in
+/// offline mode; never panics.
+///
+/// Should be called after the main command has finished so it does not
+/// interleave with command output.  Skipped in `--json` / `--quiet` mode
+/// and for the `parsec self-update` command itself (see `src/cli/mod.rs`).
+pub async fn startup_version_hint(offline: bool) {
+    if offline {
+        return;
+    }
+
+    let mut cache = load_version_cache();
+    let now = now_secs();
+    let age_secs = now.saturating_sub(cache.last_checked_secs);
+
+    if age_secs >= VERSION_CHECK_THROTTLE_SECS {
+        // Cache is stale — attempt a quick live refresh.
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(STARTUP_CHECK_TIMEOUT_SECS))
+            .user_agent(format!("parsec/{CURRENT_VERSION}"))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
+        match client.get(&url).send().await {
+            Ok(resp) => {
+                if let Ok(release) = resp.json::<GitHubRelease>().await {
+                    let tag = release.tag_name.clone();
+                    cache = VersionCheckCache {
+                        last_checked_secs: now,
+                        latest_tag: Some(tag.clone()),
+                    };
+                    save_version_cache(&cache);
+                    if should_show_update_hint(Some(&tag)) {
+                        print_update_hint(tag.trim_start_matches('v'));
+                    }
+                }
+            }
+            Err(_) => {
+                // Network unavailable — bump timestamp to avoid hammering
+                // the API on every run, but keep any cached latest_tag.
+                cache.last_checked_secs = now;
+                save_version_cache(&cache);
+            }
+        }
+    } else if let Some(ref tag) = cache.latest_tag.clone() {
+        // Use the cached result without a network call.
+        if should_show_update_hint(Some(tag)) {
+            print_update_hint(tag.trim_start_matches('v'));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::cmp_semver;
+    use super::{
+        cmp_semver, now_secs, should_show_update_hint, VersionCheckCache, CURRENT_VERSION,
+        VERSION_CHECK_THROTTLE_SECS,
+    };
     use std::cmp::Ordering;
 
     #[test]
@@ -161,5 +282,52 @@ mod tests {
     #[test]
     fn multi_digit_major() {
         assert_eq!(cmp_semver("10.0.0", "9.99.99"), Ordering::Greater);
+    }
+
+    // ── Phase 2: startup version-check helpers ──────────────────────────
+
+    #[test]
+    fn version_cache_serde_round_trip() {
+        let cache = VersionCheckCache {
+            last_checked_secs: 1_700_000_000,
+            latest_tag: Some("v0.5.1".into()),
+        };
+        let json = serde_json::to_string(&cache).expect("serialize");
+        let parsed: VersionCheckCache = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.last_checked_secs, 1_700_000_000);
+        assert_eq!(parsed.latest_tag.as_deref(), Some("v0.5.1"));
+    }
+
+    #[test]
+    fn version_cache_default_is_stale() {
+        let cache = VersionCheckCache::default();
+        let age = now_secs().saturating_sub(cache.last_checked_secs);
+        assert!(
+            age >= VERSION_CHECK_THROTTLE_SECS,
+            "default cache should be stale"
+        );
+    }
+
+    #[test]
+    fn should_show_hint_newer_version() {
+        // A tag strictly newer than the running CURRENT_VERSION should trigger a hint.
+        // We use a version guaranteed to be newer than any cargo package version.
+        assert!(should_show_update_hint(Some("v999.0.0")));
+    }
+
+    #[test]
+    fn should_show_hint_older_version() {
+        assert!(!should_show_update_hint(Some("v0.0.1")));
+    }
+
+    #[test]
+    fn should_show_hint_none() {
+        assert!(!should_show_update_hint(None));
+    }
+
+    #[test]
+    fn should_show_hint_equal_version() {
+        // Equal to current — no hint.
+        assert!(!should_show_update_hint(Some(CURRENT_VERSION)));
     }
 }

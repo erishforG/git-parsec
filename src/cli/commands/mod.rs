@@ -35,5 +35,5 @@ pub use smartlog::smartlog;
 pub use stack::*;
 pub use test::test;
 pub use tracker_cmds::*;
-pub use update::self_update;
+pub use update::{self_update, startup_version_hint};
 pub use workspace::*;

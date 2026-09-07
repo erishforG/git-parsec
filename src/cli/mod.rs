@@ -1118,6 +1118,12 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::SelfUpdate {} => commands::self_update(offline).await,
     };
 
+    // Startup version hint — one-line stderr notice when a newer release is cached.
+    // Skipped for self-update (redundant), --json, and --quiet modes.
+    if output_mode == output::Mode::Human && cmd_name != "self-update" {
+        commands::startup_version_hint(offline).await;
+    }
+
     // Record execution entry (best-effort, never fail the command)
     let duration = exec_start.elapsed();
     let steps = crate::execlog::take_steps();
