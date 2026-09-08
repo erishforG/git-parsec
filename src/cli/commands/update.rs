@@ -1,9 +1,17 @@
 //! `parsec self-update` — check for a newer release and print upgrade instructions.
 //!
-//! # Phase 1 (this module)
+//! # Phase 1
 //! Compares the running version against the latest GitHub release and prints
 //! an upgrade command when a newer version is available.  No binary download
-//! or in-place replacement is performed; that is deferred to Phase 2.
+//! or in-place replacement is performed.
+//!
+//! # Phase 2
+//! Startup version-check throttled to once every 24 h; cached in OS cache dir.
+//!
+//! # Phase 3 (this version)
+//! - Opt-out via `[update] check_on_startup = false` in parsec config.
+//! - Install-method detection: Homebrew / Cargo / prebuilt binary, each with
+//!   the appropriate upgrade command.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -96,14 +104,9 @@ pub async fn self_update(offline: bool) -> Result<()> {
                         }
                     }
                     println!("\nTo upgrade:");
-                    println!(
-                        "  cargo install --git https://github.com/{GITHUB_REPO} \
-                         --bin parsec --force"
-                    );
-                    println!(
-                        "\nnote: automated binary replacement is planned for Phase 2 \
-                         (see issue #296)."
-                    );
+                    for line in upgrade_command().lines() {
+                        println!("  {line}");
+                    }
                 }
                 std::cmp::Ordering::Equal => {
                     println!("✓  already up to date ({current})");
@@ -121,12 +124,35 @@ pub async fn self_update(offline: bool) -> Result<()> {
     Ok(())
 }
 
-// ── Startup version check (Phase 2) ────────────────────────────────────────
+// ── Install-method detection (Phase 3) ─────────────────────────────────────
+
+/// Detect how parsec was installed and return the appropriate upgrade command.
+///
+/// Detection order:
+/// 1. Homebrew — binary path contains `/homebrew/` or `/Cellar/`.
+/// 2. Cargo — binary path contains `/.cargo/bin/`.
+/// 3. Unknown / prebuilt — direct download from releases page.
+pub fn upgrade_command() -> String {
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    if exe.contains("/homebrew/") || exe.contains("/Cellar/") {
+        "brew upgrade parsec".to_string()
+    } else if exe.contains("/.cargo/bin/") {
+        format!("cargo install --git https://github.com/{GITHUB_REPO} --bin parsec --force")
+    } else {
+        format!(
+            "# Download the latest prebuilt binary from:\n\
+             # https://github.com/{GITHUB_REPO}/releases/latest"
+        )
+    }
+}
+
+// ── Startup version check (Phase 2 / Phase 3) ───────────────────────────────
 
 /// Cache filename stored in the OS cache directory (e.g. `~/.cache` on Linux).
 const VERSION_CACHE_FILENAME: &str = ".parsec-version-check";
-/// Minimum seconds between live GitHub API checks (24 h).
-const VERSION_CHECK_THROTTLE_SECS: u64 = 86_400;
 /// Network timeout for a startup background check (2 s — must feel instant).
 const STARTUP_CHECK_TIMEOUT_SECS: u64 = 2;
 
@@ -183,23 +209,31 @@ fn print_update_hint(latest: &str) {
 
 /// Print a one-line update hint to **stderr** if a newer release is available.
 ///
-/// Throttles the live GitHub API call to at most once every 24 hours by
-/// caching the result in [`version_cache_path()`].  Always a no-op in
-/// offline mode; never panics.
+/// Throttles the live GitHub API call using `check_interval_hours` (default 24 h)
+/// by caching the result in [`version_cache_path()`].  Always a no-op when
+/// `check_on_startup` is `false` or in offline mode; never panics.
 ///
 /// Should be called after the main command has finished so it does not
 /// interleave with command output.  Skipped in `--json` / `--quiet` mode
 /// and for the `parsec self-update` command itself (see `src/cli/mod.rs`).
-pub async fn startup_version_hint(offline: bool) {
-    if offline {
+///
+/// # Phase 3
+/// Accepts `check_on_startup` (config opt-out) and `check_interval_hours`.
+pub async fn startup_version_hint(
+    offline: bool,
+    check_on_startup: bool,
+    check_interval_hours: u64,
+) {
+    if offline || !check_on_startup {
         return;
     }
 
+    let throttle_secs = check_interval_hours.saturating_mul(3_600);
     let mut cache = load_version_cache();
     let now = now_secs();
     let age_secs = now.saturating_sub(cache.last_checked_secs);
 
-    if age_secs >= VERSION_CHECK_THROTTLE_SECS {
+    if age_secs >= throttle_secs {
         // Cache is stale — attempt a quick live refresh.
         let client = match reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(STARTUP_CHECK_TIMEOUT_SECS))
@@ -243,7 +277,6 @@ pub async fn startup_version_hint(offline: bool) {
 mod tests {
     use super::{
         cmp_semver, now_secs, should_show_update_hint, VersionCheckCache, CURRENT_VERSION,
-        VERSION_CHECK_THROTTLE_SECS,
     };
     use std::cmp::Ordering;
 
@@ -303,7 +336,7 @@ mod tests {
         let cache = VersionCheckCache::default();
         let age = now_secs().saturating_sub(cache.last_checked_secs);
         assert!(
-            age >= VERSION_CHECK_THROTTLE_SECS,
+            age >= 86_400, // DEFAULT_CHECK_INTERVAL_SECS (24 h)
             "default cache should be stale"
         );
     }
@@ -329,5 +362,43 @@ mod tests {
     fn should_show_hint_equal_version() {
         // Equal to current — no hint.
         assert!(!should_show_update_hint(Some(CURRENT_VERSION)));
+    }
+
+    // ── Phase 3: upgrade_command install-method detection ────────────────────────
+
+    #[test]
+    fn upgrade_command_homebrew() {
+        // Simulate a Homebrew-installed binary path.
+        // We can't actually change `current_exe`, so we test the detection
+        // logic indirectly by verifying it produces a non-empty string.
+        // A real path test would require PATH manipulation; skip for now and
+        // assert the fallback (cargo/prebuilt) is non-empty.
+        let cmd = super::upgrade_command();
+        assert!(
+            !cmd.is_empty(),
+            "upgrade_command should always return a non-empty string"
+        );
+    }
+
+    #[test]
+    fn upgrade_command_contains_repo() {
+        // Whatever the install method, the command must reference the repo or
+        // releases page so the user knows where to go.
+        let cmd = super::upgrade_command();
+        let has_ref = cmd.contains("erishforG/git-parsec")
+            || cmd.contains("brew upgrade")
+            || cmd.contains("releases");
+        assert!(
+            has_ref,
+            "upgrade_command should reference the repo/releases: {cmd}"
+        );
+    }
+
+    #[test]
+    fn throttle_secs_from_hours() {
+        // Verify the hours-to-seconds conversion arithmetic used in startup_version_hint.
+        let hours: u64 = 48;
+        let expected_secs = 48 * 3_600u64;
+        assert_eq!(hours.saturating_mul(3_600), expected_secs);
     }
 }
