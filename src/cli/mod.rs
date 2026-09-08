@@ -1120,8 +1120,12 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     // Startup version hint — one-line stderr notice when a newer release is cached.
     // Skipped for self-update (redundant), --json, and --quiet modes.
+    // Phase 3: respects [update] check_on_startup / check_interval_hours from config.
     if output_mode == output::Mode::Human && cmd_name != "self-update" {
-        commands::startup_version_hint(offline).await;
+        let (check_on_startup, check_interval_hours) = crate::config::ParsecConfig::load()
+            .map(|c| (c.update.check_on_startup, c.update.check_interval_hours))
+            .unwrap_or((true, 24));
+        commands::startup_version_hint(offline, check_on_startup, check_interval_hours).await;
     }
 
     // Record execution entry (best-effort, never fail the command)

@@ -397,6 +397,10 @@ fn default_test_jobs() -> usize {
     1
 }
 
+fn default_update_interval_hours() -> u64 {
+    24
+}
+
 /// Settings for the `parsec test` command (issue #247).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestConfig {
@@ -417,6 +421,31 @@ impl Default for TestConfig {
             command: default_test_command(),
             jobs: default_test_jobs(),
             cache: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UpdateConfig
+// ---------------------------------------------------------------------------
+
+/// Settings for automatic version checking (`parsec self-update` / startup hint).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    /// When `false`, suppresses the startup "update available" hint on every run.
+    /// `parsec self-update` is never suppressed.
+    #[serde(default = "default_true")]
+    pub check_on_startup: bool,
+    /// Minimum hours between live GitHub API polls for a new release (default: 24).
+    #[serde(default = "default_update_interval_hours")]
+    pub check_interval_hours: u64,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            check_on_startup: true,
+            check_interval_hours: default_update_interval_hours(),
         }
     }
 }
@@ -443,6 +472,8 @@ pub struct ParsecConfig {
     pub policy: PolicyConfig,
     #[serde(default)]
     pub test: TestConfig,
+    #[serde(default)]
+    pub update: UpdateConfig,
     /// Per-host GitHub tokens. Keys are hostnames like "github.com" or
     /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
     #[serde(default)]
