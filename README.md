@@ -40,7 +40,7 @@ That's the whole loop. Plain `git worktree` doesn't track state, doesn't talk to
 | **v1.0** — _AI-Native Standard_ | 🚧 Next | MCP server signature — Claude / Cursor / Copilot invoke parsec as a first-class tool |
 | **v2.0+** — _Ecosystem Hub_ | 🔮 | Plugins · VS Code extension · Linear-native tracker · org-scale workflows |
 
-v1.0 work is tracked under the [`v1.0` milestone](https://github.com/erishforG/git-parsec/milestone/4); see the [CHANGELOG](./CHANGELOG.md) for the full v0.5.0 release notes.
+v1.0 work is tracked under the [`v1.0` milestone](https://github.com/erishforG/git-parsec/milestone/2); see the [CHANGELOG](./CHANGELOG.md) for the full v0.5.0 release notes.
 
 ---
 
