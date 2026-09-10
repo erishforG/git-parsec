@@ -12,6 +12,7 @@ mod github;
 mod gitlab;
 mod oplog;
 mod output;
+mod panic_handler;
 mod tracker;
 mod worktree;
 
@@ -20,6 +21,13 @@ use cli::Cli;
 
 #[tokio::main]
 async fn main() {
+    // ── Panic hook (opt-in crash report, #298) ─────────────────────────────
+    // Load config once solely to read the crash_report setting; failures are
+    // silently ignored (hook still installs with enabled=false).
+    let crash_report_enabled = config::ParsecConfig::load()
+        .map(|c| c.crash_report.enabled)
+        .unwrap_or(false);
+    panic_handler::setup(crash_report_enabled);
     let cli = Cli::parse();
     let json_mode = cli.json;
 

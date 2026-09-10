@@ -451,6 +451,30 @@ impl Default for UpdateConfig {
 }
 
 // ---------------------------------------------------------------------------
+// CrashReportConfig
+// ---------------------------------------------------------------------------
+
+/// Controls opt-in crash report collection (#298).
+///
+/// No data is transmitted automatically.  When `enabled = true`, a JSON
+/// report is written to `~/.cache/parsec/crash-<ts>.json` on panic.  The
+/// user must choose to share it.  See `docs/crash-report.md`.
+///
+/// # Example (`~/.config/parsec/config.toml`)
+/// ```toml
+/// [crash_report]
+/// enabled = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CrashReportConfig {
+    /// When `true`, a JSON crash report is saved locally on panic.
+    /// Default: `false` (opt-in).
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+// ---------------------------------------------------------------------------
 // ParsecConfig
 // ---------------------------------------------------------------------------
 
@@ -474,6 +498,9 @@ pub struct ParsecConfig {
     pub test: TestConfig,
     #[serde(default)]
     pub update: UpdateConfig,
+    /// Opt-in crash report collection.
+    #[serde(default)]
+    pub crash_report: CrashReportConfig,
     /// Per-host GitHub tokens. Keys are hostnames like "github.com" or
     /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
     #[serde(default)]
