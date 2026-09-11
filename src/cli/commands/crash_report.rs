@@ -211,16 +211,16 @@ mod tests {
     use super::*;
 
     /// Write a minimal valid crash-report fixture.
-    fn write_fixture(dir: &std::path::Path, stem: &str, msg: &str) {
+    ///
+    /// Uses Unix epoch seconds as the stem (e.g. `crash-1700000000`) to
+    /// match the actual format written by the Phase 1 panic hook and to
+    /// avoid colons in filenames (which are invalid on Windows).
+    fn write_fixture(dir: &std::path::Path, epoch_secs: u64, msg: &str) {
         let content = format!(
-            concat!(
-                r#"{{"parsec_version":"0.5.0","timestamp":"2026-01-01T00:00:00Z","#,
-                r#""os":"unix/macos","shell":"zsh","subcommand":"start","#,
-                r#""panic_location":"src/main.rs:1","panic_message":"{msg}"}}"#
-            ),
+            r#"{{"parsec_version":"0.5.0","timestamp":"2026-01-01T00:00:00Z","os":"unix/macos","shell":"zsh","subcommand":"start","panic_location":"src/main.rs:1","panic_message":"{msg}"}}"#,
             msg = msg
         );
-        std::fs::write(dir.join(format!("{stem}.json")), content).unwrap();
+        std::fs::write(dir.join(format!("crash-{epoch_secs}.json")), content).unwrap();
     }
 
     #[test]
@@ -239,13 +239,14 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = tmp.path().join("parsec");
         std::fs::create_dir_all(&cache).unwrap();
-        write_fixture(&cache, "crash-2026-01-02T00:00:00Z", "beta");
-        write_fixture(&cache, "crash-2026-01-01T00:00:00Z", "alpha");
+        // Use epoch seconds: 1_000_001 sorts after 1_000_000 lexicographically.
+        write_fixture(&cache, 1_000_001, "beta");
+        write_fixture(&cache, 1_000_000, "alpha");
         let files = list_crash_files(&cache).unwrap();
         assert_eq!(files.len(), 2);
         assert!(
-            files[0].to_str().unwrap().contains("2026-01-01"),
-            "oldest report should come first"
+            files[0].to_str().unwrap().contains("1000000"),
+            "oldest (smaller epoch) report should come first"
         );
     }
 
@@ -262,7 +263,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = tmp.path().join("parsec");
         std::fs::create_dir_all(&cache).unwrap();
-        write_fixture(&cache, "crash-2026-01-01T00:00:00Z", "boom");
+        write_fixture(&cache, 1_700_000_000, "boom");
         let files_before = list_crash_files(&cache).unwrap();
         assert_eq!(files_before.len(), 1);
         for p in &files_before {
@@ -277,7 +278,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = tmp.path().join("parsec");
         std::fs::create_dir_all(&cache).unwrap();
-        write_fixture(&cache, "crash-2026-01-01T00:00:00Z", "still here");
+        write_fixture(&cache, 1_700_000_001, "still here");
         let files = list_crash_files(&cache).unwrap();
         assert_eq!(files.len(), 1);
         // Simulate dry-run: do NOT remove files.
