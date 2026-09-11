@@ -20,7 +20,7 @@ mod tracker_cmds;
 mod update;
 mod workspace;
 
-pub use checkpoint::{checkpoint_create, checkpoint_list};
+pub use checkpoint::{checkpoint_create, checkpoint_drop, checkpoint_list, checkpoint_restore};
 pub use ci::*;
 pub use complete::complete;
 pub use compress::*;

@@ -26,9 +26,22 @@
 //! ```
 //! Only lines containing `parsec-checkpoint:` in the message are surfaced.
 //!
-//! # Phase 2 (planned)
-//! - `parsec checkpoint restore <name>` — pop the stash with matching name.
-//! - `parsec checkpoint drop <name>` — discard a named checkpoint.
+//! # Phase 2
+//! Adds two destructive subcommands:
+//!
+//! | Subcommand | Description |
+//! |------------|-------------|
+//! | `restore <name>` | Pop the named checkpoint back into the working tree (`git stash pop`) |
+//! | `drop <name>` | Discard the named checkpoint permanently (`git stash drop`) |
+//!
+//! Both commands perform **name-based lookup** across the full stash list —
+//! the user never needs to know the underlying `stash@{N}` index.
+//! An exact-match is preferred; if no exact match is found the command fails
+//! with a helpful error that lists available checkpoint names.
+//!
+//! # Phase 3 (planned)
+//! - `parsec checkpoint show <name>` — show the diff stored in a checkpoint.
+//! - `parsec checkpoint rename <old> <new>` — rename a checkpoint in-place.
 
 use std::path::Path;
 
@@ -109,6 +122,57 @@ pub fn checkpoint_create(repo: &Path, name: Option<&str>, mode: Mode) -> Result<
 ///
 /// Reads `git stash list` and filters for entries whose message contains the
 /// `parsec-checkpoint:` prefix.  Non-parsec stashes are not shown.
+/// Restore (pop) a named checkpoint back into the working tree.
+///
+/// Looks up the `stash@{N}` ref for the given name and runs
+/// `git stash pop stash@{N}`.  On success the stash entry is removed.
+/// If the working tree is dirty, git will refuse the pop; the original
+/// stash entry is left intact so the user can resolve conflicts first.
+pub fn checkpoint_restore(repo: &Path, name: &str, mode: Mode) -> Result<()> {
+    let entry = find_checkpoint(repo, name)?;
+
+    git::run(repo, &["stash", "pop", &entry.stash_ref])?;
+
+    let sref = &entry.stash_ref;
+    match mode {
+        Mode::Human => {
+            println!("✔ Checkpoint '{name}' restored to working tree (stash entry removed).")
+        }
+        Mode::Json => {
+            println!(r#"{{"ok":true,"name":"{name}","stash_ref":"{sref}","action":"restore"}}"#)
+        }
+        Mode::Quiet => {}
+    }
+    Ok(())
+}
+
+/// Drop (permanently discard) a named checkpoint.
+///
+/// Looks up the `stash@{N}` ref for the given name and runs
+/// `git stash drop stash@{N}`.  This is **irreversible**; the stash entry
+/// is deleted and the captured changes are gone.
+pub fn checkpoint_drop(repo: &Path, name: &str, mode: Mode) -> Result<()> {
+    let entry = find_checkpoint(repo, name)?;
+
+    git::run(repo, &["stash", "drop", &entry.stash_ref])?;
+
+    let sref = &entry.stash_ref;
+    match mode {
+        Mode::Human => {
+            println!("✔ Checkpoint '{name}' dropped (stash entry {sref} permanently removed).")
+        }
+        Mode::Json => {
+            println!(r#"{{"ok":true,"name":"{name}","stash_ref":"{sref}","action":"drop"}}"#)
+        }
+        Mode::Quiet => {}
+    }
+    Ok(())
+}
+
+/// List all parsec-managed checkpoints in the repository.
+///
+/// Reads `git stash list` and filters for entries whose message contains the
+/// `parsec-checkpoint:` prefix.  Non-parsec stashes are not shown.
 pub fn checkpoint_list(repo: &Path, mode: Mode) -> Result<()> {
     // git stash list exits non-zero on repos with no stash history; treat as empty.
     let raw = git::run_output(repo, &["stash", "list"]).unwrap_or_default();
@@ -150,6 +214,32 @@ pub fn checkpoint_list(repo: &Path, mode: Mode) -> Result<()> {
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
+
+/// Find the checkpoint entry whose name exactly matches `name`.
+///
+/// Returns `Err` with a human-readable message listing available names
+/// if no match is found.
+fn find_checkpoint(repo: &Path, name: &str) -> Result<CheckpointEntry> {
+    let raw = git::run_output(repo, &["stash", "list"]).unwrap_or_default();
+    let entries = parse_stash_list(&raw);
+
+    if let Some(entry) = entries.into_iter().find(|e| e.name == name) {
+        return Ok(entry);
+    }
+
+    // Build a helpful error message.
+    let available = git::run_output(repo, &["stash", "list"])
+        .map(|r| parse_stash_list(&r))
+        .unwrap_or_default();
+    if available.is_empty() {
+        bail!("No checkpoint named '{name}' found — no parsec checkpoints exist in this repo.");
+    }
+    let names: Vec<&str> = available.iter().map(|e| e.name.as_str()).collect();
+    bail!(
+        "No checkpoint named '{name}' found.\nAvailable checkpoints: {}",
+        names.join(", ")
+    );
+}
 
 /// Parse the raw `git stash list` output into [`CheckpointEntry`] records.
 ///
@@ -319,5 +409,55 @@ stash@{1}: On main: parsec-checkpoint:beta";
         // that our prefix string does not itself contain a colon in the name part.
         let label = "bad:name";
         assert!(label.contains(':'));
+    }
+
+    // --- parse_stash_line edge cases ----------------------------------------
+
+    #[test]
+    fn parses_checkpoint_with_hyphenated_name() {
+        let line = "stash@{3}: On release/1.0: parsec-checkpoint:pre-merge-2026";
+        let entry = parse_stash_line(line).expect("should parse");
+        assert_eq!(entry.name, "pre-merge-2026");
+        assert_eq!(entry.branch, "release/1.0");
+    }
+
+    #[test]
+    fn parses_checkpoint_with_timestamp_name() {
+        let line = "stash@{0}: On main: parsec-checkpoint:20260911-103000";
+        let entry = parse_stash_line(line).expect("should parse");
+        assert_eq!(entry.name, "20260911-103000");
+        assert_eq!(entry.stash_ref, "stash@{0}");
+    }
+
+    // --- find_checkpoint (unit-level via parse_stash_list) ------------------
+
+    /// Verify the lookup logic that find_checkpoint relies on.
+    #[test]
+    fn lookup_finds_exact_match() {
+        let raw = "\
+stash@{0}: On main: parsec-checkpoint:alpha\n\
+stash@{1}: On main: parsec-checkpoint:beta\n\
+stash@{2}: On main: WIP regular stash";
+        let entries = parse_stash_list(raw);
+        let found = entries.into_iter().find(|e| e.name == "beta");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().stash_ref, "stash@{1}");
+    }
+
+    #[test]
+    fn lookup_returns_none_for_missing_name() {
+        let raw = "stash@{0}: On main: parsec-checkpoint:only-one";
+        let entries = parse_stash_list(raw);
+        let found = entries.into_iter().find(|e| e.name == "nonexistent");
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn lookup_does_not_match_partial_name() {
+        let raw = "stash@{0}: On main: parsec-checkpoint:alpha-extended";
+        let entries = parse_stash_list(raw);
+        // Exact match only — "alpha" should not match "alpha-extended".
+        let found = entries.into_iter().find(|e| e.name == "alpha");
+        assert!(found.is_none());
     }
 }
