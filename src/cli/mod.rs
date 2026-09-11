@@ -703,7 +703,7 @@ pub enum CrashReportAction {
 pub enum CheckpointAction {
     /// Save the current worktree state as a named checkpoint
     ///
-    /// Stages, unstaged changes, and untracked files are all captured.
+    /// Staged, unstaged changes, and untracked files are all captured.
     /// If the working tree is clean, a friendly message is printed instead.
     Create {
         /// Optional name for the checkpoint (default: UTC timestamp)
@@ -711,6 +711,21 @@ pub enum CheckpointAction {
     },
     /// List all parsec-managed checkpoints in this repository
     List,
+    /// Restore a named checkpoint back into the working tree
+    ///
+    /// Pops the matching git stash entry and removes it from the stash list.
+    /// Fails if the working tree is dirty (resolve conflicts first, then retry).
+    Restore {
+        /// Name of the checkpoint to restore
+        name: String,
+    },
+    /// Permanently discard a named checkpoint
+    ///
+    /// Drops the matching git stash entry.  This action is irreversible.
+    Drop {
+        /// Name of the checkpoint to drop
+        name: String,
+    },
 }
 
 /// Candidate sets the dynamic completion subcommand can emit.
@@ -1186,6 +1201,12 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::checkpoint_create(&repo_path, name.as_deref(), output_mode)
             }
             CheckpointAction::List => commands::checkpoint_list(&repo_path, output_mode),
+            CheckpointAction::Restore { name } => {
+                commands::checkpoint_restore(&repo_path, &name, output_mode)
+            }
+            CheckpointAction::Drop { name } => {
+                commands::checkpoint_drop(&repo_path, &name, output_mode)
+            }
         },
     };
 
