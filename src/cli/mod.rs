@@ -669,6 +669,19 @@ pub enum Command {
         #[command(subcommand)]
         action: CrashReportAction,
     },
+
+    /// Save and list worktree snapshots (stash-based)
+    ///
+    /// Creates a named point-in-time snapshot of the current worktree —
+    /// including staged, unstaged, and untracked files — using git stash.
+    /// Snapshots are tagged with a `parsec-checkpoint:` prefix so they can
+    /// be distinguished from ordinary stash entries.
+    ///
+    /// Phase 1: create + list.  Phase 2 will add restore and drop.
+    Checkpoint {
+        #[command(subcommand)]
+        action: CheckpointAction,
+    },
 }
 
 /// Actions available under `parsec crash-report`.
@@ -683,6 +696,21 @@ pub enum CrashReportAction {
     },
     /// Delete all crash reports from the cache directory.
     Clear,
+}
+
+/// Subcommands for `parsec checkpoint`.
+#[derive(Subcommand)]
+pub enum CheckpointAction {
+    /// Save the current worktree state as a named checkpoint
+    ///
+    /// Stages, unstaged changes, and untracked files are all captured.
+    /// If the working tree is clean, a friendly message is printed instead.
+    Create {
+        /// Optional name for the checkpoint (default: UTC timestamp)
+        name: Option<String>,
+    },
+    /// List all parsec-managed checkpoints in this repository
+    List,
 }
 
 /// Candidate sets the dynamic completion subcommand can emit.
@@ -795,6 +823,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Test { .. } => "test",
         Command::SelfUpdate { .. } => "self-update",
         Command::CrashReport { .. } => "crash-report",
+        Command::Checkpoint { .. } => "checkpoint",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -1151,6 +1180,12 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::crash_report_show(&id, output_mode == output::Mode::Json)
             }
             CrashReportAction::Clear => commands::crash_report_clear(cli.dry_run),
+        },
+        Command::Checkpoint { action } => match action {
+            CheckpointAction::Create { name } => {
+                commands::checkpoint_create(&repo_path, name.as_deref(), output_mode)
+            }
+            CheckpointAction::List => commands::checkpoint_list(&repo_path, output_mode),
         },
     };
 
