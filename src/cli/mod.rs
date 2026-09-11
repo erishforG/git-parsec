@@ -657,6 +657,32 @@ pub enum Command {
     /// Phase 1 — notification only; automatic binary replacement is Phase 2.
     /// Use the global `--offline` flag to skip the network call.
     SelfUpdate {},
+
+    /// Manage locally-saved crash reports.
+    ///
+    /// Crash reports are opt-in JSON files written by the panic hook when
+    /// `[crash_report] enabled = true` is set in your parsec config.
+    /// See `docs/crash-report.md` for the privacy policy.
+    ///
+    /// Phase 2 — list / show / clear subcommands for cache management.
+    CrashReport {
+        #[command(subcommand)]
+        action: CrashReportAction,
+    },
+}
+
+/// Actions available under `parsec crash-report`.
+#[derive(Subcommand)]
+pub enum CrashReportAction {
+    /// List all crash reports with timestamp and panic preview.
+    List,
+    /// Show the full JSON of one crash report.
+    Show {
+        /// Report id (file stem, e.g. `crash-20260101T000000Z`)
+        id: String,
+    },
+    /// Delete all crash reports from the cache directory.
+    Clear,
 }
 
 /// Candidate sets the dynamic completion subcommand can emit.
@@ -768,6 +794,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Dashboard { .. } => "dashboard",
         Command::Test { .. } => "test",
         Command::SelfUpdate { .. } => "self-update",
+        Command::CrashReport { .. } => "crash-report",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -1116,6 +1143,15 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
         Command::SelfUpdate {} => commands::self_update(offline).await,
+        Command::CrashReport { action } => match action {
+            CrashReportAction::List => {
+                commands::crash_report_list(output_mode == output::Mode::Json)
+            }
+            CrashReportAction::Show { id } => {
+                commands::crash_report_show(&id, output_mode == output::Mode::Json)
+            }
+            CrashReportAction::Clear => commands::crash_report_clear(cli.dry_run),
+        },
     };
 
     // Startup version hint — one-line stderr notice when a newer release is cached.
