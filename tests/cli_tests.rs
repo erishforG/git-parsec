@@ -2548,3 +2548,249 @@ fn test_dashboard_quiet_rejected() {
         combined
     );
 }
+
+// ---------------------------------------------------------------------------
+// checkpoint — CLI integration tests (#435)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_checkpoint_help_shows_subcommands() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "checkpoint",
+            "--help",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("create"))
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("restore"))
+        .stdout(predicate::str::contains("drop"));
+}
+
+#[test]
+fn test_checkpoint_list_empty() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No checkpoints found"));
+}
+
+#[test]
+fn test_checkpoint_list_empty_json() {
+    let repo = setup_repo();
+    let out = parsec()
+        .args([
+            "--json",
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "expected success");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        stdout.trim(),
+        "[]",
+        "expected empty JSON array, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_checkpoint_create_clean_tree() {
+    // A freshly-initialised repo with only an empty commit is clean —
+    // parsec should report nothing to checkpoint without error.
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("clean"));
+}
+
+#[test]
+fn test_checkpoint_create_with_changes() {
+    // Add an untracked file so the working tree is dirty, then create a checkpoint.
+    let repo = setup_repo();
+    let new_file = repo.path().join("work.txt");
+    std::fs::write(&new_file, "pending work").unwrap();
+
+    parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "before-experiment",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("before-experiment"));
+}
+
+#[test]
+fn test_checkpoint_create_then_list() {
+    // Create a checkpoint with a specific name and verify it appears in `list`.
+    let repo = setup_repo();
+    let new_file = repo.path().join("draft.rs");
+    std::fs::write(&new_file, "// wip").unwrap();
+
+    parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "my-snapshot",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    parsec()
+        .args([
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("my-snapshot"));
+}
+
+#[test]
+fn test_checkpoint_drop_removes_entry() {
+    // Create a checkpoint, then drop it; the list should return empty afterwards.
+    let repo = setup_repo();
+    let new_file = repo.path().join("temp.rs");
+    std::fs::write(&new_file, "temp").unwrap();
+
+    parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "drop-me",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Sanity: appears in list before drop.
+    parsec()
+        .args([
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("drop-me"));
+
+    // Drop it.
+    parsec()
+        .args([
+            "checkpoint",
+            "drop",
+            "drop-me",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("drop-me"));
+
+    // Now list should be empty again.
+    parsec()
+        .args([
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No checkpoints found"));
+}
+
+#[test]
+fn test_checkpoint_name_with_colon_rejected() {
+    // Names containing ':' collide with the internal prefix delimiter.
+    let repo = setup_repo();
+    let new_file = repo.path().join("dirty.txt");
+    std::fs::write(&new_file, "x").unwrap();
+
+    let out = parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "bad:name",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "expected non-zero exit for bad name");
+}
+
+// ---------------------------------------------------------------------------
+// crash-report — CLI integration tests (#435)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_crash_report_help_shows_subcommands() {
+    parsec()
+        .args(["crash-report", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("show"))
+        .stdout(predicate::str::contains("clear"));
+}
+
+#[test]
+fn test_crash_report_list_no_reports() {
+    // Use a temp cache dir so we never see real crash reports from the host.
+    let tmp = tempfile::tempdir().unwrap();
+    parsec()
+        .env("XDG_CACHE_HOME", tmp.path().to_str().unwrap())
+        .args(["crash-report", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No crash reports found"));
+}
+
+#[test]
+fn test_crash_report_list_json_no_reports() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = parsec()
+        .env("XDG_CACHE_HOME", tmp.path().to_str().unwrap())
+        .args(["--json", "crash-report", "list"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "expected success");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        stdout.trim(),
+        "[]",
+        "expected empty JSON array, got: {stdout}"
+    );
+}
