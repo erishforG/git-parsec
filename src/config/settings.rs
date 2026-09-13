@@ -475,6 +475,47 @@ pub struct CrashReportConfig {
 }
 
 // ---------------------------------------------------------------------------
+// TriageConfig
+// ---------------------------------------------------------------------------
+
+/// One label-assignment rule: when `pattern` (case-insensitive substring)
+/// appears in an issue/PR title, `label` is proposed and optionally a
+/// `priority` label is added.
+///
+/// Example (`~/.config/parsec/config.toml`):
+/// ```toml
+/// [[triage.rules]]
+/// pattern = "feat"
+/// label   = "type/feature"
+///
+/// [[triage.rules]]
+/// pattern = "fix"
+/// label   = "type/bug"
+/// priority = "priority/high"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriageRule {
+    /// Case-insensitive substring that is matched against the issue/PR title.
+    pub pattern: String,
+    /// Label to propose when `pattern` matches.
+    pub label: String,
+    /// Optional priority label to propose alongside `label`.
+    #[serde(default)]
+    pub priority: Option<String>,
+}
+
+/// `[triage]` section of the parsec config — rule-based auto-labelling (#302).
+///
+/// Rules are evaluated in order; the **first** matching rule wins (highest
+/// confidence).  Subsequent rules that also match lower the trust score.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct TriageConfig {
+    /// Ordered list of triage rules.
+    pub rules: Vec<TriageRule>,
+}
+
+// ---------------------------------------------------------------------------
 // ParsecConfig
 // ---------------------------------------------------------------------------
 
@@ -501,6 +542,9 @@ pub struct ParsecConfig {
     /// Opt-in crash report collection.
     #[serde(default)]
     pub crash_report: CrashReportConfig,
+    /// Rule-based issue/PR auto-triage (#302).
+    #[serde(default)]
+    pub triage: TriageConfig,
     /// Per-host GitHub tokens. Keys are hostnames like "github.com" or
     /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
     #[serde(default)]

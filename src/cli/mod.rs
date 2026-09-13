@@ -682,6 +682,24 @@ pub enum Command {
         #[command(subcommand)]
         action: CheckpointAction,
     },
+
+    /// Rule-based issue/PR auto-labelling (dry-run in Phase 1).
+    ///
+    /// Reads `[[triage.rules]]` from your parsec config, fetches open GitHub
+    /// issues, and prints a table of proposed labels with a trust score.
+    ///
+    /// Phase 1: dry-run only — no labels are written to GitHub.
+    /// Phase 2 will add `--apply` to write proposed labels.
+    ///
+    /// Example config rule:
+    ///   [[triage.rules]]
+    ///   pattern = "feat"
+    ///   label   = "type/feature"
+    Triage {
+        /// Maximum number of open issues to inspect (default: 30).
+        #[arg(long, default_value = "30")]
+        limit: u8,
+    },
 }
 
 /// Actions available under `parsec crash-report`.
@@ -839,6 +857,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::SelfUpdate { .. } => "self-update",
         Command::CrashReport { .. } => "crash-report",
         Command::Checkpoint { .. } => "checkpoint",
+        Command::Triage { .. } => "triage",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -1208,6 +1227,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::checkpoint_drop(&repo_path, &name, output_mode)
             }
         },
+        Command::Triage { limit } => commands::triage(&repo_path, limit, output_mode).await,
     };
 
     // Startup version hint — one-line stderr notice when a newer release is cached.
