@@ -897,6 +897,54 @@ impl GitHubClient {
     }
 
     /// Add labels to a PR/issue.
+    /// Fetch open issues for the current repo (excludes pull requests).
+    ///
+    /// Returns up to `limit` issues sorted by creation date (newest first).
+    /// Each item is `(number, title, existing_labels)`.
+    pub async fn list_open_issues(&self, limit: u8) -> Result<Vec<(u64, String, Vec<String>)>> {
+        #[derive(serde::Deserialize)]
+        struct IssueLabel {
+            name: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct IssueItem {
+            number: u64,
+            title: String,
+            labels: Vec<IssueLabel>,
+            /// GitHub includes a `pull_request` field only on PR items; use
+            /// its absence to distinguish real issues from PRs.
+            pull_request: Option<serde_json::Value>,
+        }
+
+        let per_page = limit.min(100);
+        let path = format!(
+            "{}/issues?state=open&per_page={per_page}&sort=created&direction=desc",
+            self.repo_path()
+        );
+        let response = self
+            .get(&path)
+            .send()
+            .await
+            .context("Failed to list open issues")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Failed to list open issues: {} {}", status, body);
+        }
+        let items: Vec<IssueItem> = response
+            .json()
+            .await
+            .context("Failed to parse issue list")?;
+        Ok(items
+            .into_iter()
+            .filter(|i| i.pull_request.is_none()) // skip PRs
+            .map(|i| {
+                let labels: Vec<String> = i.labels.into_iter().map(|l| l.name).collect();
+                (i.number, i.title, labels)
+            })
+            .collect())
+    }
+
     pub async fn add_labels(&self, issue_number: u64, labels: &[String]) -> Result<()> {
         if labels.is_empty() {
             return Ok(());
