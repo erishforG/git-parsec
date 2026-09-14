@@ -683,13 +683,12 @@ pub enum Command {
         action: CheckpointAction,
     },
 
-    /// Rule-based issue/PR auto-labelling (dry-run in Phase 1).
+    /// Rule-based issue auto-labelling (dry-run by default).
     ///
     /// Reads `[[triage.rules]]` from your parsec config, fetches open GitHub
     /// issues, and prints a table of proposed labels with a trust score.
     ///
-    /// Phase 1: dry-run only — no labels are written to GitHub.
-    /// Phase 2 will add `--apply` to write proposed labels.
+    /// Labels are only written when `--apply` is explicitly passed.
     ///
     /// Example config rule:
     ///   [[triage.rules]]
@@ -699,6 +698,10 @@ pub enum Command {
         /// Maximum number of open issues to inspect (default: 30).
         #[arg(long, default_value = "30")]
         limit: u8,
+
+        /// Apply proposed labels to GitHub issues (default: dry-run).
+        #[arg(long)]
+        apply: bool,
     },
 }
 
@@ -1227,7 +1230,13 @@ pub async fn run(cli: Cli) -> Result<()> {
                 commands::checkpoint_drop(&repo_path, &name, output_mode)
             }
         },
-        Command::Triage { limit } => commands::triage(&repo_path, limit, output_mode).await,
+        Command::Triage { limit, apply } => {
+            let apply = apply && !cli.dry_run;
+            if apply && offline {
+                anyhow::bail!("cannot use --apply in offline mode");
+            }
+            commands::triage(&repo_path, limit, apply, output_mode).await
+        }
     };
 
     // Startup version hint — one-line stderr notice when a newer release is cached.
