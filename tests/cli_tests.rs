@@ -2794,3 +2794,52 @@ fn test_crash_report_list_json_no_reports() {
         "expected empty JSON array, got: {stdout}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// triage — Phase 2 CLI safety tests (#302)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_triage_help_shows_apply() {
+    parsec()
+        .args(["triage", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--apply"))
+        .stdout(predicate::str::contains("dry-run"));
+}
+
+#[test]
+fn test_triage_apply_rejected_offline() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "--offline",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "triage",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot use --apply in offline mode",
+        ));
+}
+
+#[test]
+fn test_triage_global_dry_run_overrides_apply() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "--offline",
+            "--dry-run",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "triage",
+            "--apply",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No triage rules configured"));
+}

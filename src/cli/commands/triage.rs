@@ -1,15 +1,10 @@
-//! `parsec triage` — rule-based issue/PR auto-labelling (#302).
+//! `parsec triage` — rule-based issue auto-labelling (#302).
 //!
-//! # Phase 1
 //! - Load `[[triage.rules]]` from parsec config.
 //! - Fetch open GitHub issues for the repo.
 //! - Apply each rule (case-insensitive substring match on title).
 //! - Print a table: issue #, title, matched rule, proposed labels, trust score.
-//! - Dry-run only: no labels are written to GitHub.
-//!
-//! # Phase 2 (planned)
-//! - `--apply` flag: write proposed labels via `gh` API (`add_labels`).
-//! - AI-assisted labelling from issue body (requires LLM integration).
+//! - Write proposed labels only when `--apply` is explicitly passed.
 //!
 //! Trust-score logic:
 //! - First (highest-priority) rule to match → **1.0**
@@ -18,7 +13,7 @@
 
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
 use tabled::{settings::Style, Table, Tabled};
 
@@ -33,9 +28,9 @@ use crate::output::Mode;
 
 /// Entry point for `parsec triage`.
 ///
-/// Fetches open issues, applies the configured rules, and prints a dry-run
-/// table of proposed labels.  No changes are written to GitHub in Phase 1.
-pub async fn triage(repo: &Path, limit: u8, mode: Mode) -> Result<()> {
+/// Fetches open issues, applies the configured rules, and prints the proposed
+/// labels. Labels are written only when `apply` is true.
+pub async fn triage(repo: &Path, limit: u8, apply: bool, mode: Mode) -> Result<()> {
     let config = ParsecConfig::load()?;
 
     if config.triage.rules.is_empty() {
@@ -102,6 +97,14 @@ pub async fn triage(repo: &Path, limit: u8, mode: Mode) -> Result<()> {
         return Ok(());
     }
 
+    if apply {
+        for entry in &entries {
+            gh.add_labels(entry.number, &entry.labels)
+                .await
+                .with_context(|| format!("failed to apply labels to issue #{}", entry.number))?;
+        }
+    }
+
     match mode {
         Mode::Json => {
             println!("{}", serde_json::to_string_pretty(&entries)?);
@@ -116,7 +119,8 @@ pub async fn triage(repo: &Path, limit: u8, mode: Mode) -> Result<()> {
             println!(
                 "{}",
                 format!(
-                    " parsec triage — dry-run ({} rule(s), {} issue(s) matched of {})",
+                    " parsec triage — {} ({} rule(s), {} issue(s) matched of {})",
+                    if apply { "applied" } else { "dry-run" },
                     config.triage.rules.len(),
                     entries.len(),
                     issues.len()
@@ -140,10 +144,12 @@ pub async fn triage(repo: &Path, limit: u8, mode: Mode) -> Result<()> {
             let table = Table::new(rows).with(Style::rounded()).to_string();
             println!("{table}");
             println!();
-            println!(
-                "{}",
-                "Tip: No labels were written (dry-run). Phase 2 will add --apply.".dimmed()
-            );
+            if !apply {
+                println!(
+                    "{}",
+                    "Tip: No labels were written. Pass --apply to apply.".dimmed()
+                );
+            }
         }
     }
 
@@ -193,6 +199,7 @@ fn build_entry(
         title: title.to_string(),
         matched_rule: first.pattern.clone(),
         proposed_labels,
+        labels,
         trust_score,
         already_labelled: !existing_labels.is_empty(),
     })
@@ -218,6 +225,8 @@ pub struct TriageEntry {
     pub title: String,
     pub matched_rule: String,
     pub proposed_labels: String,
+    #[serde(skip)]
+    labels: Vec<String>,
     pub trust_score: f32,
     pub already_labelled: bool,
 }
