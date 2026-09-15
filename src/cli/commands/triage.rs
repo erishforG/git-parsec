@@ -99,9 +99,13 @@ pub async fn triage(repo: &Path, limit: u8, apply: bool, mode: Mode) -> Result<(
 
     if apply {
         for entry in &entries {
-            gh.add_labels(entry.number, &entry.labels)
-                .await
-                .with_context(|| format!("failed to apply labels to issue #{}", entry.number))?;
+            if !entry.labels.is_empty() {
+                gh.add_labels(entry.number, &entry.labels)
+                    .await
+                    .with_context(|| {
+                        format!("failed to apply labels to issue #{}", entry.number)
+                    })?;
+            }
         }
     }
 
@@ -193,15 +197,24 @@ fn build_entry(
         labels.push(p.clone());
     }
     let proposed_labels = labels.join(", ");
+    let missing_labels: Vec<String> = labels
+        .iter()
+        .filter(|proposed| {
+            !existing_labels
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(proposed))
+        })
+        .cloned()
+        .collect();
 
     Some(TriageEntry {
         number,
         title: title.to_string(),
         matched_rule: first.pattern.clone(),
         proposed_labels,
-        labels,
+        already_labelled: missing_labels.is_empty(),
+        labels: missing_labels,
         trust_score,
-        already_labelled: !existing_labels.is_empty(),
     })
 }
 
@@ -339,5 +352,22 @@ mod tests {
         let rules = vec![rule("feat", "type/feature")];
         let e = build_entry(5, "feat: something", &["type/feature".to_string()], &rules).unwrap();
         assert!(e.already_labelled);
+        assert!(e.labels.is_empty());
+    }
+
+    #[test]
+    fn unrelated_existing_label_does_not_set_already_labelled() {
+        let rules = vec![rule("feat", "type/feature")];
+        let e = build_entry(5, "feat: something", &["help wanted".to_string()], &rules).unwrap();
+        assert!(!e.already_labelled);
+        assert_eq!(e.labels, ["type/feature"]);
+    }
+
+    #[test]
+    fn only_missing_labels_are_applied_case_insensitively() {
+        let rules = vec![rule_with_priority("fix", "type/bug", "priority/high")];
+        let e = build_entry(7, "fix: crash", &["TYPE/BUG".to_string()], &rules).unwrap();
+        assert!(!e.already_labelled);
+        assert_eq!(e.labels, ["priority/high"]);
     }
 }
