@@ -4,7 +4,7 @@
 //! Registers a custom panic hook that:
 //! 1. Prints a user-friendly crash banner to **stderr** (always).
 //! 2. When `enabled = true` (opt-in), writes a structured JSON report to
-//!    `~/.cache/parsec/crash-<timestamp>.json` so users can share it
+//!    `<OS cache dir>/parsec/crash-<timestamp>.json` so users can share it
 //!    with the maintainers.
 //!
 //! No data is **transmitted** automatically.  The user must opt in via config
@@ -33,7 +33,8 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Call this once at startup, before any `tokio` threads are spawned.
 ///
 /// When `enabled` is `true` the hook will also write a JSON crash report to
-/// the OS cache directory (`~/.cache/parsec/` on Linux/macOS).
+/// the OS cache directory (for example, `~/.cache/parsec/` on Linux or
+/// `~/Library/Caches/parsec/` on macOS).
 pub fn setup(enabled: bool) {
     REPORT_ENABLED.store(enabled, Ordering::SeqCst);
 

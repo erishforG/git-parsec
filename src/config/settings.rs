@@ -457,7 +457,7 @@ impl Default for UpdateConfig {
 /// Controls opt-in crash report collection (#298).
 ///
 /// No data is transmitted automatically.  When `enabled = true`, a JSON
-/// report is written to `~/.cache/parsec/crash-<ts>.json` on panic.  The
+/// report is written to `<OS cache dir>/parsec/crash-<ts>.json` on panic.  The
 /// user must choose to share it.  See `docs/crash-report.md`.
 ///
 /// # Example (`~/.config/parsec/config.toml`)

@@ -6,7 +6,16 @@ file when an unexpected panic occurs.  No data is ever sent automatically.
 ## What is collected
 
 When `[crash_report] enabled = true` and a panic happens, parsec writes a
-file to `~/.cache/parsec/crash-<timestamp>.json` containing:
+`crash-<timestamp>.json` file under the platform cache directory:
+
+| Platform | Directory |
+|---|---|
+| Linux | `$XDG_CACHE_HOME/parsec/`, or `~/.cache/parsec/` when unset |
+| macOS | `~/Library/Caches/parsec/` |
+| Windows | `%LOCALAPPDATA%\parsec\` |
+
+The exact directory is selected by [`dirs::cache_dir()`](https://docs.rs/dirs/latest/dirs/fn.cache_dir.html).
+Each report contains:
 
 | Field | Example | Notes |
 |---|---|---|
@@ -41,8 +50,8 @@ The default is `enabled = false` — **nothing is saved unless you opt in**.
 
 If you experience a crash and want to help:
 
-1. Find the report: `ls ~/.cache/parsec/crash-*.json`
-2. Review its contents before sharing (it is plain JSON)
+1. Run `parsec crash-report list` to find the report ID
+2. Review it with `parsec crash-report show <id>` (it is plain JSON)
 3. Open a GitHub issue: <https://github.com/erishforG/git-parsec/issues/new>
 4. Paste or attach the file
 
@@ -50,9 +59,10 @@ You are never required to share a crash report.
 
 ## Retention
 
-Reports are stored locally in `~/.cache/parsec/`.  They are never automatically
-deleted by parsec; you can remove them at any time:
+Reports stay in the platform cache directory until you remove them. Preview a
+cleanup first, then delete all saved reports with:
 
 ```sh
-rm ~/.cache/parsec/crash-*.json
+parsec --dry-run crash-report clear
+parsec crash-report clear
 ```
