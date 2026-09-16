@@ -2,7 +2,8 @@
 //!
 //! Crash reports are opt-in JSON files written by the panic hook (Phase 1) to
 //! `<OS cache dir>/parsec/crash-<timestamp>.json`
-//! (e.g. `~/.cache/parsec/crash-20260101T000000Z.json` on Linux/macOS).
+//! (e.g. `~/.cache/parsec/crash-1704067200.json` on Linux or
+//! `~/Library/Caches/parsec/crash-1704067200.json` on macOS).
 //!
 //! ## Subcommands
 //!
