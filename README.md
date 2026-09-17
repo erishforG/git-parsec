@@ -147,7 +147,6 @@ Every command has `--json`. Errors emit structured codes (E001…E013). `parsec 
 - **`parsec reviews`** — open PR reviews you've received vs. requested, unified across worktrees.
 - **`parsec conflicts --simulate`** — in-memory three-way merge to surface real *line-level* conflicts before you push (worktree-vs-base + cross-worktree pairs, read-only).
 - **`parsec test`** — run tests in parallel across worktrees with tree-hash result caching (`--all --jobs N --cache`).
-- **`parsec commit`** — AI-generated commit messages from staged diff (OpenAI / Anthropic, `--conventional` for Conventional Commits).
 - **`parsec sync`** — fast-forward stale worktrees against `origin/<base>` (rebase or merge, `--all`, `--dry-run`).
 
 > 33+ commands total — see the [full command reference](https://erishforg.github.io/git-parsec/reference/) for every flag and example.
