@@ -34,9 +34,6 @@ v0.5 마일스톤 **16/16 완료**. Polish & Power-User UX: 워크트리/PR/CI�
   line-level 충돌 시뮬레이션. `git merge-tree --write-tree`로 워크트리 vs base +
   워크트리 페어 cross-simulate 두 패스. 머지 전 실제 충돌 파일을 read-only로 노출.
   (`#246`, `#335`)
-- **`parsec commit`** — AI 커밋 메시지 생성 (OpenAI / Anthropic). staged diff 분석
-  후 자동 prefix + Conventional Commits 포맷(`--conventional`). 수동 메시지
-  override(`--message`). (`#274`)
 - **`parsec sync`** — auto-sync `main`/`develop` into stale worktrees (rebase 또는
   merge 전략, `--all` 일괄, `--dry-run` behind 카운트, conflict hint). (`#290`)
 - **AI-generated PR descriptions** — `parsec ship`이 OpenAI / Anthropic / Ollama

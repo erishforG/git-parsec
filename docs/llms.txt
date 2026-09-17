@@ -20,7 +20,6 @@ git-parsec (binary name: `parsec`) is a Rust CLI distributed via crates.io and p
 - `parsec reviews` — open PR reviews you've received vs. requested
 - `parsec conflicts --simulate` — in-memory three-way merge to surface line-level conflicts before pushing
 - `parsec test --all --jobs N --cache` — parallel test runner with tree-hash caching across worktrees
-- `parsec commit` — AI-generated commit messages from staged diff (OpenAI / Anthropic)
 - `parsec sync` — fast-forward stale worktrees against `origin/<base>`
 
 ## Documentation
