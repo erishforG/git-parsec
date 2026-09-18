@@ -47,6 +47,8 @@ pub struct DoctorCheck {
 pub struct HealthRecord {
     /// Ticket identifier for the worktree.
     pub ticket: String,
+    /// Whether the registered worktree directory is missing from disk.
+    pub missing: bool,
     /// Number of uncommitted files (staged + unstaged).
     pub uncommitted: usize,
     /// Days since the last commit, or `None` when the history is unreadable.

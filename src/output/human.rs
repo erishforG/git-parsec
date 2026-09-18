@@ -1100,6 +1100,12 @@ pub fn print_health(records: &[super::HealthRecord]) {
     println!("{}", "parsec health".bold());
     let mut issues = 0usize;
     for r in records {
+        let missing_tag = if r.missing {
+            "  ⚠ worktree missing!".red().to_string()
+        } else {
+            String::new()
+        };
+
         let lock_tag = if r.has_lock {
             "  ⚠ lock file!".red().to_string()
         } else {
@@ -1176,7 +1182,8 @@ pub fn print_health(records: &[super::HealthRecord]) {
         let op_in_progress =
             r.rebase_in_progress || r.merge_in_progress || r.cherry_pick_in_progress;
 
-        let any_issue = r.has_lock
+        let any_issue = r.missing
+            || r.has_lock
             || r.uncommitted > 0
             || ci_issue
             || op_in_progress
@@ -1184,7 +1191,7 @@ pub fn print_health(records: &[super::HealthRecord]) {
                 .map(|d| d > r.stale_threshold_days)
                 .unwrap_or(false);
 
-        let icon = if r.has_lock || ci_issue || op_in_progress {
+        let icon = if r.missing || r.has_lock || ci_issue || op_in_progress {
             "✗".red().to_string()
         } else if any_issue {
             "⚠".yellow().to_string()
@@ -1197,9 +1204,10 @@ pub fn print_health(records: &[super::HealthRecord]) {
         }
 
         println!(
-            "  {} {:<20}{}{}{}{}{}{}{}",
+            "  {} {:<20}{}{}{}{}{}{}{}{}",
             icon,
             r.ticket.bold(),
+            missing_tag,
             uncommitted_tag,
             stale_tag,
             lock_tag,

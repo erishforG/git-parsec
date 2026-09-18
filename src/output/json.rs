@@ -373,6 +373,7 @@ pub fn print_health(records: &[super::HealthRecord]) {
             let ci_failing = matches!(r.ci_status.as_deref(), Some("failing") | Some("failure"));
             json!({
                 "ticket": r.ticket,
+                "missing": r.missing,
                 "has_lock": r.has_lock,
                 "uncommitted": r.uncommitted,
                 "stale_days": r.stale_days,
@@ -387,7 +388,8 @@ pub fn print_health(records: &[super::HealthRecord]) {
         })
         .collect();
     let all_healthy = records.iter().all(|r| {
-        !r.has_lock
+        !r.missing
+            && !r.has_lock
             && r.uncommitted == 0
             && !r
                 .stale_days
