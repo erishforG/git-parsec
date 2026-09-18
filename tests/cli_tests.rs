@@ -1909,6 +1909,38 @@ fn test_health_json_one_worktree() {
     );
 }
 
+/// A registry entry whose directory was removed externally must be reported
+/// as missing and make the aggregate health result unhealthy.
+#[test]
+fn test_health_json_flags_missing_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "HL-MISSING", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let repo_name = repo.path().file_name().unwrap().to_string_lossy();
+    let worktree_path = repo
+        .path()
+        .parent()
+        .unwrap()
+        .join(format!("{repo_name}.HL-MISSING"));
+    std::fs::remove_dir_all(&worktree_path).unwrap();
+
+    let output = parsec()
+        .args(["health", "--json", "--repo", repo_path])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["all_healthy"], false);
+    assert_eq!(parsed["worktrees"][0]["ticket"], "HL-MISSING");
+    assert_eq!(parsed["worktrees"][0]["missing"], true);
+}
+
 /// `parsec health` must exit 0 even when worktrees have issues — health is
 /// informational and must not be used as a CI gate in Phase 1.
 #[test]

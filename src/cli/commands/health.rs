@@ -76,6 +76,8 @@ pub async fn health(repo: &Path, mode: Mode, stale_days: u64, no_overlay: bool) 
     let mut records: Vec<HealthRecord> = Vec::new();
 
     for ws in &workspaces {
+        let missing = !ws.path.is_dir();
+
         // --- resolve effective git directory ---------------------------
         // For linked worktrees, `.git` is a text file: `gitdir: <path>`.
         // All per-worktree state files live under that resolved path.
@@ -109,6 +111,7 @@ pub async fn health(repo: &Path, mode: Mode, stale_days: u64, no_overlay: bool) 
 
         records.push(HealthRecord {
             ticket: ws.ticket.clone(),
+            missing,
             uncommitted,
             stale_days: stale_days_val,
             stale_threshold_days: stale_threshold,
