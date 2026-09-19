@@ -1619,6 +1619,16 @@ fn test_history_log_export_empty() {
 // parsec smartlog / sl (issue #245, #305)
 // ---------------------------------------------------------------------------
 
+#[test]
+fn test_smartlog_help_describes_shipped_overlay() {
+    parsec()
+        .args(["smartlog", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("GitHub PR/CI/review state"))
+        .stdout(predicate::str::contains("in later releases").not());
+}
+
 /// `parsec smartlog` in a repo with no active worktrees should exit 0 and
 /// print the "No active worktrees" placeholder message.
 #[test]

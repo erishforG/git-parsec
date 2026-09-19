@@ -543,7 +543,7 @@ pub enum Command {
     /// Visualize active worktrees as a commit DAG (alias: sl)
     ///
     /// Lists every active worktree, the commits it adds on top of its base
-    /// branch, and (in later releases) PR/CI/review state. Issue #245.
+    /// branch, and its GitHub PR/CI/review state when available. Issue #245.
     #[command(alias = "sl")]
     Smartlog {
         /// Maximum commits per worktree (default: 10)
