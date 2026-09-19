@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-19 — _AI-Native Standard_
+
+### Added
+- **MCP server** via `parsec mcp serve`, exposing worktree lifecycle, health,
+  smartlog, PR, review, CI, and synchronization tools to MCP clients.
+- **MCP client installer** via `parsec mcp install` for Claude Desktop and
+  Cursor, with configurable binary paths and safe config merging.
+- **Permission-scoped delegated authentication** from environment variables or
+  `mcp.toml`, including read/write scope checks and redacted diagnostics.
+- **Mutation safety gates** requiring preview/confirmation, repository sandbox
+  boundaries, privacy-safe audit events, and versioned audit fixtures.
+- **MCP end-to-end coverage** for the stdio lifecycle, tool registry, auth,
+  sandbox boundaries, client configuration, and mutation gates.
+- `parsec checkpoint`, `crash-report`, `triage`, self-update notifications, and
+  `ship --no-cleanup` from the final v0.x development line.
+
+### Changed
+- `parsec smartlog` now includes topological stack ordering, richer PR merge
+  readiness, CI overlays for branch tips, and hermetic overlay integration
+  tests.
+- `parsec ship` supports both AI-generated PR descriptions and template
+  variable substitution while retaining explicit cleanup control.
+
+### Docs
+- Added the [MCP quickstart](./docs/mcp-quickstart.md), protocol specification,
+  authentication and sandbox model, and client configuration guide.
+
 ## [0.5.0] - 2026-06-03 — _The visualization release_
 
 v0.5 completes the **16/16** milestone for polish and power-user UX, adding
