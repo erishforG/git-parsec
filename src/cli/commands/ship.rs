@@ -24,6 +24,8 @@ pub async fn ship(
     reviewers: Vec<String>,
     labels: Vec<String>,
     template: Option<String>,
+    ai_description: bool,
+    no_cleanup: bool,
     mode: Mode,
 ) -> Result<()> {
     crate::execlog::set_ticket(ticket);
@@ -168,13 +170,73 @@ pub async fn ship(
             manager.repo_root(),
             template.as_deref().or(config.ship.template.as_deref()),
         );
+        let template_commits = if template_content
+            .as_deref()
+            .is_some_and(|tmpl| tmpl.contains("{{commits}}"))
+        {
+            manager
+                .get(ticket)
+                .and_then(|workspace| {
+                    collect_template_commits(&workspace.path, &result.base_branch, &result.branch)
+                })
+                .unwrap_or_else(|error| {
+                    eprintln!("warning: failed to collect commits for PR template: {error}");
+                    String::new()
+                })
+        } else {
+            String::new()
+        };
+
+        // Generate AI description if requested (#242)
+        let ai_body = if ai_description || config.ai.auto_pr_description {
+            let api_key = crate::env::ai_api_key(config.ai.api_key.as_deref());
+            if let Some(ref key) = api_key {
+                // Get diff against base branch for AI context
+                let diff = crate::git::diff_against(
+                    manager.repo_root(),
+                    &result.base_branch,
+                    &result.branch,
+                )
+                .unwrap_or_default();
+                if !diff.is_empty() {
+                    match crate::ai::generate_pr_description(
+                        &config.ai.provider,
+                        &config.ai.model,
+                        key,
+                        &diff,
+                        Some(&result.ticket),
+                        effective_title,
+                    )
+                    .await
+                    {
+                        Ok(desc) => Some(desc),
+                        Err(e) => {
+                            eprintln!("warning: AI description generation failed: {e}");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                if mode == Mode::Human {
+                    eprintln!("note: --ai-description requires an AI API key. Skipping.");
+                }
+                None
+            }
+        } else {
+            None
+        };
 
         let pr_body = build_pr_body(
             &result.ticket,
+            &result.branch,
             effective_title,
             ticket_url.as_deref(),
+            &template_commits,
             stack_info.as_ref(),
             template_content.as_deref(),
+            ai_body.as_deref(),
         );
 
         let remote_url = git::get_remote_url(manager.repo_root());
@@ -363,6 +425,22 @@ pub async fn ship(
         );
     }
 
+    // Phase 3: clean up worktree + local branch (respects config.ship.auto_cleanup).
+    // Skipped when --no-cleanup is passed, e.g. for incremental multi-commit workflows.
+    if !no_cleanup {
+        match manager.ship_cleanup(ticket) {
+            Ok(true) => {
+                if mode == output::Mode::Human {
+                    eprintln!("  Cleaned up worktree for '{}'.", ticket);
+                }
+            }
+            Ok(false) => {} // auto_cleanup=false in config — intentional no-op
+            Err(e) => {
+                eprintln!("warning: failed to clean up worktree after ship: {e}");
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -404,12 +482,58 @@ fn gather_stack_info(manager: &WorktreeManager, ticket: &str) -> Option<StackPrI
     })
 }
 
-fn build_pr_body(
+/// Substitute `{{variable}}` placeholders in a PR template string.
+///
+/// Supported variables:
+/// - `{{ticket}}` → the ticket / workspace ID (e.g. `CL-1234`)
+/// - `{{branch}}` → the git branch name pushed for this ticket
+/// - `{{title}}` → PR title; empty string when not available
+/// - `{{ticket_url}}` → tracker URL; empty string when not available
+/// - `{{commits}}` → Markdown list of commit subjects in `base..branch`
+///
+/// Unknown `{{…}}` tokens are left as-is so templates using other tooling
+/// variables are not silently mangled.
+fn substitute_template_vars(
+    template: &str,
     ticket: &str,
+    branch: &str,
     title: Option<&str>,
     ticket_url: Option<&str>,
+    commits: &str,
+) -> String {
+    template
+        .replace("{{ticket}}", ticket)
+        .replace("{{branch}}", branch)
+        .replace("{{title}}", title.unwrap_or(""))
+        .replace("{{ticket_url}}", ticket_url.unwrap_or(""))
+        .replace("{{commits}}", commits)
+}
+
+fn collect_template_commits(worktree: &Path, base: &str, branch: &str) -> Result<String> {
+    let range = format!("{base}..{branch}");
+    let subjects = git::run_output(worktree, &["log", &range, "--pretty=format:%s"])?;
+    Ok(format_template_commits(&subjects))
+}
+
+fn format_template_commits(subjects: &str) -> String {
+    subjects
+        .lines()
+        .filter(|subject| !subject.trim().is_empty())
+        .map(|subject| format!("- {subject}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_pr_body(
+    ticket: &str,
+    branch: &str,
+    title: Option<&str>,
+    ticket_url: Option<&str>,
+    commits: &str,
     stack_info: Option<&StackPrInfo>,
     template_content: Option<&str>,
+    ai_description: Option<&str>,
 ) -> String {
     let mut body = String::new();
 
@@ -444,10 +568,17 @@ fn build_pr_body(
         body.push('\n');
     }
 
-    // Include PR template content (#233)
+    // Include AI-generated description (#242)
+    if let Some(ai_desc) = ai_description {
+        body.push_str(ai_desc);
+        body.push_str("\n\n");
+    }
+
+    // Include PR template content (#233 #304) with variable substitution.
     if let Some(tmpl) = template_content {
+        let rendered = substitute_template_vars(tmpl, ticket, branch, title, ticket_url, commits);
         body.push_str("---\n\n");
-        body.push_str(tmpl);
+        body.push_str(&rendered);
         body.push('\n');
     }
 
@@ -486,4 +617,77 @@ fn resolve_template(repo_root: &Path, explicit_path: Option<&str>) -> Option<Str
     }
 
     None
+}
+
+#[cfg(test)]
+mod template_var_tests {
+    use super::*;
+
+    #[test]
+    fn test_substitute_all_vars() {
+        let tmpl = "Ticket: {{ticket}}\nBranch: {{branch}}\nTitle: {{title}}\nURL: {{ticket_url}}\nCommits:\n{{commits}}";
+        let result = substitute_template_vars(
+            tmpl,
+            "CL-42",
+            "feature/CL-42",
+            Some("My PR"),
+            Some("https://example.com/CL-42"),
+            "- first commit\n- second commit",
+        );
+        assert_eq!(
+            result,
+            "Ticket: CL-42\nBranch: feature/CL-42\nTitle: My PR\nURL: https://example.com/CL-42\nCommits:\n- first commit\n- second commit"
+        );
+    }
+
+    #[test]
+    fn test_substitute_missing_optional_vars_become_empty() {
+        let tmpl = "Ticket: {{ticket}}\nTitle: {{title}}\nURL: {{ticket_url}}";
+        let result = substitute_template_vars(tmpl, "CL-99", "feature/CL-99", None, None, "");
+        assert_eq!(result, "Ticket: CL-99\nTitle: \nURL: ");
+    }
+
+    #[test]
+    fn test_substitute_unknown_placeholder_left_intact() {
+        let tmpl = "{{ticket}} — {{unknown_var}} — {{branch}}";
+        let result = substitute_template_vars(tmpl, "T-1", "feat/T-1", None, None, "");
+        assert_eq!(result, "T-1 — {{unknown_var}} — feat/T-1");
+    }
+
+    #[test]
+    fn test_substitute_multiple_occurrences() {
+        let tmpl = "{{ticket}} ({{ticket}}) on {{branch}}";
+        let result = substitute_template_vars(tmpl, "AB-7", "feat/AB-7", None, None, "");
+        assert_eq!(result, "AB-7 (AB-7) on feat/AB-7");
+    }
+
+    #[test]
+    fn test_build_pr_body_renders_template_vars() {
+        let tmpl = "Refs {{ticket}} on `{{branch}}`";
+        let body = build_pr_body(
+            "T-5",
+            "feat/T-5",
+            Some("Nice title"),
+            None,
+            "",
+            None,
+            Some(tmpl),
+            None,
+        );
+        assert!(body.contains("Refs T-5 on `feat/T-5`"), "body: {body}");
+        assert!(body.contains("## Nice title"), "body: {body}");
+    }
+
+    #[test]
+    fn test_format_template_commits_as_markdown_list() {
+        assert_eq!(
+            format_template_commits("first commit\nsecond commit\n"),
+            "- first commit\n- second commit"
+        );
+    }
+
+    #[test]
+    fn test_format_template_commits_empty_range() {
+        assert_eq!(format_template_commits(""), "");
+    }
 }

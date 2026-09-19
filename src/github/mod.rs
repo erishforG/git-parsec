@@ -359,7 +359,8 @@ impl GitHubClient {
             None => return Ok(None),
         };
 
-        let api_base = remote.api_base();
+        // Allow test overrides (and GHE custom endpoints) via env var.
+        let api_base = crate::env::github_api_base().unwrap_or_else(|| remote.api_base());
         let client = http_client()?;
 
         Ok(Some(Self {
@@ -542,6 +543,56 @@ impl GitHubClient {
         Ok(CiStatus {
             pr_number,
             head_sha,
+            overall,
+            checks,
+        })
+    }
+
+    /// Fetch check runs directly for a commit SHA (no PR lookup).
+    ///
+    /// Used by `smartlog` Phase 3 of issue #310 to show CI status for
+    /// worktree branches that have no open PR yet.  The result is identical
+    /// in shape to [`get_check_runs`]; `pr_number` is set to 0 as a sentinel
+    /// (the caller uses the struct fields, not `pr_number`).
+    pub async fn get_check_runs_by_sha(&self, sha: &str) -> Result<CiStatus> {
+        let rp = self.repo_path();
+        let checks_resp: ApiCheckRunsResponse =
+            send_with_retry(self.get(&format!("{}/commits/{}/check-runs", rp, sha)))
+                .await?
+                .json()
+                .await?;
+
+        let checks: Vec<CheckRun> = checks_resp
+            .check_runs
+            .into_iter()
+            .map(|c| CheckRun {
+                name: c.name,
+                status: c.status,
+                conclusion: c.conclusion,
+                started_at: c.started_at,
+                completed_at: c.completed_at,
+                html_url: c.html_url,
+            })
+            .collect();
+
+        let overall = if checks.is_empty() {
+            "no checks".to_string()
+        } else if checks
+            .iter()
+            .any(|c| c.conclusion.as_deref() == Some("failure"))
+        {
+            "failing".to_string()
+        } else if checks.iter().all(|c| {
+            c.conclusion.as_deref() == Some("success") || c.conclusion.as_deref() == Some("skipped")
+        }) {
+            "passing".to_string()
+        } else {
+            "pending".to_string()
+        };
+
+        Ok(CiStatus {
+            pr_number: 0,
+            head_sha: sha.to_string(),
             overall,
             checks,
         })
@@ -897,6 +948,54 @@ impl GitHubClient {
     }
 
     /// Add labels to a PR/issue.
+    /// Fetch open issues for the current repo (excludes pull requests).
+    ///
+    /// Returns up to `limit` issues sorted by creation date (newest first).
+    /// Each item is `(number, title, existing_labels)`.
+    pub async fn list_open_issues(&self, limit: u8) -> Result<Vec<(u64, String, Vec<String>)>> {
+        #[derive(serde::Deserialize)]
+        struct IssueLabel {
+            name: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct IssueItem {
+            number: u64,
+            title: String,
+            labels: Vec<IssueLabel>,
+            /// GitHub includes a `pull_request` field only on PR items; use
+            /// its absence to distinguish real issues from PRs.
+            pull_request: Option<serde_json::Value>,
+        }
+
+        let per_page = limit.min(100);
+        let path = format!(
+            "{}/issues?state=open&per_page={per_page}&sort=created&direction=desc",
+            self.repo_path()
+        );
+        let response = self
+            .get(&path)
+            .send()
+            .await
+            .context("Failed to list open issues")?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!("Failed to list open issues: {} {}", status, body);
+        }
+        let items: Vec<IssueItem> = response
+            .json()
+            .await
+            .context("Failed to parse issue list")?;
+        Ok(items
+            .into_iter()
+            .filter(|i| i.pull_request.is_none()) // skip PRs
+            .map(|i| {
+                let labels: Vec<String> = i.labels.into_iter().map(|l| l.name).collect();
+                (i.number, i.title, labels)
+            })
+            .collect())
+    }
+
     pub async fn add_labels(&self, issue_number: u64, labels: &[String]) -> Result<()> {
         if labels.is_empty() {
             return Ok(());

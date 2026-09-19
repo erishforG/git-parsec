@@ -15,7 +15,7 @@
 //!   degrade gracefully to "no overlay" without failing the command.
 //! - Users can opt out with `--no-overlay` for a fully offline run.
 //!
-//! Phase 3 (this PR — filter · color · stack indicators):
+//! Phase 3 (PR #333 — filter · color · stack indicators):
 //! - `--worktree <pattern>`: show only worktrees whose ticket or branch contains
 //!   the pattern (case-insensitive substring match).
 //! - ANSI color in the PR/CI badge: green=success, red=failure, yellow=pending,
@@ -24,8 +24,62 @@
 //! - Stack indicator: when a worktree's base branch is itself another active
 //!   worktree's branch, annotate it with `⤷ stacked on <ticket>` so stacked-PR
 //!   flows are immediately visible.
+//!
+//! Phase 4 (Issue #308 — topological DAG ordering + summary header):
+//! - Groups are now rendered in topological order so stacked worktrees appear
+//!   immediately below their parent in the output (no more alphabetical jumps).
+//! - A one-line summary header: `smartlog  N worktrees · M stacked` gives a
+//!   quick count before the tree.
+//! - Multi-level stacks (depth > 1) are ordered correctly by the topo-sort so
+//!   grandparent → parent → child ordering is preserved.
+//! - Cycle-safe: a `placed` set ensures no group is emitted twice even if
+//!   worktree branches form unusual reference loops.
+//!
+//! Phase 1 — #310 (CI overlay): `SmartlogCiOverlay` replaces the
+//!   `serde_json::Value` placeholder in `SmartlogNode.ci`. After the PR
+//!   overlay is attached, `attach_ci_overlay` calls `get_check_runs()` for
+//!   each PR-linked node and populates the typed struct. Text renderer shows
+//!   an inline `[CI: ✓ passed (N/N)]` / `[CI: ✗ failed (F/N)]` line.
+//!
+//! Phase 2 — #310 (CI overlay running count): `SmartlogCiOverlay` gains a
+//!   `running: usize` field tracking how many check runs are still in-progress
+//!   or queued. `format_ci_badge` now renders `● running (R running / N)`
+//!   instead of the previously hardcoded `(0/N)`. The `running` field is
+//!   `#[serde(default)]` so existing JSON snapshots remain valid on
+//!   deserialization. `attach_ci_overlay` counts runs whose `status` is
+//!   `"in_progress"` or `"queued"` (i.e., started but not yet concluded).
+//!
+//! Phase 3 — #310 (CI overlay for PR-less branches): `attach_ci_overlay` now
+//!   also covers worktrees that have no open PR.  For each such node it
+//!   resolves the branch-tip SHA with `git rev-parse <branch>` and calls
+//!   `GitHubClient::get_check_runs_by_sha` to fetch check-run aggregate
+//!   directly, without a PR round-trip.  The resulting `SmartlogCiOverlay` is
+//!   attached exactly as for PR-linked nodes.  Network failures degrade
+//!   gracefully (CI badge omitted) without failing the command.
+//!
+//! Phase 5 (Issue #309 — PR merge readiness overlay):
+//! - `SmartlogPrOverlay::merge_ready: Option<bool>` surface the GitHub
+//!   `mergeable` field that `get_pr_status()` already fetches but previously
+//!   discarded before reaching the smartlog layer.
+//! - `format_pr_badge()` appends `⬆ ready` (green) or `⚡ conflicts` (red)
+//!   when the field is populated; open PRs with unknown mergeable state or
+//!   non-open PRs omit the segment so output stays compact.
+//! - Backward-compatible: `merge_ready` is `#[serde(skip_serializing_if =
+//!   "Option::is_none")]` so existing JSON consumers and golden fixtures keep
+//!   working.
+//!
+//! Phase 6 (Issue #309 final — (no PR) display):
+//! - When GitHub overlay was requested (`!no_overlay`) but a worktree has no
+//!   open PR, `render_text` now emits a `├─ (no PR)` line in the ASCII tree.
+//!   This surfaces the gap explicitly so users know we checked but found
+//!   nothing, rather than silently omitting any PR information.
+//! - `render_text` gains an `overlay_requested: bool` parameter.  All callers
+//!   within the CLI pass `!no_overlay`; all unit-test helpers default to
+//!   `false` (no overlay, so "(no PR)" is suppressed) unless the test
+//!   specifically exercises the new behaviour.
+//! - Closes issue #309 (all acceptance criteria now met).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
@@ -55,10 +109,40 @@ pub struct SmartlogNode {
     /// Omitted from JSON entirely when no PR was attached (skip_serializing_if).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr: Option<SmartlogPrOverlay>,
-    /// CI overlay — reserved for a follow-up that emits per-check detail
-    /// (Phase 2 folds the CI summary into [`SmartlogPrOverlay::ci_status`]).
+    /// CI overlay — populated by `attach_ci_overlay` (Phase 1 of #310).
+    /// Holds aggregated check-run counts for the PR linked to this worktree.
+    /// Omitted from JSON when no CI data was fetched (backward-compatible).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ci: Option<serde_json::Value>,
+    pub ci: Option<SmartlogCiOverlay>,
+}
+
+/// Aggregated CI check-run overlay for a smartlog node (Phase 1+2 of #310).
+///
+/// Populated by [`attach_ci_overlay`] when a PR is linked.  Four states
+/// map the raw `CiStatus.overall` from [`GitHubClient::get_check_runs`]:
+///
+/// | `overall` field | meaning |
+/// |---|---|
+/// | `"passed"` | all checks succeeded (or were skipped) |
+/// | `"running"` | at least one check is still in-progress or queued |
+/// | `"failed"` | at least one check failed or timed out |
+/// | `"none"` | no check-runs found for the PR |
+///
+/// `total`, `failed`, and `running` expose counts so the text renderer can
+/// display `✗ failed (2/7)` or `● running (3 running / 7)` without an
+/// extra API call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SmartlogCiOverlay {
+    /// `"passed"` / `"running"` / `"failed"` / `"none"`.
+    pub overall: String,
+    /// Total number of check runs returned by the GitHub Checks API.
+    pub total: usize,
+    /// Number of failed or timed-out check runs.
+    pub failed: usize,
+    /// Number of check runs still in-progress or queued (Phase 2 of #310).
+    /// Defaults to 0 for backward-compatible JSON deserialization.
+    #[serde(default)]
+    pub running: usize,
 }
 
 /// Compact PR/CI summary attached to a smartlog row.
@@ -77,6 +161,14 @@ pub struct SmartlogPrOverlay {
     /// `approved` / `changes_requested` / `pending` / `no reviews`.
     pub review_status: String,
     pub url: String,
+    /// GitHub merge readiness — `Some(true)` when the PR can be merged
+    /// (no conflicts, all checks green per GitHub's internal verdict),
+    /// `Some(false)` when there are conflicts or blocking checks.
+    /// `None` when GitHub has not yet computed the state (e.g., immediately
+    /// after a push) or the PR is already merged/closed.
+    /// Skip-serialised when absent so existing JSON consumers see no change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge_ready: Option<bool>,
 }
 
 /// Single commit in a worktree's diff against its base.
@@ -131,6 +223,7 @@ pub async fn smartlog(
 
     if !no_overlay {
         attach_pr_overlay(repo, &config, &mut nodes).await;
+        attach_ci_overlay(repo, &config, &mut nodes).await;
     }
 
     let color = color_enabled();
@@ -139,7 +232,7 @@ pub async fn smartlog(
             println!("{}", serde_json::to_string_pretty(&nodes)?);
         }
         _ => {
-            print!("{}", render_text(&nodes, color));
+            print!("{}", render_text(&nodes, color, !no_overlay));
         }
     }
     Ok(())
@@ -181,6 +274,98 @@ async fn attach_pr_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [Smar
     }
 }
 
+/// Fetch GitHub check-run aggregates for each PR-linked node and populate
+/// `node.ci` with a typed [`SmartlogCiOverlay`].
+///
+/// Mirrors the soft-fail pattern of [`attach_pr_overlay`]: network errors are
+/// logged to stderr but never fail the parent command.  Nodes without a PR
+/// overlay are skipped silently.
+async fn attach_ci_overlay(repo: &Path, config: &ParsecConfig, nodes: &mut [SmartlogNode]) {
+    // Always init the client: Phase 3 (#310) needs it for PR-less nodes too.
+    let remote_url = match git::run_output(repo, &["remote", "get-url", "origin"]) {
+        Ok(url) => url.trim().to_string(),
+        Err(_) => return,
+    };
+    let client = match GitHubClient::new(&remote_url, config) {
+        Ok(Some(c)) => c,
+        _ => return,
+    };
+
+    for node in nodes.iter_mut() {
+        let ci_status_result = if let Some(pr) = &node.pr {
+            // PR-linked node: fetch check-runs via the existing PR-based lookup
+            // (which resolves the PR head SHA internally).
+            client.get_check_runs(pr.number).await
+        } else {
+            // Phase 3 (#310): PR-less branch — resolve branch-tip SHA with git
+            // and fetch check-runs directly.  Skip if git lookup fails (e.g.
+            // orphan branch or remote not synced).
+            match resolve_branch_tip_sha(repo, &node.branch) {
+                Some(sha) => client.get_check_runs_by_sha(&sha).await,
+                None => continue,
+            }
+        };
+
+        match ci_status_result {
+            Ok(ci_status) => {
+                let overall = map_ci_overall(&ci_status.overall);
+                let total = ci_status.checks.len();
+                let failed = ci_status
+                    .checks
+                    .iter()
+                    .filter(|c| {
+                        matches!(c.conclusion.as_deref(), Some("failure") | Some("timed_out"))
+                    })
+                    .count();
+                // Phase 2 (#310): count checks still actively running or
+                // waiting in the queue so the badge can display an accurate
+                // "N running / M" count instead of the previous "(0/N)".
+                let running = ci_status
+                    .checks
+                    .iter()
+                    .filter(|c| matches!(c.status.as_str(), "in_progress" | "queued"))
+                    .count();
+                node.ci = Some(SmartlogCiOverlay {
+                    overall,
+                    total,
+                    failed,
+                    running,
+                });
+            }
+            Err(e) => {
+                eprintln!(
+                    "smartlog: CI overlay failed for {} ({}): {}",
+                    node.ticket, node.branch, e
+                );
+            }
+        }
+    }
+}
+
+/// Resolve a branch to its tip commit SHA using `git rev-parse`.
+///
+/// Returns the full 40-character SHA, or `None` when the branch cannot be
+/// resolved (e.g., unborn, orphan, or not yet pushed to remote).
+fn resolve_branch_tip_sha(repo: &Path, branch: &str) -> Option<String> {
+    let sha = git::run_output(repo, &["rev-parse", branch]).ok()?;
+    let sha = sha.trim().to_string();
+    if sha.is_empty() || sha.len() < 7 {
+        return None;
+    }
+    Some(sha)
+}
+
+/// Map the raw `CiStatus.overall` string from [`GitHubClient::get_check_runs`]
+/// to the four canonical `SmartlogCiOverlay.overall` values.
+fn map_ci_overall(raw: &str) -> String {
+    match raw {
+        "passing" => "passed".to_string(),
+        "failing" => "failed".to_string(),
+        "pending" => "running".to_string(),
+        _ => "none".to_string(), // "no checks" or anything unexpected
+    }
+}
+
 /// Resolve a single branch to a [`SmartlogPrOverlay`], or `None` if no open PR.
 async fn fetch_overlay(client: &GitHubClient, branch: &str) -> Result<Option<SmartlogPrOverlay>> {
     let pr_num = match client.find_pr_by_branch(branch).await? {
@@ -188,12 +373,20 @@ async fn fetch_overlay(client: &GitHubClient, branch: &str) -> Result<Option<Sma
         None => return Ok(None),
     };
     let status = client.get_pr_status(pr_num).await?;
+    // Populate merge_ready only for open PRs; merged/closed PRs don't have a
+    // meaningful "can be merged" state from GitHub's perspective.
+    let merge_ready = if status.state == "open" {
+        status.mergeable
+    } else {
+        None
+    };
     Ok(Some(SmartlogPrOverlay {
         number: status.number,
         state: status.state,
         ci_status: status.ci_status,
         review_status: status.review_status,
         url: status.url,
+        merge_ready,
     }))
 }
 
@@ -267,7 +460,45 @@ fn format_pr_badge(pr: &SmartlogPrOverlay, color: bool) -> String {
         out.pop();
         out.push_str(&format!(" {}]", r));
     }
+    // Phase 5: merge readiness segment — only for open PRs.
+    if pr.state == "open" {
+        if let Some(ready) = pr.merge_ready {
+            let segment = if ready {
+                ansi_wrap(32, "⬆ ready", color) // green
+            } else {
+                ansi_wrap(31, "⚡ conflicts", color) // red
+            };
+            out.pop(); // remove ']'
+            out.push_str(&format!(" {}]", segment));
+        }
+    }
     out
+}
+
+/// Format a one-line CI check-run summary badge for the smartlog ASCII tree.
+///
+/// Examples (no color):
+/// - `[CI: ✓ passed (7/7)]`
+/// - `[CI: ✗ failed (2/7)]`
+/// - `[CI: ● running (0/5)]`
+/// - `[CI: none]`
+fn format_ci_badge(ci: &SmartlogCiOverlay, color: bool) -> String {
+    let label = match ci.overall.as_str() {
+        "passed" => ansi_wrap(
+            32,
+            &format!("✓ passed ({}/{})", ci.total - ci.failed, ci.total),
+            color,
+        ),
+        "failed" => ansi_wrap(31, &format!("✗ failed ({}/{})", ci.failed, ci.total), color),
+        // Phase 2 (#310): show accurate running count instead of hardcoded 0.
+        "running" => ansi_wrap(
+            33,
+            &format!("● running ({} running/{})", ci.running, ci.total),
+            color,
+        ),
+        _ => "none".to_string(),
+    };
+    format!("[CI: {}]", label)
 }
 
 /// Parse a single tab-separated line emitted by our `git log --pretty` format.
@@ -303,7 +534,12 @@ fn parse_commit_line(line: &str) -> Option<CommitSummary> {
 ///
 /// `color` enables ANSI escape codes in the PR/CI badge. Pass `false` in tests
 /// or when `NO_COLOR` is set to keep output predictable.
-pub fn render_text(nodes: &[SmartlogNode], color: bool) -> String {
+///
+/// `overlay_requested` mirrors the CLI `!no_overlay` flag.  When `true` and a
+/// worktree has no associated PR, a `├─ (no PR)` line is emitted so the user
+/// can see we looked but found nothing (Phase 6, issue #309).  Pass `false` in
+/// tests that don't exercise overlay behaviour to keep golden output stable.
+pub fn render_text(nodes: &[SmartlogNode], color: bool, overlay_requested: bool) -> String {
     if nodes.is_empty() {
         return "No active worktrees. Run `parsec start <ticket>` to create one.\n".to_string();
     }
@@ -319,15 +555,27 @@ pub fn render_text(nodes: &[SmartlogNode], color: bool) -> String {
         by_base.entry(n.base_branch.clone()).or_default().push(n);
     }
 
-    let mut out = String::new();
-    let base_count = by_base.len();
-    for (base_idx, (base, group)) in by_base.iter().enumerate() {
-        // Phase 3: if the base branch is itself a worktree branch, mark it as
-        // a stacked group rather than a plain base label.
+    // Phase 4: summary header.
+    let stacked_count = nodes
+        .iter()
+        .filter(|n| branch_to_ticket.contains_key(n.base_branch.as_str()))
+        .count();
+    let mut out = format!(
+        "smartlog  {} worktree{} · {} stacked\n",
+        nodes.len(),
+        if nodes.len() == 1 { "" } else { "s" },
+        stacked_count,
+    );
+
+    // Phase 4: topological ordering — stacked groups follow their parent.
+    let ordered = topo_sort_groups(&by_base, &branch_to_ticket);
+    for (base, group) in &ordered {
+        // Phase 3/4: if the base branch is itself a worktree branch, mark it as
+        // a stacked group and show its parent ticket with ⤷ arrow.
         if let Some(parent_ticket) = branch_to_ticket.get(base.as_str()) {
-            out.push_str(&format!("○ {} (stacked on {})\n", base, parent_ticket));
+            out.push_str(&format!("\n○ {} ⤷ stacked on {}\n", base, parent_ticket));
         } else {
-            out.push_str(&format!("○ {} (base)\n", base));
+            out.push_str(&format!("\n○ {} (base)\n", base));
         }
         let last_idx = group.len().saturating_sub(1);
         for (i, node) in group.iter().enumerate() {
@@ -343,8 +591,16 @@ pub fn render_text(nodes: &[SmartlogNode], color: bool) -> String {
             let prefix = if is_last { "   " } else { "│  " };
             // PR overlay (Phase 2): one line above commits when overlay set.
             // Phase 3: badge is now optionally colorized.
+            // Phase 6 (#309): when overlay was requested but no PR was found,
+            // emit "(no PR)" so the user knows we checked and found nothing.
             if let Some(pr) = &node.pr {
                 out.push_str(&format!("{}├─ {}\n", prefix, format_pr_badge(pr, color)));
+            } else if overlay_requested {
+                out.push_str(&format!("{}├─ (no PR)\n", prefix));
+            }
+            // CI overlay (Phase 1 of #310): check-run counts line.
+            if let Some(ci) = &node.ci {
+                out.push_str(&format!("{}├─ {}\n", prefix, format_ci_badge(ci, color)));
             }
             if node.commits.is_empty() {
                 out.push_str(&format!("{}└─ (no commits since {})\n", prefix, base));
@@ -359,11 +615,66 @@ pub fn render_text(nodes: &[SmartlogNode], color: bool) -> String {
                 }
             }
         }
-        if base_idx + 1 < base_count {
-            out.push('\n');
-        }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: topological DAG group ordering
+// ---------------------------------------------------------------------------
+
+/// Sort `by_base` groups so that stacked groups appear immediately after the
+/// group containing their parent worktree.
+///
+/// Algorithm:
+/// 1. Emit root bases (bases not matching any worktree branch) first, in
+///    alphabetical order.
+/// 2. After each group, immediately emit any stacked group whose base equals
+///    one of the branches in the just-emitted group.
+/// 3. Any remaining groups (e.g., whose parent was filtered out) are appended
+///    at the end, also in alphabetical order.
+///
+/// A `placed` set prevents infinite loops when an unusual worktree graph has
+/// a cycle in its stacking relationships.
+fn topo_sort_groups<'a>(
+    by_base: &'a BTreeMap<String, Vec<&'a SmartlogNode>>,
+    branch_to_ticket: &HashMap<&str, &str>,
+) -> Vec<(&'a String, &'a Vec<&'a SmartlogNode>)> {
+    let mut ordered: Vec<(&'a String, &'a Vec<&'a SmartlogNode>)> = Vec::new();
+    let mut placed: HashSet<&str> = HashSet::new();
+
+    fn visit<'a>(
+        base: &str,
+        by_base: &'a BTreeMap<String, Vec<&'a SmartlogNode>>,
+        placed: &mut HashSet<&'a str>,
+        ordered: &mut Vec<(&'a String, &'a Vec<&'a SmartlogNode>)>,
+    ) {
+        if placed.contains(base) {
+            return;
+        }
+        if let Some((key, group)) = by_base.get_key_value(base) {
+            placed.insert(key.as_str());
+            ordered.push((key, group));
+            // Recurse: for each node in this group, check if any by_base entry
+            // has that node's branch as its base.
+            for node in group {
+                visit(node.branch.as_str(), by_base, placed, ordered);
+            }
+        }
+    }
+
+    // First pass: process root bases (those whose base key is NOT a worktree
+    // branch).  BTreeMap iteration is alphabetical, giving a stable order.
+    for base in by_base.keys() {
+        if !branch_to_ticket.contains_key(base.as_str()) {
+            visit(base, by_base, &mut placed, &mut ordered);
+        }
+    }
+    // Second pass: any groups not yet placed (parents filtered out, orphans).
+    for base in by_base.keys() {
+        visit(base, by_base, &mut placed, &mut ordered);
+    }
+    ordered
 }
 
 // ---------------------------------------------------------------------------
@@ -466,7 +777,7 @@ mod tests {
 
     #[test]
     fn render_text_empty() {
-        let s = render_text(&[], false);
+        let s = render_text(&[], false, false);
         assert!(s.contains("No active worktrees"));
     }
 
@@ -478,7 +789,7 @@ mod tests {
             "feature/CL-2283",
             vec![mk_commit("a1b2c3d", "Implement rate limiter")],
         )];
-        let s = render_text(&nodes, false);
+        let s = render_text(&nodes, false, false);
         assert!(s.contains("○ main (base)"));
         assert!(s.contains("CL-2283"));
         assert!(s.contains("Add rate limiting"));
@@ -489,7 +800,7 @@ mod tests {
     #[test]
     fn render_text_no_commits_shows_placeholder() {
         let nodes = vec![mk_node("CL-2291", None, "scratch/CL-2291", vec![])];
-        let s = render_text(&nodes, false);
+        let s = render_text(&nodes, false, false);
         assert!(s.contains("(no commits since main)"));
         assert!(s.contains("(no title)"));
     }
@@ -510,7 +821,7 @@ mod tests {
             vec![mk_commit("bbbbbbb", "second commit")],
         );
         b.base_branch = "develop".to_string();
-        let s = render_text(&[a, b], false);
+        let s = render_text(&[a, b], false, false);
         assert!(s.contains("○ main (base)"));
         assert!(s.contains("○ develop (base)"));
         // Both nodes should render their commits.
@@ -536,6 +847,23 @@ mod tests {
             ci_status: ci.to_string(),
             review_status: review.to_string(),
             url: "https://github.com/erishforG/git-parsec/pull/42".to_string(),
+            merge_ready: None,
+        }
+    }
+
+    fn mk_overlay_with_readiness(
+        state: &str,
+        ci: &str,
+        review: &str,
+        merge_ready: Option<bool>,
+    ) -> SmartlogPrOverlay {
+        SmartlogPrOverlay {
+            number: 99,
+            state: state.to_string(),
+            ci_status: ci.to_string(),
+            review_status: review.to_string(),
+            url: "https://github.com/erishforG/git-parsec/pull/99".to_string(),
+            merge_ready,
         }
     }
 
@@ -570,7 +898,7 @@ mod tests {
             vec![mk_commit("a1b2c3d", "Implement rate limiter")],
         );
         node.pr = Some(mk_overlay("open", "success", "approved"));
-        let s = render_text(&[node], false);
+        let s = render_text(&[node], false, false);
         assert!(s.contains("CL-2283"), "ticket line still present");
         assert!(s.contains("[PR #42"), "PR badge rendered");
         assert!(s.contains("✓ approved"), "review badge rendered");
@@ -600,8 +928,12 @@ mod tests {
             pr.get("review_status").and_then(|s| s.as_str()),
             Some("approved")
         );
-        // ci field still omitted — Phase 2 folds CI into the overlay.
-        assert!(v.get("ci").is_none(), "ci field stays omitted in Phase 2");
+        // ci field omitted — attach_ci_overlay was not called on this manually
+        // constructed node (ci is only populated by the async overlay function).
+        assert!(
+            v.get("ci").is_none(),
+            "ci field stays None for manually-built node"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -653,7 +985,7 @@ mod tests {
         child.base_branch = "feat/PROJ-1".to_string(); // base = parent's branch
 
         let nodes = vec![parent, child];
-        let s = render_text(&nodes, false);
+        let s = render_text(&nodes, false, false);
         assert!(
             s.contains("stacked on PROJ-1"),
             "stack indicator missing in:\n{}",
@@ -686,6 +1018,529 @@ mod tests {
             badge.contains("\x1b[31m"),
             "failure CI should use red (31) ANSI code, got: {:?}",
             badge
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 4 tests: topological ordering + summary header
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn summary_header_appears_with_counts() {
+        let nodes = vec![
+            mk_node("PROJ-1", Some("A"), "feat/PROJ-1", vec![]),
+            mk_node("PROJ-2", Some("B"), "feat/PROJ-2", vec![]),
+        ];
+        let s = render_text(&nodes, false, false);
+        // Summary header must be present and contain worktree count.
+        assert!(s.starts_with("smartlog "), "summary header missing");
+        assert!(s.contains("2 worktrees"), "worktree count wrong: {}", s);
+        assert!(s.contains("0 stacked"), "stacked count wrong: {}", s);
+    }
+
+    #[test]
+    fn summary_header_singular_worktree() {
+        let nodes = vec![mk_node("CL-1", Some("A"), "feat/CL-1", vec![])];
+        let s = render_text(&nodes, false, false);
+        assert!(s.contains("1 worktree ·"), "singular form wrong: {}", s);
+    }
+
+    #[test]
+    fn topo_sort_stacked_group_follows_parent() {
+        // PROJ-2 stacks on PROJ-1.  In alphabetical order PROJ-1 < PROJ-2
+        // so both orderings happen to agree; use a lexicographically-later
+        // parent name to exercise the non-trivial case.
+        let parent = mk_node("PROJ-Z", Some("Parent"), "feat/PROJ-Z", vec![]);
+        let mut child = mk_node("PROJ-A", Some("Child"), "feat/PROJ-A", vec![]);
+        child.base_branch = "feat/PROJ-Z".to_string();
+
+        // Alphabetically PROJ-A's base (feat/PROJ-A) would come before
+        // feat/PROJ-Z, but with topo sort the child group should appear
+        // directly after the parent group in the rendered output.
+        let nodes = vec![parent, child];
+        let s = render_text(&nodes, false, false);
+
+        // Both groups must appear.
+        assert!(s.contains("PROJ-Z"), "parent not rendered");
+        assert!(s.contains("PROJ-A"), "child not rendered");
+
+        // The child's stacked header must appear AFTER the parent section.
+        let parent_pos = s.find("PROJ-Z").unwrap();
+        let child_stack_pos = s.find("⤷ stacked on PROJ-Z").unwrap();
+        assert!(
+            parent_pos < child_stack_pos,
+            "child group should follow parent group; got:\n{}",
+            s
+        );
+
+        // Stacked count should be 1.
+        assert!(s.contains("1 stacked"), "stacked count wrong: {}", s);
+    }
+
+    #[test]
+    fn topo_sort_multi_level_stack_order() {
+        // grandparent → parent → child (three levels)
+        let gp = mk_node("GP", Some("Grandparent"), "feat/GP", vec![]);
+        let mut parent = mk_node("PA", Some("Parent"), "feat/PA", vec![]);
+        parent.base_branch = "feat/GP".to_string();
+        let mut child = mk_node("CH", Some("Child"), "feat/CH", vec![]);
+        child.base_branch = "feat/PA".to_string();
+
+        let nodes = vec![gp, parent, child];
+        let s = render_text(&nodes, false, false);
+
+        // GP sits on "main" (the mk_node default base), so the root label is
+        // "main (base)", not "GP (base)".  PA and CH are stacked and use the
+        // ⤷ arrow with their parent's ticket name.
+        let gp_pos = s.find("main (base)").unwrap();
+        let pa_pos = s.find("⤷ stacked on GP").unwrap();
+        let ch_pos = s.find("⤷ stacked on PA").unwrap();
+        assert!(gp_pos < pa_pos, "parent should follow grandparent");
+        assert!(pa_pos < ch_pos, "child should follow parent");
+        assert!(s.contains("2 stacked"), "stacked count wrong: {}", s);
+    }
+
+    #[test]
+    fn topo_sort_stable_for_independent_roots() {
+        // Two independent root bases: `develop` and `main`.
+        // BTreeMap alphabetical order: develop < main.
+        let a = mk_node("CL-A", Some("A"), "feat/CL-A", vec![]);
+        let mut b = mk_node("CL-B", Some("B"), "feat/CL-B", vec![]);
+        b.base_branch = "develop".to_string();
+
+        let nodes = vec![a, b];
+        let s = render_text(&nodes, false, false);
+        // Both roots (main, develop) should appear in the output.
+        assert!(s.contains("main (base)") || s.contains("develop (base)"));
+        assert!(s.contains("CL-A") && s.contains("CL-B"));
+        assert!(s.contains("0 stacked"), "no stacks expected");
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 5 tests: merge readiness overlay (#309)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn merge_ready_true_appends_ready_segment() {
+        let overlay = mk_overlay_with_readiness("open", "success", "approved", Some(true));
+        let badge = format_pr_badge(&overlay, false);
+        assert!(
+            badge.contains("⬆ ready"),
+            "expected '⬆ ready' in badge but got: {}",
+            badge
+        );
+        assert!(
+            badge.ends_with("⬆ ready]"),
+            "ready segment should be last: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_false_appends_conflicts_segment() {
+        let overlay = mk_overlay_with_readiness("open", "success", "approved", Some(false));
+        let badge = format_pr_badge(&overlay, false);
+        assert!(
+            badge.contains("⚡ conflicts"),
+            "expected '⚡ conflicts' in badge but got: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_none_omits_readiness_segment() {
+        let overlay = mk_overlay_with_readiness("open", "success", "no reviews", None);
+        let badge = format_pr_badge(&overlay, false);
+        assert!(
+            !badge.contains("ready") && !badge.contains("conflicts"),
+            "unknown readiness should omit segment: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_skipped_for_merged_pr() {
+        // A merged PR with merge_ready=Some(true) should NOT show the segment
+        // because the PR is no longer open.
+        let overlay = mk_overlay_with_readiness("merged", "success", "approved", Some(true));
+        let badge = format_pr_badge(&overlay, false);
+        assert!(
+            !badge.contains("⬆ ready"),
+            "merged PR should not show ready segment: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_skipped_for_draft_pr() {
+        // Draft PRs are open but merge_ready is typically None from GitHub;
+        // even if Some(true) somehow arrives, verify the format is correct.
+        let overlay = mk_overlay_with_readiness("draft", "pending", "no reviews", Some(false));
+        let badge = format_pr_badge(&overlay, false);
+        // draft is rendered as state="draft"; open check uses pr.state == "open"
+        // so draft should NOT emit the readiness segment.
+        assert!(
+            !badge.contains("⚡ conflicts"),
+            "draft PR should not show conflicts segment: {}",
+            badge
+        );
+    }
+
+    #[test]
+    fn merge_ready_serde_roundtrip_omits_none() {
+        // When merge_ready is None, the serialised JSON must not contain
+        // the field (backward-compat for existing JSON consumers).
+        let overlay = mk_overlay("open", "pending", "no reviews");
+        assert!(overlay.merge_ready.is_none());
+        let json = serde_json::to_string(&overlay).expect("serialize");
+        assert!(
+            !json.contains("merge_ready"),
+            "merge_ready=None should be omitted from JSON, got: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn merge_ready_serde_roundtrip_present() {
+        // When merge_ready is Some, it must survive a JSON round-trip.
+        let overlay = mk_overlay_with_readiness("open", "success", "approved", Some(true));
+        let json = serde_json::to_string(&overlay).expect("serialize");
+        assert!(
+            json.contains("\"merge_ready\":true"),
+            "missing field: {}",
+            json
+        );
+        let back: SmartlogPrOverlay = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.merge_ready, Some(true));
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 1 + Phase 2 tests: SmartlogCiOverlay (#310)
+    // -----------------------------------------------------------------------
+
+    /// Construct a `SmartlogCiOverlay` with `running` defaulting to 0
+    /// (mirrors Phase-1 era callers; Phase-2 tests use `mk_ci_running`).
+    fn mk_ci(overall: &str, total: usize, failed: usize) -> SmartlogCiOverlay {
+        SmartlogCiOverlay {
+            overall: overall.to_string(),
+            total,
+            failed,
+            running: 0,
+        }
+    }
+
+    /// Construct a `SmartlogCiOverlay` with an explicit `running` count
+    /// (Phase 2 of #310).
+    fn mk_ci_running(
+        overall: &str,
+        total: usize,
+        failed: usize,
+        running: usize,
+    ) -> SmartlogCiOverlay {
+        SmartlogCiOverlay {
+            overall: overall.to_string(),
+            total,
+            failed,
+            running,
+        }
+    }
+
+    #[test]
+    fn ci_badge_passed_shows_count() {
+        let ci = mk_ci("passed", 7, 0);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: ✓ passed (7/7)]");
+    }
+
+    #[test]
+    fn ci_badge_failed_shows_failure_count() {
+        let ci = mk_ci("failed", 7, 2);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: ✗ failed (2/7)]");
+    }
+
+    // Phase 2: running badge now shows accurate running count, not hardcoded 0.
+    #[test]
+    fn ci_badge_running_shows_running_count() {
+        let ci = mk_ci_running("running", 5, 0, 3);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: ● running (3 running/5)]");
+    }
+
+    #[test]
+    fn ci_badge_running_zero_running_shows_zero() {
+        // Edge case: overall=running but running count is 0 (queued or unusual state).
+        let ci = mk_ci_running("running", 4, 0, 0);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: ● running (0 running/4)]");
+    }
+
+    #[test]
+    fn ci_badge_none_no_counts() {
+        let ci = mk_ci("none", 0, 0);
+        let badge = format_ci_badge(&ci, false);
+        assert_eq!(badge, "[CI: none]");
+    }
+
+    #[test]
+    fn ci_overlay_serde_roundtrip() {
+        let ci = mk_ci_running("failed", 7, 2, 1);
+        let json = serde_json::to_string(&ci).expect("serialize");
+        let back: SmartlogCiOverlay = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, ci);
+    }
+
+    // Phase 2: JSON produced before Phase 2 (no "running" key) should
+    // deserialize with running=0 thanks to #[serde(default)].
+    #[test]
+    fn ci_overlay_phase1_json_backward_compat() {
+        let phase1_json = r#"{"overall":"running","total":5,"failed":0}"#;
+        let back: SmartlogCiOverlay =
+            serde_json::from_str(phase1_json).expect("should deserialize without running field");
+        assert_eq!(back.overall, "running");
+        assert_eq!(back.total, 5);
+        assert_eq!(back.failed, 0);
+        assert_eq!(back.running, 0, "missing running key must default to 0");
+    }
+
+    #[test]
+    fn ci_overlay_omitted_from_node_json_when_none() {
+        let node = mk_node("CL-5", Some("E"), "feat/CL-5", vec![]);
+        assert!(node.ci.is_none());
+        let v: serde_json::Value = serde_json::to_value(&node).unwrap();
+        assert!(v.get("ci").is_none(), "ci=None must be skip-serialized");
+    }
+
+    #[test]
+    fn ci_overlay_present_in_node_json_when_set() {
+        let mut node = mk_node("CL-6", Some("F"), "feat/CL-6", vec![]);
+        node.ci = Some(mk_ci_running("passed", 7, 0, 0));
+        let v: serde_json::Value = serde_json::to_value(&node).unwrap();
+        let ci = v.get("ci").expect("ci must serialize when Some");
+        assert_eq!(ci.get("overall").and_then(|s| s.as_str()), Some("passed"));
+        assert_eq!(ci.get("total").and_then(|n| n.as_u64()), Some(7));
+        assert_eq!(ci.get("failed").and_then(|n| n.as_u64()), Some(0));
+        assert_eq!(ci.get("running").and_then(|n| n.as_u64()), Some(0));
+    }
+
+    #[test]
+    fn render_text_shows_ci_badge_line_when_ci_set() {
+        let mut node = mk_node("CL-7", Some("G"), "feat/CL-7", vec![]);
+        node.ci = Some(mk_ci("failed", 7, 2));
+        let out = render_text(&[node], false, false);
+        assert!(
+            out.contains("[CI: ✗ failed (2/7)]"),
+            "expected CI badge in render_text output: {}",
+            out
+        );
+    }
+
+    // Phase 2: running badge renders correctly in the full text output.
+    #[test]
+    fn render_text_shows_running_ci_badge_with_accurate_count() {
+        let mut node = mk_node("CL-8", Some("H"), "feat/CL-8", vec![]);
+        node.ci = Some(mk_ci_running("running", 6, 0, 2));
+        let out = render_text(&[node], false, false);
+        assert!(
+            out.contains("[CI: ● running (2 running/6)]"),
+            "expected running CI badge with accurate count in: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn map_ci_overall_maps_all_variants() {
+        assert_eq!(map_ci_overall("passing"), "passed");
+        assert_eq!(map_ci_overall("failing"), "failed");
+        assert_eq!(map_ci_overall("pending"), "running");
+        assert_eq!(map_ci_overall("no checks"), "none");
+        assert_eq!(map_ci_overall("unexpected"), "none");
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 3 tests: branch-tip CI overlay for PR-less nodes (#310)
+    // -----------------------------------------------------------------------
+
+    /// A node whose CI field is set from a branch-tip lookup (no PR) should
+    /// render the CI badge identically to a PR-linked node.  This validates
+    /// that the `SmartlogCiOverlay` path is shared between both code paths.
+    #[test]
+    fn ci_badge_renders_same_for_pr_less_node() {
+        // Simulate a node that has no PR but got its CI overlay via SHA lookup.
+        let mut node = mk_node("CL-9", Some("I"), "feat/CL-9", vec![]);
+        assert!(node.pr.is_none(), "node must have no PR for this test");
+        node.ci = Some(mk_ci("passed", 4, 0));
+        let out = render_text(&[node], false, false);
+        assert!(
+            out.contains("[CI: ✓ passed (4/4)]"),
+            "PR-less node should render CI badge: {}",
+            out
+        );
+    }
+
+    /// A node with no PR and CI=none renders the `[CI: none]` badge so the
+    /// user can see that CI is present but no checks were found (e.g., a fresh
+    /// branch not yet linked to a CI pipeline).
+    #[test]
+    fn ci_badge_none_renders_for_pr_less_node() {
+        let mut node = mk_node("CL-10", Some("J"), "feat/CL-10", vec![]);
+        node.ci = Some(mk_ci("none", 0, 0));
+        let out = render_text(&[node], false, false);
+        assert!(
+            out.contains("[CI: none]"),
+            "PR-less node with no checks should render [CI: none]: {}",
+            out
+        );
+    }
+
+    /// `resolve_branch_tip_sha` must return `None` for obviously invalid inputs
+    /// without panicking (e.g., empty string from a malformed git command).
+    #[test]
+    fn resolve_branch_tip_sha_rejects_empty() {
+        use std::path::Path;
+        // A path that is definitely not a git repo will cause `git rev-parse`
+        // to fail, which should return None rather than panic.
+        let result = resolve_branch_tip_sha(Path::new("/tmp"), "non-existent-branch");
+        assert!(
+            result.is_none(),
+            "non-git-repo path should return None, got: {:?}",
+            result
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 6 tests: (no PR) display when overlay requested (#309 final)
+    // -----------------------------------------------------------------------
+
+    /// When GitHub overlay was requested and a worktree has no open PR,
+    /// `render_text` must emit a `├─ (no PR)` line so users see we looked.
+    #[test]
+    fn no_pr_line_shown_when_overlay_requested() {
+        let node = mk_node("CL-20", Some("Branch without PR"), "feat/CL-20", vec![]);
+        assert!(node.pr.is_none(), "node must not have a PR for this test");
+        // overlay_requested = true → we attempted the lookup and found nothing.
+        let out = render_text(&[node], false, true);
+        assert!(
+            out.contains("(no PR)"),
+            "expected '(no PR)' line when overlay requested but no PR found: {}",
+            out
+        );
+    }
+
+    /// When `--no-overlay` is active (`overlay_requested = false`), the
+    /// `(no PR)` line must be suppressed — we never even called GitHub.
+    #[test]
+    fn no_pr_line_suppressed_when_overlay_not_requested() {
+        let node = mk_node("CL-21", Some("Offline node"), "feat/CL-21", vec![]);
+        assert!(node.pr.is_none());
+        // overlay_requested = false → ––no-overlay mode; do not show (no PR).
+        let out = render_text(&[node], false, false);
+        assert!(
+            !out.contains("(no PR)"),
+            "(no PR) must be absent when overlay is disabled: {}",
+            out
+        );
+    }
+
+    /// A node with CI overlay (from branch-tip SHA lookup) but no PR should
+    /// show `(no PR)` above the CI badge when overlay was requested.
+    #[test]
+    fn no_pr_line_plus_ci_badge_for_pr_less_node_with_ci() {
+        let mut node = mk_node("CL-22", Some("CI only node"), "feat/CL-22", vec![]);
+        node.ci = Some(mk_ci("passed", 4, 0));
+        assert!(node.pr.is_none());
+        let out = render_text(&[node], false, true);
+        assert!(
+            out.contains("(no PR)"),
+            "(no PR) must appear even when CI overlay is set: {}",
+            out
+        );
+        assert!(
+            out.contains("[CI: ✓ passed (4/4)]"),
+            "CI badge must still render: {}",
+            out
+        );
+        // (no PR) must come before CI badge in the output string.
+        let no_pr_pos = out.find("(no PR)").unwrap();
+        let ci_pos = out.find("[CI:").unwrap();
+        assert!(
+            no_pr_pos < ci_pos,
+            "(no PR) must appear before CI badge:\n{}",
+            out
+        );
+    }
+
+    /// A node WITH a PR must not render the `(no PR)` line even when
+    /// `overlay_requested = true`.
+    #[test]
+    fn no_pr_line_absent_when_pr_overlay_is_set() {
+        let mut node = mk_node("CL-23", Some("Open PR"), "feat/CL-23", vec![]);
+        node.pr = Some(mk_overlay("open", "success", "approved"));
+        let out = render_text(&[node], false, true);
+        assert!(
+            !out.contains("(no PR)"),
+            "(no PR) must not appear when PR overlay is present: {}",
+            out
+        );
+        assert!(out.contains("[PR #42"), "PR badge must appear: {}", out);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 4 / #308 snapshot test: full golden-output comparison
+    // (Substitutes for an `insta` snapshot dep — same regression coverage
+    // without adding a new dev-dependency.)
+    // -----------------------------------------------------------------------
+
+    /// Full ASCII snapshot of a single worktree with a PR overlay and one
+    /// commit.  This acts as the golden-output regression test required by
+    /// issue #308 acceptance criteria ("snapshot test >=1").
+    #[test]
+    fn render_text_full_snapshot_single_node_with_pr_and_commit() {
+        let mut node = mk_node(
+            "CL-42",
+            Some("Add feature"),
+            "feat/CL-42",
+            vec![mk_commit("abc1234", "Implement feature")],
+        );
+        node.pr = Some(mk_overlay("open", "success", "approved"));
+        // overlay_requested = true (we did ask GitHub; a PR was found)
+        let out = render_text(&[node], false, true);
+        // Build the expected output using the same Unicode glyphs as render_text.
+        let mut expected = String::new();
+        expected.push_str("smartlog  1 worktree \u{00b7} 0 stacked\n");
+        expected.push('\n');
+        expected.push_str("\u{25cb} main (base)\n");
+        expected.push_str("\u{2502}\n");
+        expected.push_str("\u{2514}\u{2500}\u{25cf} CL-42 Add feature [feat/CL-42]\n");
+        expected
+            .push_str("   \u{251c}\u{2500} [PR #42 \u{25cf} open \u{2713} CI \u{2713} approved]\n");
+        expected.push_str("   \u{2514}\u{2500} abc1234 Implement feature\n");
+        assert_eq!(
+            out, expected,
+            "snapshot mismatch \u{2014} golden output changed; update test if intentional.\nGOT:\n{}",
+            out
+        );
+    }
+
+    /// Full ASCII snapshot for a single worktree with NO PR and NO commits,
+    /// with `overlay_requested = true`.  Ensures the `(no PR)` + empty-commit
+    /// placeholder are rendered in the correct order.
+    #[test]
+    fn render_text_full_snapshot_no_pr_no_commits() {
+        let node = mk_node("CL-43", Some("Empty branch"), "feat/CL-43", vec![]);
+        let out = render_text(&[node], false, true);
+        let mut expected = String::new();
+        expected.push_str("smartlog  1 worktree \u{00b7} 0 stacked\n");
+        expected.push('\n');
+        expected.push_str("\u{25cb} main (base)\n");
+        expected.push_str("\u{2502}\n");
+        expected.push_str("\u{2514}\u{2500}\u{25cf} CL-43 Empty branch [feat/CL-43]\n");
+        expected.push_str("   \u{251c}\u{2500} (no PR)\n");
+        expected.push_str("   \u{2514}\u{2500} (no commits since main)\n");
+        assert_eq!(
+            out, expected,
+            "snapshot mismatch \u{2014} golden output changed; update test if intentional.\nGOT:\n{}",
+            out
         );
     }
 }

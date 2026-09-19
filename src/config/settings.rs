@@ -386,6 +386,49 @@ impl PolicyConfig {
 }
 
 // ---------------------------------------------------------------------------
+// AiConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AiProvider {
+    #[default]
+    OpenAi,
+    Anthropic,
+}
+
+fn default_ai_model() -> String {
+    "gpt-4o-mini".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiConfig {
+    /// AI provider: openai or anthropic
+    #[serde(default)]
+    pub provider: AiProvider,
+    /// Model name (default: gpt-4o-mini for OpenAI)
+    #[serde(default = "default_ai_model")]
+    pub model: String,
+    /// API key (prefer env vars PARSEC_AI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY)
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Automatically generate PR descriptions using AI on `parsec ship`
+    #[serde(default)]
+    pub auto_pr_description: bool,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            provider: AiProvider::default(),
+            model: default_ai_model(),
+            api_key: None,
+            auto_pr_description: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // TestConfig
 // ---------------------------------------------------------------------------
 
@@ -395,6 +438,10 @@ fn default_test_command() -> String {
 
 fn default_test_jobs() -> usize {
     1
+}
+
+fn default_update_interval_hours() -> u64 {
+    24
 }
 
 /// Settings for the `parsec test` command (issue #247).
@@ -422,6 +469,96 @@ impl Default for TestConfig {
 }
 
 // ---------------------------------------------------------------------------
+// UpdateConfig
+// ---------------------------------------------------------------------------
+
+/// Settings for automatic version checking (`parsec self-update` / startup hint).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    /// When `false`, suppresses the startup "update available" hint on every run.
+    /// `parsec self-update` is never suppressed.
+    #[serde(default = "default_true")]
+    pub check_on_startup: bool,
+    /// Minimum hours between live GitHub API polls for a new release (default: 24).
+    #[serde(default = "default_update_interval_hours")]
+    pub check_interval_hours: u64,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            check_on_startup: true,
+            check_interval_hours: default_update_interval_hours(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CrashReportConfig
+// ---------------------------------------------------------------------------
+
+/// Controls opt-in crash report collection (#298).
+///
+/// No data is transmitted automatically.  When `enabled = true`, a JSON
+/// report is written to `<OS cache dir>/parsec/crash-<ts>.json` on panic.  The
+/// user must choose to share it.  See `docs/crash-report.md`.
+///
+/// # Example (`~/.config/parsec/config.toml`)
+/// ```toml
+/// [crash_report]
+/// enabled = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CrashReportConfig {
+    /// When `true`, a JSON crash report is saved locally on panic.
+    /// Default: `false` (opt-in).
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+// ---------------------------------------------------------------------------
+// TriageConfig
+// ---------------------------------------------------------------------------
+
+/// One label-assignment rule: when `pattern` (case-insensitive substring)
+/// appears in an issue/PR title, `label` is proposed and optionally a
+/// `priority` label is added.
+///
+/// Example (`~/.config/parsec/config.toml`):
+/// ```toml
+/// [[triage.rules]]
+/// pattern = "feat"
+/// label   = "type/feature"
+///
+/// [[triage.rules]]
+/// pattern = "fix"
+/// label   = "type/bug"
+/// priority = "priority/high"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriageRule {
+    /// Case-insensitive substring that is matched against the issue/PR title.
+    pub pattern: String,
+    /// Label to propose when `pattern` matches.
+    pub label: String,
+    /// Optional priority label to propose alongside `label`.
+    #[serde(default)]
+    pub priority: Option<String>,
+}
+
+/// `[triage]` section of the parsec config — rule-based auto-labelling (#302).
+///
+/// Rules are evaluated in order; the **first** matching rule wins (highest
+/// confidence).  Subsequent rules that also match lower the trust score.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct TriageConfig {
+    /// Ordered list of triage rules.
+    pub rules: Vec<TriageRule>,
+}
+
+// ---------------------------------------------------------------------------
 // ParsecConfig
 // ---------------------------------------------------------------------------
 
@@ -442,7 +579,17 @@ pub struct ParsecConfig {
     #[serde(default)]
     pub policy: PolicyConfig,
     #[serde(default)]
+    pub ai: AiConfig,
+    #[serde(default)]
     pub test: TestConfig,
+    #[serde(default)]
+    pub update: UpdateConfig,
+    /// Opt-in crash report collection.
+    #[serde(default)]
+    pub crash_report: CrashReportConfig,
+    /// Rule-based issue/PR auto-triage (#302).
+    #[serde(default)]
+    pub triage: TriageConfig,
     /// Per-host GitHub tokens. Keys are hostnames like "github.com" or
     /// "github.example.com". Serializes as `[github."hostname"]` in TOML.
     #[serde(default)]
@@ -557,6 +704,10 @@ impl ParsecConfig {
 
     /// Interactively prompt the user to configure parsec and return the resulting config.
     pub fn init_interactive() -> Result<Self> {
+        if crate::env::is_agent() {
+            anyhow::bail!("Interactive config init is not available in agent mode. Use `parsec config show` or set config values directly.");
+        }
+
         let mut config = Self::default();
 
         // ---- Tracker provider ------------------------------------------------

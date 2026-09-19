@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use mockito::Matcher;
 use predicates::prelude::*;
 use std::process::Command as StdCommand;
 use tempfile::TempDir;
@@ -940,6 +941,117 @@ fn test_ship_dry_run() {
         .stdout(predicate::str::contains("DRY-SHIP"));
 }
 
+#[test]
+fn test_ship_no_cleanup_preserves_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "NC-SHIP", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Read worktree path from state.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let state_contents = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_contents).unwrap();
+    let wt_path = state["workspaces"]["NC-SHIP"]["path"]
+        .as_str()
+        .expect("state.json should contain path for NC-SHIP")
+        .to_owned();
+
+    // Commit something so git push has content to send.
+    std::fs::write(format!("{}/nc.txt", wt_path), "no-cleanup test").unwrap();
+    StdCommand::new("git")
+        .args(["add", "nc.txt"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "nc commit"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+
+    // ship --no-pr --no-cleanup: push branch, skip PR creation, skip worktree removal.
+    parsec()
+        .args([
+            "ship",
+            "NC-SHIP",
+            "--no-pr",
+            "--no-cleanup",
+            "--repo",
+            repo_path,
+        ])
+        .assert()
+        .success();
+
+    // Worktree must still be listed despite auto_cleanup=true default.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("NC-SHIP"));
+
+    // Worktree directory must physically exist.
+    assert!(
+        std::path::Path::new(&wt_path).exists(),
+        "worktree directory should still exist after --no-cleanup ship"
+    );
+}
+
+#[test]
+fn test_ship_auto_cleanup_removes_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "AC-SHIP", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Read worktree path from state.
+    let state_path = repo.path().join(".parsec").join("state.json");
+    let state_contents = std::fs::read_to_string(&state_path).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state_contents).unwrap();
+    let wt_path = state["workspaces"]["AC-SHIP"]["path"]
+        .as_str()
+        .expect("state.json should contain path for AC-SHIP")
+        .to_owned();
+
+    // Commit something so git push has content to send.
+    std::fs::write(format!("{}/ac.txt", wt_path), "auto-cleanup test").unwrap();
+    StdCommand::new("git")
+        .args(["add", "ac.txt"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+    StdCommand::new("git")
+        .args(["commit", "-m", "ac commit"])
+        .current_dir(&wt_path)
+        .output()
+        .unwrap();
+
+    // ship --no-pr without --no-cleanup: auto_cleanup=true (default) should remove the worktree.
+    parsec()
+        .args(["ship", "AC-SHIP", "--no-pr", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // Worktree must no longer be listed.
+    parsec()
+        .args(["list", "--repo", repo_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("AC-SHIP").not());
+
+    // Worktree directory must be physically gone.
+    assert!(
+        !std::path::Path::new(&wt_path).exists(),
+        "worktree directory should be removed after auto_cleanup ship"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // doctor
 // ---------------------------------------------------------------------------
@@ -1508,6 +1620,16 @@ fn test_history_log_export_empty() {
 // parsec smartlog / sl (issue #245, #305)
 // ---------------------------------------------------------------------------
 
+#[test]
+fn test_smartlog_help_describes_shipped_overlay() {
+    parsec()
+        .args(["smartlog", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("GitHub PR/CI/review state"))
+        .stdout(predicate::str::contains("in later releases").not());
+}
+
 /// `parsec smartlog` in a repo with no active worktrees should exit 0 and
 /// print the "No active worktrees" placeholder message.
 #[test]
@@ -1796,6 +1918,38 @@ fn test_health_json_one_worktree() {
         0,
         "fresh worktree must have 0 uncommitted files"
     );
+}
+
+/// A registry entry whose directory was removed externally must be reported
+/// as missing and make the aggregate health result unhealthy.
+#[test]
+fn test_health_json_flags_missing_worktree() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "HL-MISSING", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let repo_name = repo.path().file_name().unwrap().to_string_lossy();
+    let worktree_path = repo
+        .path()
+        .parent()
+        .unwrap()
+        .join(format!("{repo_name}.HL-MISSING"));
+    std::fs::remove_dir_all(&worktree_path).unwrap();
+
+    let output = parsec()
+        .args(["health", "--json", "--repo", repo_path])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["all_healthy"], false);
+    assert_eq!(parsed["worktrees"][0]["ticket"], "HL-MISSING");
+    assert_eq!(parsed["worktrees"][0]["missing"], true);
 }
 
 /// `parsec health` must exit 0 even when worktrees have issues — health is
@@ -2436,4 +2590,480 @@ fn test_dashboard_quiet_rejected() {
         "expected helpful message mentioning --quiet, got: {}",
         combined
     );
+}
+
+// ---------------------------------------------------------------------------
+// parsec smartlog — overlay integration tests (#309 Phase 6, #310 Phase 4)
+// ---------------------------------------------------------------------------
+
+/// `parsec smartlog --no-overlay` must succeed without any GitHub token and
+/// must not emit PR or CI badges in its output.
+///
+/// Validates issue #309 acceptance: "—no-overlay 시 placeholder 로 fallback".
+#[test]
+fn test_smartlog_no_overlay_skips_github() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "OV-1", "--repo", repo_path])
+        .assert()
+        .success();
+
+    let output = parsec()
+        .args(["smartlog", "--no-overlay", "--repo", repo_path])
+        // Strip any inherited GitHub token so the test is hermetic.
+        .env_remove("PARSEC_GITHUB_TOKEN")
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "--no-overlay must succeed without a GitHub token; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("OV-1"),
+        "worktree ticket must appear; got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("[PR #"),
+        "--no-overlay must not emit PR badges; got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("[CI:"),
+        "--no-overlay must not emit CI badges; got:\n{stdout}"
+    );
+}
+
+/// `parsec smartlog` with `PARSEC_GITHUB_API_BASE` pointing at a mockito
+/// server must render PR and CI badges in the ASCII tree when the mock returns
+/// successful check-run data.
+///
+/// Validates:
+/// - issue #309: PR overlay (state, review) surfaced in output
+/// - issue #310: CI check-run aggregate badge surfaced in output
+/// - `PARSEC_GITHUB_API_BASE` env var routes GitHub API calls to the mock
+#[test]
+fn test_smartlog_overlay_with_mock_github() {
+    let (repo, _bare) = setup_repo_with_remote();
+    let repo_path = repo.path().to_str().unwrap();
+
+    parsec()
+        .args(["start", "OV-2", "--repo", repo_path])
+        .assert()
+        .success();
+
+    // After the worktree is created with the local bare remote, swap `origin`
+    // to a GitHub-style URL so `GitHubClient` can parse owner/repo.  The
+    // `parsec smartlog` command reads this URL but never git-fetches from it.
+    StdCommand::new("git")
+        .args([
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/testowner/testrepo.git",
+        ])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+
+    let branch = "feature/OV-2";
+    let pr_number: u64 = 99;
+    let fake_sha = "aaabbbccc111222333444555666777888999000ab";
+
+    let mut server = mockito::Server::new();
+
+    // 1. find_pr_by_branch → GET /repos/.../pulls?head=testowner:{branch}&state=open
+    let _m_pr_list = server
+        .mock("GET", "/repos/testowner/testrepo/pulls")
+        .match_query(Matcher::Any)
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(format!(r#"[{{"number": {}}}]"#, pr_number))
+        .expect_at_least(1)
+        .create();
+
+    // 2. GET /repos/.../pulls/{n} — called by get_pr_status AND get_check_runs.
+    let _m_pr_detail = server
+        .mock(
+            "GET",
+            format!("/repos/testowner/testrepo/pulls/{}", pr_number).as_str(),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(format!(
+            r#"{{"number":{n},"title":"feat: mock PR","state":"open","mergeable":true,"html_url":"https://github.com/testowner/testrepo/pull/{n}","head":{{"sha":"{sha}","ref":"{branch}"}}}}"#,
+            n = pr_number,
+            sha = fake_sha,
+            branch = branch,
+        ))
+        .expect_at_least(1)
+        .create();
+
+    // 3. GET /repos/.../commits/{sha}/status (get_pr_status inner call)
+    let _m_status = server
+        .mock(
+            "GET",
+            format!("/repos/testowner/testrepo/commits/{}/status", fake_sha).as_str(),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"state":"success"}"#)
+        .expect_at_least(1)
+        .create();
+
+    // 4. GET /repos/.../pulls/{n}/reviews (get_pr_status inner call)
+    let _m_reviews = server
+        .mock(
+            "GET",
+            format!("/repos/testowner/testrepo/pulls/{}/reviews", pr_number).as_str(),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"[{"state":"APPROVED"}]"#)
+        .expect_at_least(1)
+        .create();
+
+    // 5. GET /repos/.../commits/{sha}/check-runs (get_check_runs inner call)
+    let _m_checks = server
+        .mock(
+            "GET",
+            format!(
+                "/repos/testowner/testrepo/commits/{}/check-runs",
+                fake_sha
+            )
+            .as_str(),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"check_runs":[{"name":"CI","status":"completed","conclusion":"success","started_at":"2026-09-04T00:00:00Z","completed_at":"2026-09-04T00:05:00Z","html_url":"https://github.com/actions/runs/1"}]}"#,
+        )
+        .expect_at_least(1)
+        .create();
+
+    let output = parsec()
+        .args(["smartlog", "--repo", repo_path])
+        .env("PARSEC_GITHUB_TOKEN", "fake-token-for-test")
+        .env("PARSEC_GITHUB_API_BASE", server.url())
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "smartlog with mock GitHub must exit 0; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("OV-2"),
+        "ticket must appear; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("[PR #99"),
+        "PR badge must appear; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("[CI: ✓ passed"),
+        "CI badge must show passed; got:\n{stdout}"
+    );
+}
+// checkpoint — CLI integration tests (#435)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_checkpoint_help_shows_subcommands() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "checkpoint",
+            "--help",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("create"))
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("restore"))
+        .stdout(predicate::str::contains("drop"));
+}
+
+#[test]
+fn test_checkpoint_list_empty() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No checkpoints found"));
+}
+
+#[test]
+fn test_checkpoint_list_empty_json() {
+    let repo = setup_repo();
+    let out = parsec()
+        .args([
+            "--json",
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "expected success");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        stdout.trim(),
+        "[]",
+        "expected empty JSON array, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_checkpoint_create_clean_tree() {
+    // A freshly-initialised repo with only an empty commit is clean —
+    // parsec should report nothing to checkpoint without error.
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("clean"));
+}
+
+#[test]
+fn test_checkpoint_create_with_changes() {
+    // Add an untracked file so the working tree is dirty, then create a checkpoint.
+    let repo = setup_repo();
+    let new_file = repo.path().join("work.txt");
+    std::fs::write(&new_file, "pending work").unwrap();
+
+    parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "before-experiment",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("before-experiment"));
+}
+
+#[test]
+fn test_checkpoint_create_then_list() {
+    // Create a checkpoint with a specific name and verify it appears in `list`.
+    let repo = setup_repo();
+    let new_file = repo.path().join("draft.rs");
+    std::fs::write(&new_file, "// wip").unwrap();
+
+    parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "my-snapshot",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    parsec()
+        .args([
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("my-snapshot"));
+}
+
+#[test]
+fn test_checkpoint_drop_removes_entry() {
+    // Create a checkpoint, then drop it; the list should return empty afterwards.
+    let repo = setup_repo();
+    let new_file = repo.path().join("temp.rs");
+    std::fs::write(&new_file, "temp").unwrap();
+
+    parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "drop-me",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Sanity: appears in list before drop.
+    parsec()
+        .args([
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("drop-me"));
+
+    // Drop it.
+    parsec()
+        .args([
+            "checkpoint",
+            "drop",
+            "drop-me",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("drop-me"));
+
+    // Now list should be empty again.
+    parsec()
+        .args([
+            "checkpoint",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No checkpoints found"));
+}
+
+#[test]
+fn test_checkpoint_name_with_colon_rejected() {
+    // Names containing ':' collide with the internal prefix delimiter.
+    let repo = setup_repo();
+    let new_file = repo.path().join("dirty.txt");
+    std::fs::write(&new_file, "x").unwrap();
+
+    let out = parsec()
+        .args([
+            "checkpoint",
+            "create",
+            "bad:name",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "expected non-zero exit for bad name");
+}
+
+// ---------------------------------------------------------------------------
+// crash-report — CLI integration tests (#435)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_crash_report_help_shows_subcommands() {
+    parsec()
+        .args(["crash-report", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("show"))
+        .stdout(predicate::str::contains("clear"));
+}
+
+#[test]
+fn test_crash_report_list_no_reports() {
+    // Use a temp cache dir so we never see real crash reports from the host.
+    let tmp = tempfile::tempdir().unwrap();
+    parsec()
+        .env("XDG_CACHE_HOME", tmp.path().to_str().unwrap())
+        .args(["crash-report", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No crash reports found"));
+}
+
+#[test]
+fn test_crash_report_list_json_no_reports() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = parsec()
+        .env("XDG_CACHE_HOME", tmp.path().to_str().unwrap())
+        .args(["--json", "crash-report", "list"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "expected success");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        stdout.trim(),
+        "[]",
+        "expected empty JSON array, got: {stdout}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// triage — Phase 2 CLI safety tests (#302)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_triage_help_shows_apply() {
+    parsec()
+        .args(["triage", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--apply"))
+        .stdout(predicate::str::contains("dry-run"));
+}
+
+#[test]
+fn test_triage_apply_rejected_offline() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "--offline",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "triage",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot use --apply in offline mode",
+        ));
+}
+
+#[test]
+fn test_triage_global_dry_run_overrides_apply() {
+    let repo = setup_repo();
+    parsec()
+        .args([
+            "--offline",
+            "--dry-run",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "triage",
+            "--apply",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No triage rules configured"));
 }

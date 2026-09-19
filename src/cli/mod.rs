@@ -71,6 +71,16 @@ pub enum Command {
         hook: Option<String>,
     },
 
+    /// Run parsec as an MCP server for AI clients.
+    ///
+    /// `parsec mcp serve` speaks newline-delimited JSON-RPC 2.0 over stdio.
+    /// The current phase supports initialize/tools-list transport smoke tests;
+    /// real tool execution is wired in a later MCP phase.
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+
     /// List all active worktrees
     ///
     /// Shows a table of all parsec-managed worktrees with ticket, branch,
@@ -148,6 +158,16 @@ pub enum Command {
         /// Path to PR body template file
         #[arg(long)]
         template: Option<String>,
+
+        /// Generate PR description using AI
+        #[arg(long)]
+        ai_description: bool,
+
+        /// Skip worktree removal after PR creation.
+        /// Overrides `ship.auto_cleanup = true` in config for this invocation.
+        /// Useful when making incremental commits to the same ticket across multiple ship calls.
+        #[arg(long)]
+        no_cleanup: bool,
     },
 
     /// Remove merged or stale worktrees
@@ -534,10 +554,29 @@ pub enum Command {
         new_ticket: String,
     },
 
+    /// AI-generated commit message from staged changes
+    ///
+    /// Analyzes the staged diff and generates a commit message using an AI
+    /// provider (OpenAI or Anthropic). Auto-detects the ticket from the
+    /// current worktree and prefixes the message accordingly.
+    /// Use --conventional to enforce Conventional Commits format.
+    Commit {
+        /// Ticket identifier (auto-detects from current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Force Conventional Commits format (type(scope): description)
+        #[arg(long)]
+        conventional: bool,
+
+        /// Provide a manual commit message (skips AI generation)
+        #[arg(long, short)]
+        message: Option<String>,
+    },
+
     /// Visualize active worktrees as a commit DAG (alias: sl)
     ///
     /// Lists every active worktree, the commits it adds on top of its base
-    /// branch, and (in later releases) PR/CI/review state. Issue #245.
+    /// branch, and its GitHub PR/CI/review state when available. Issue #245.
     #[command(alias = "sl")]
     Smartlog {
         /// Maximum commits per worktree (default: 10)
@@ -641,6 +680,106 @@ pub enum Command {
         #[command(subcommand)]
         kind: CompleteKind,
     },
+
+    /// Check for a newer parsec release and print upgrade instructions.
+    ///
+    /// Queries the GitHub releases API to compare the running version with
+    /// the latest published release.  Prints an upgrade command when a newer
+    /// version is available.
+    ///
+    /// Phase 1 — notification only; automatic binary replacement is Phase 2.
+    /// Use the global `--offline` flag to skip the network call.
+    SelfUpdate {},
+
+    /// Manage locally-saved crash reports.
+    ///
+    /// Crash reports are opt-in JSON files written by the panic hook when
+    /// `[crash_report] enabled = true` is set in your parsec config.
+    /// See `docs/crash-report.md` for the privacy policy.
+    ///
+    /// Phase 2 — list / show / clear subcommands for cache management.
+    CrashReport {
+        #[command(subcommand)]
+        action: CrashReportAction,
+    },
+
+    /// Save and list worktree snapshots (stash-based)
+    ///
+    /// Creates a named point-in-time snapshot of the current worktree —
+    /// including staged, unstaged, and untracked files — using git stash.
+    /// Snapshots are tagged with a `parsec-checkpoint:` prefix so they can
+    /// be distinguished from ordinary stash entries.
+    ///
+    /// Phase 1: create + list.  Phase 2 will add restore and drop.
+    Checkpoint {
+        #[command(subcommand)]
+        action: CheckpointAction,
+    },
+
+    /// Rule-based issue auto-labelling (dry-run by default).
+    ///
+    /// Reads `[[triage.rules]]` from your parsec config, fetches open GitHub
+    /// issues, and prints a table of proposed labels with a trust score.
+    ///
+    /// Labels are only written when `--apply` is explicitly passed.
+    ///
+    /// Example config rule:
+    ///   [[triage.rules]]
+    ///   pattern = "feat"
+    ///   label   = "type/feature"
+    Triage {
+        /// Maximum number of open issues to inspect (default: 30).
+        #[arg(long, default_value = "30")]
+        limit: u8,
+
+        /// Apply proposed labels to GitHub issues (default: dry-run).
+        #[arg(long)]
+        apply: bool,
+    },
+}
+
+/// Actions available under `parsec crash-report`.
+#[derive(Subcommand)]
+pub enum CrashReportAction {
+    /// List all crash reports with timestamp and panic preview.
+    List,
+    /// Show the full JSON of one crash report.
+    Show {
+        /// Report id (file stem, e.g. `crash-20260101T000000Z`)
+        id: String,
+    },
+    /// Delete all crash reports from the cache directory.
+    Clear,
+}
+
+/// Subcommands for `parsec checkpoint`.
+#[derive(Subcommand)]
+pub enum CheckpointAction {
+    /// Save the current worktree state as a named checkpoint
+    ///
+    /// Staged, unstaged changes, and untracked files are all captured.
+    /// If the working tree is clean, a friendly message is printed instead.
+    Create {
+        /// Optional name for the checkpoint (default: UTC timestamp)
+        name: Option<String>,
+    },
+    /// List all parsec-managed checkpoints in this repository
+    List,
+    /// Restore a named checkpoint back into the working tree
+    ///
+    /// Pops the matching git stash entry and removes it from the stash list.
+    /// Fails if the working tree is dirty (resolve conflicts first, then retry).
+    Restore {
+        /// Name of the checkpoint to restore
+        name: String,
+    },
+    /// Permanently discard a named checkpoint
+    ///
+    /// Drops the matching git stash entry.  This action is irreversible.
+    Drop {
+        /// Name of the checkpoint to drop
+        name: String,
+    },
 }
 
 /// Candidate sets the dynamic completion subcommand can emit.
@@ -650,6 +789,29 @@ pub enum CompleteKind {
     Worktrees,
     /// Print local branch names, one per line.
     Branches,
+}
+
+#[derive(Subcommand)]
+pub enum McpAction {
+    /// Serve MCP JSON-RPC over stdio.
+    Serve,
+    /// Register git-parsec in a desktop MCP client config.
+    ///
+    /// Reads the target client's JSON config file (creating it if absent),
+    /// merges the `mcpServers.git-parsec` entry while preserving all other
+    /// keys, creates a timestamped backup of any existing file, then writes
+    /// the result.  Use `--dry-run` to preview the planned JSON without
+    /// touching disk.
+    ///
+    /// Supported clients: `claude-desktop`, `cursor`.
+    Install {
+        /// Target MCP client (`claude-desktop` or `cursor`).
+        #[arg(long, value_name = "CLIENT")]
+        client: String,
+        /// Absolute path to the parsec binary (default: `parsec` on $PATH).
+        #[arg(long, value_name = "PATH")]
+        bin_path: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -698,7 +860,7 @@ pub enum ConfigAction {
 
 pub async fn run(cli: Cli) -> Result<()> {
     let repo_path = cli.repo.unwrap_or_else(|| PathBuf::from("."));
-    let output_mode = if cli.json {
+    let output_mode = if cli.json || crate::env::is_agent() {
         output::Mode::Json
     } else if cli.quiet {
         output::Mode::Quiet
@@ -718,6 +880,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     // Observability: extract command name and set up execution tracking
     let cmd_name = match &cli.command {
         Command::Start { .. } => "start",
+        Command::Mcp { .. } => "mcp",
         Command::List { .. } => "list",
         Command::Status { .. } => "status",
         Command::Ticket { .. } => "ticket",
@@ -746,11 +909,16 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Create { .. } => "create",
         Command::Rename { .. } => "rename",
         Command::Compress { .. } => "compress",
+        Command::Commit { .. } => "commit",
         Command::Smartlog { .. } => "smartlog",
         Command::Complete { .. } => "__complete",
         Command::Reviews { .. } => "reviews",
         Command::Dashboard { .. } => "dashboard",
         Command::Test { .. } => "test",
+        Command::SelfUpdate { .. } => "self-update",
+        Command::CrashReport { .. } => "crash-report",
+        Command::Checkpoint { .. } => "checkpoint",
+        Command::Triage { .. } => "triage",
     };
     let exec_id = crate::execlog::new_execution_id();
     let exec_started_at = chrono::Utc::now();
@@ -785,6 +953,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
+        Command::Mcp { action } => match action {
+            McpAction::Serve => crate::mcp::serve_stdio(cli.dry_run),
+            McpAction::Install { client, bin_path } => {
+                let target: crate::mcp::install::McpClientTarget = client.parse()?;
+                crate::mcp::install::install(target, cli.dry_run, bin_path.as_deref())
+            }
+        },
         Command::List { no_pr, full } => commands::list(&repo_path, no_pr, full, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
@@ -802,14 +977,17 @@ pub async fn run(cli: Cli) -> Result<()> {
             reviewer,
             label,
             template,
+            ai_description,
+            no_cleanup,
         } => {
             if cli.dry_run {
                 eprintln!(
-                    "[dry-run] Would ship ticket '{}' (draft: {}, no_pr: {}, base: {})",
+                    "[dry-run] Would ship ticket '{}' (draft: {}, no_pr: {}, base: {}, no_cleanup: {})",
                     ticket,
                     draft,
                     no_pr,
-                    base.as_deref().unwrap_or("auto")
+                    base.as_deref().unwrap_or("auto"),
+                    no_cleanup
                 );
                 return Ok(());
             }
@@ -824,6 +1002,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                 reviewer,
                 label,
                 template,
+                ai_description,
+                no_cleanup,
                 output_mode,
             )
             .await
@@ -1041,6 +1221,20 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Compress { ticket, message } => {
             commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
         }
+        Command::Commit {
+            ticket,
+            conventional,
+            message,
+        } => {
+            commands::commit(
+                &repo_path,
+                ticket.as_deref(),
+                conventional,
+                message.as_deref(),
+                output_mode,
+            )
+            .await
+        }
         Command::Smartlog {
             depth,
             no_overlay,
@@ -1095,7 +1289,46 @@ pub async fn run(cli: Cli) -> Result<()> {
             .await
         }
         Command::Complete { kind } => commands::complete(&repo_path, kind).await,
+        Command::SelfUpdate {} => commands::self_update(offline).await,
+        Command::CrashReport { action } => match action {
+            CrashReportAction::List => {
+                commands::crash_report_list(output_mode == output::Mode::Json)
+            }
+            CrashReportAction::Show { id } => {
+                commands::crash_report_show(&id, output_mode == output::Mode::Json)
+            }
+            CrashReportAction::Clear => commands::crash_report_clear(cli.dry_run),
+        },
+        Command::Checkpoint { action } => match action {
+            CheckpointAction::Create { name } => {
+                commands::checkpoint_create(&repo_path, name.as_deref(), output_mode)
+            }
+            CheckpointAction::List => commands::checkpoint_list(&repo_path, output_mode),
+            CheckpointAction::Restore { name } => {
+                commands::checkpoint_restore(&repo_path, &name, output_mode)
+            }
+            CheckpointAction::Drop { name } => {
+                commands::checkpoint_drop(&repo_path, &name, output_mode)
+            }
+        },
+        Command::Triage { limit, apply } => {
+            let apply = apply && !cli.dry_run;
+            if apply && offline {
+                anyhow::bail!("cannot use --apply in offline mode");
+            }
+            commands::triage(&repo_path, limit, apply, output_mode).await
+        }
     };
+
+    // Startup version hint — one-line stderr notice when a newer release is cached.
+    // Skipped for self-update (redundant), --json, and --quiet modes.
+    // Phase 3: respects [update] check_on_startup / check_interval_hours from config.
+    if output_mode == output::Mode::Human && cmd_name != "self-update" {
+        let (check_on_startup, check_interval_hours) = crate::config::ParsecConfig::load()
+            .map(|c| (c.update.check_on_startup, c.update.check_interval_hours))
+            .unwrap_or((true, 24));
+        commands::startup_version_hint(offline, check_on_startup, check_interval_hours).await;
+    }
 
     // Record execution entry (best-effort, never fail the command)
     let duration = exec_start.elapsed();

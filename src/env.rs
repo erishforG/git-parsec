@@ -100,6 +100,40 @@ pub fn gitlab_token() -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// Agent mode
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_AGENT: &str = "PARSEC_AGENT";
+
+/// Check if agent mode is active (via PARSEC_AGENT env var).
+/// In agent mode: JSON output is forced, interactive prompts are skipped.
+pub fn is_agent() -> bool {
+    std::env::var(PARSEC_AGENT)
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false)
+}
+
+// ---------------------------------------------------------------------------
+// AI
+// ---------------------------------------------------------------------------
+
+pub const PARSEC_AI_API_KEY: &str = "PARSEC_AI_API_KEY";
+pub const OPENAI_API_KEY: &str = "OPENAI_API_KEY";
+pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";
+
+/// Resolve AI API key. Priority: PARSEC_AI_API_KEY > provider-specific > config
+pub fn ai_api_key(config_key: Option<&str>) -> Option<String> {
+    for var in [PARSEC_AI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY] {
+        if let Ok(key) = std::env::var(var) {
+            if !key.is_empty() {
+                return Some(key);
+            }
+        }
+    }
+    config_key.filter(|k| !k.is_empty()).map(|k| k.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Bitbucket
 // ---------------------------------------------------------------------------
 
@@ -124,6 +158,28 @@ pub fn bitbucket_token() -> Option<String> {
 /// Bitbucket API base URL override (no trailing slash). Returns None when unset.
 pub fn bitbucket_api_base() -> Option<String> {
     std::env::var(PARSEC_BITBUCKET_API_BASE)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|v| v.trim_end_matches('/').to_string())
+}
+
+// ---------------------------------------------------------------------------
+// GitHub API base URL override
+// ---------------------------------------------------------------------------
+
+/// Override the GitHub API base URL (no trailing slash).
+///
+/// Primarily used in tests to route API calls to a mock server without
+/// changing the git remote URL.  Also useful for GitHub Enterprise instances
+/// whose API resides at a custom path.
+///
+/// When unset, [`GitHubRemote::api_base`] derives the URL from the remote host:
+/// `github.com` → `https://api.github.com`, GHE → `https://{host}/api/v3`.
+pub const PARSEC_GITHUB_API_BASE: &str = "PARSEC_GITHUB_API_BASE";
+
+/// Return the GitHub API base URL override when [`PARSEC_GITHUB_API_BASE`] is set.
+pub fn github_api_base() -> Option<String> {
+    std::env::var(PARSEC_GITHUB_API_BASE)
         .ok()
         .filter(|v| !v.is_empty())
         .map(|v| v.trim_end_matches('/').to_string())
@@ -201,13 +257,14 @@ mod tests {
         }
     }
 
-    /// 우선순위 + 빈값 fallback + 모두 미설정 시나리오를 한 함수에서 sequential 검사.
-    /// `env_lock()` 으로 process-wide 직렬화 (cargo test 병렬 실행 환경에서 sibling
-    /// 테스트가 env 를 클로버하지 않도록). Windows CI 에서 race 발견 (#289).
+    /// Checks token priority, empty-value fallback, and fully unset scenarios
+    /// in sequence. `env_lock()` serializes the process-wide environment so
+    /// sibling cargo tests cannot clobber these values; Windows CI exposed this
+    /// race in #289.
     #[test]
     fn github_token_priority_order_and_fallback() {
         let _guard = env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        // 1. PARSEC_GITHUB_TOKEN 우선
+        // 1. PARSEC_GITHUB_TOKEN wins.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             g.set(PARSEC_GITHUB_TOKEN, "p");
@@ -216,7 +273,7 @@ mod tests {
             assert_eq!(github_token().as_deref(), Some("p"));
             drop(g);
         }
-        // 2. PARSEC_GITHUB_TOKEN 미설정 → GITHUB_TOKEN
+        // 2. Unset PARSEC_GITHUB_TOKEN falls back to GITHUB_TOKEN.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             g.set(GITHUB_TOKEN, "g");
@@ -224,14 +281,14 @@ mod tests {
             assert_eq!(github_token().as_deref(), Some("g"));
             drop(g);
         }
-        // 3. PARSEC_GITHUB_TOKEN / GITHUB_TOKEN 미설정 → GH_TOKEN
+        // 3. Unset PARSEC_GITHUB_TOKEN and GITHUB_TOKEN fall back to GH_TOKEN.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             g.set(GH_TOKEN, "h");
             assert_eq!(github_token().as_deref(), Some("h"));
             drop(g);
         }
-        // 4. 빈 PARSEC_GITHUB_TOKEN 은 무시 → GITHUB_TOKEN
+        // 4. Empty PARSEC_GITHUB_TOKEN is ignored and falls back to GITHUB_TOKEN.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             g.set(PARSEC_GITHUB_TOKEN, "");
@@ -239,8 +296,8 @@ mod tests {
             assert_eq!(github_token().as_deref(), Some("g"));
             drop(g);
         }
-        // 5. 모두 미설정 + gh 실패 → None. CI 환경 (gh 로그인 X) 이 일반.
-        //    local dev 에서 gh auth login 돼있으면 Some(token) 도 허용 (smoke).
+        // 5. All env vars unset and gh unavailable returns None, which is
+        //    common in CI without gh login. Local gh auth may return a token.
         {
             let g = EnvGuard::new(&[PARSEC_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN]);
             match github_token() {
@@ -256,8 +313,9 @@ mod tests {
 
     #[test]
     fn gh_auth_token_returns_option_string_or_none() {
-        // 외부 gh binary 에 의존 — CI 환경 (로그인 X) 에서는 None 기대.
-        // local dev 에서 gh auth login 돼있으면 Some(token). 둘 다 허용 (smoke check only).
+        // Depends on the external gh binary: CI without login should return
+        // None, while local dev with gh auth may return a token. This is only a
+        // smoke check, so both outcomes are valid.
         match gh_auth_token() {
             None => {}
             Some(t) => {

@@ -115,6 +115,9 @@ pub async fn inbox(repo: &Path, pick: bool, mode: Mode) -> Result<()> {
             .iter()
             .map(|t| format!("{} — {} [{}]", t.key, t.summary, t.priority))
             .collect();
+        if crate::env::is_agent() {
+            anyhow::bail!("Interactive ticket picker is not available in agent mode. Use `parsec inbox` without --pick, then `parsec start <TICKET>`.");
+        }
         let selection = dialoguer::Select::new()
             .with_prompt("Pick a ticket to start")
             .items(&items)

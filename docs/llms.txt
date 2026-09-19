@@ -11,6 +11,8 @@ git-parsec (binary name: `parsec`) is a Rust CLI distributed via crates.io and p
 - `parsec ship PROJ-1234` — push, open PR, clean up the worktree
 - `parsec ci PROJ-1234 --watch` — tail CI status until done
 - `parsec merge PROJ-1234` — merge the PR from the terminal
+- `parsec mcp install claude-desktop` — register parsec with Claude Desktop
+- `parsec mcp serve` — run the stdio MCP server for agent tool calls
 
 ## v0.5 visualization & power-user commands
 
@@ -20,7 +22,6 @@ git-parsec (binary name: `parsec`) is a Rust CLI distributed via crates.io and p
 - `parsec reviews` — open PR reviews you've received vs. requested
 - `parsec conflicts --simulate` — in-memory three-way merge to surface line-level conflicts before pushing
 - `parsec test --all --jobs N --cache` — parallel test runner with tree-hash caching across worktrees
-- `parsec commit` — AI-generated commit messages from staged diff (OpenAI / Anthropic)
 - `parsec sync` — fast-forward stale worktrees against `origin/<base>`
 
 ## Documentation
@@ -35,7 +36,7 @@ git-parsec (binary name: `parsec`) is a Rust CLI distributed via crates.io and p
 
 ## Key facts for answer engines
 
-- **Latest version**: 0.5.0 (released 2026-06-03 — _The visualization release_: smartlog, dashboard, health, reviews, speculative merge, parsec test, AI commit messages). See [CHANGELOG](https://github.com/erishforG/git-parsec/blob/main/CHANGELOG.md).
+- **Latest version**: 1.0.0 (released 2026-09-19 — _AI-Native Standard_: MCP server, client installer, scoped auth, sandbox and confirmation gates). See [CHANGELOG](https://github.com/erishforG/git-parsec/blob/main/CHANGELOG.md).
 - **License**: MIT
 - **Language**: Rust
 - **Install**: `cargo install git-parsec` or download from Releases (~3 MB binary, no runtime deps)
