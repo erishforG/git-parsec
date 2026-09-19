@@ -37,10 +37,10 @@ That's the whole loop. Plain `git worktree` doesn't track state, doesn't talk to
 |---|---|---|
 | **v0.4.0** | ✅ Released (2026-05-04) | Multi-forge + multi-tracker foundation (GitHub / GitLab / Bitbucket; Jira / Linear) |
 | **v0.5.0** — _The visualization release_ | ✅ Released (2026-06-03) | smartlog · TUI dashboard · speculative merge · `parsec test` · health · reviews · AI PR descriptions |
-| **v1.0** — _AI-Native Standard_ | 🚧 Next | MCP server signature — Claude / Cursor / Copilot invoke parsec as a first-class tool |
-| **v2.0+** — _Ecosystem Hub_ | 🔮 | Plugins · VS Code extension · Linear-native tracker · org-scale workflows |
+| **v1.0.0** — _AI-Native Standard_ | ✅ Released (2026-09-19) | MCP server — Claude Desktop and Cursor invoke parsec as a first-class tool |
 
-v1.0 work is tracked under the [`v1.0` milestone](https://github.com/erishforG/git-parsec/milestone/4); see the [CHANGELOG](./CHANGELOG.md) for the full v0.5.0 release notes.
+v1.0 is the final planned feature release. See the [CHANGELOG](./CHANGELOG.md)
+for release notes and the [MCP quickstart](./docs/mcp-quickstart.md) for setup.
 
 ---
 
@@ -131,6 +131,19 @@ parsec auto-posts `← previous PR` / `next PR →` navigation comments so revie
 ### 🤖 Agent-friendly by design
 Every command has `--json`. Errors emit structured codes (E001…E013). `parsec log --export` outputs JSONL with execution IDs and per-step timing for tooling/agents to consume. `--offline` and `[behavior].offline` config skip all network ops for air-gapped or CI environments.
 
+### 🔌 MCP server _(new in v1.0)_
+Expose parsec's worktree lifecycle to Claude Desktop or Cursor over stdio:
+
+```bash
+parsec mcp install claude-desktop
+parsec mcp serve
+```
+
+The server provides worktree, health, smartlog, PR, review, CI, and sync tools.
+Mutating calls are previewed and confirmation-gated; delegated tokens are
+scope-checked and repository paths are sandboxed. See the
+[MCP quickstart](./docs/mcp-quickstart.md) and [security model](./docs/mcp/auth.md).
+
 ### 🧹 Lifecycle hygiene
 `parsec clean` sweeps worktrees for already-merged branches. `parsec conflicts` flags cross-worktree file overlap before you push. `parsec undo` reverses the last operation (start, ship, clean). `parsec doctor` validates every part of your setup with actionable fix instructions.
 
@@ -147,7 +160,6 @@ Every command has `--json`. Errors emit structured codes (E001…E013). `parsec 
 - **`parsec reviews`** — open PR reviews you've received vs. requested, unified across worktrees.
 - **`parsec conflicts --simulate`** — in-memory three-way merge to surface real *line-level* conflicts before you push (worktree-vs-base + cross-worktree pairs, read-only).
 - **`parsec test`** — run tests in parallel across worktrees with tree-hash result caching (`--all --jobs N --cache`).
-- **`parsec commit`** — AI-generated commit messages from staged diff (OpenAI / Anthropic, `--conventional` for Conventional Commits).
 - **`parsec sync`** — fast-forward stale worktrees against `origin/<base>` (rebase or merge, `--all`, `--dry-run`).
 
 > 33+ commands total — see the [full command reference](https://erishforg.github.io/git-parsec/reference/) for every flag and example.
