@@ -1,5 +1,6 @@
 mod checkpoint;
 mod ci;
+mod commit;
 mod complete;
 mod compress;
 mod config;
@@ -23,6 +24,7 @@ mod workspace;
 
 pub use checkpoint::{checkpoint_create, checkpoint_drop, checkpoint_list, checkpoint_restore};
 pub use ci::*;
+pub use commit::*;
 pub use complete::complete;
 pub use compress::*;
 pub use config::*;

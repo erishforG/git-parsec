@@ -1,6 +1,7 @@
 #[macro_use]
 mod errors;
 
+mod ai;
 mod bitbucket;
 mod cli;
 mod config;
@@ -10,6 +11,7 @@ mod execlog;
 mod git;
 mod github;
 mod gitlab;
+mod mcp;
 mod oplog;
 mod output;
 mod panic_handler;

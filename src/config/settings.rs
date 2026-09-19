@@ -386,6 +386,49 @@ impl PolicyConfig {
 }
 
 // ---------------------------------------------------------------------------
+// AiConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AiProvider {
+    #[default]
+    OpenAi,
+    Anthropic,
+}
+
+fn default_ai_model() -> String {
+    "gpt-4o-mini".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiConfig {
+    /// AI provider: openai or anthropic
+    #[serde(default)]
+    pub provider: AiProvider,
+    /// Model name (default: gpt-4o-mini for OpenAI)
+    #[serde(default = "default_ai_model")]
+    pub model: String,
+    /// API key (prefer env vars PARSEC_AI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY)
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Automatically generate PR descriptions using AI on `parsec ship`
+    #[serde(default)]
+    pub auto_pr_description: bool,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            provider: AiProvider::default(),
+            model: default_ai_model(),
+            api_key: None,
+            auto_pr_description: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // TestConfig
 // ---------------------------------------------------------------------------
 
@@ -536,6 +579,8 @@ pub struct ParsecConfig {
     #[serde(default)]
     pub policy: PolicyConfig,
     #[serde(default)]
+    pub ai: AiConfig,
+    #[serde(default)]
     pub test: TestConfig,
     #[serde(default)]
     pub update: UpdateConfig,
@@ -659,6 +704,10 @@ impl ParsecConfig {
 
     /// Interactively prompt the user to configure parsec and return the resulting config.
     pub fn init_interactive() -> Result<Self> {
+        if crate::env::is_agent() {
+            anyhow::bail!("Interactive config init is not available in agent mode. Use `parsec config show` or set config values directly.");
+        }
+
         let mut config = Self::default();
 
         // ---- Tracker provider ------------------------------------------------

@@ -24,6 +24,7 @@ pub async fn ship(
     reviewers: Vec<String>,
     labels: Vec<String>,
     template: Option<String>,
+    ai_description: bool,
     no_cleanup: bool,
     mode: Mode,
 ) -> Result<()> {
@@ -186,6 +187,47 @@ pub async fn ship(
             String::new()
         };
 
+        // Generate AI description if requested (#242)
+        let ai_body = if ai_description || config.ai.auto_pr_description {
+            let api_key = crate::env::ai_api_key(config.ai.api_key.as_deref());
+            if let Some(ref key) = api_key {
+                // Get diff against base branch for AI context
+                let diff = crate::git::diff_against(
+                    manager.repo_root(),
+                    &result.base_branch,
+                    &result.branch,
+                )
+                .unwrap_or_default();
+                if !diff.is_empty() {
+                    match crate::ai::generate_pr_description(
+                        &config.ai.provider,
+                        &config.ai.model,
+                        key,
+                        &diff,
+                        Some(&result.ticket),
+                        effective_title,
+                    )
+                    .await
+                    {
+                        Ok(desc) => Some(desc),
+                        Err(e) => {
+                            eprintln!("warning: AI description generation failed: {e}");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                if mode == Mode::Human {
+                    eprintln!("note: --ai-description requires an AI API key. Skipping.");
+                }
+                None
+            }
+        } else {
+            None
+        };
+
         let pr_body = build_pr_body(
             &result.ticket,
             &result.branch,
@@ -194,6 +236,7 @@ pub async fn ship(
             &template_commits,
             stack_info.as_ref(),
             template_content.as_deref(),
+            ai_body.as_deref(),
         );
 
         let remote_url = git::get_remote_url(manager.repo_root());
@@ -481,6 +524,7 @@ fn format_template_commits(subjects: &str) -> String {
         .join("\n")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_pr_body(
     ticket: &str,
     branch: &str,
@@ -489,6 +533,7 @@ fn build_pr_body(
     commits: &str,
     stack_info: Option<&StackPrInfo>,
     template_content: Option<&str>,
+    ai_description: Option<&str>,
 ) -> String {
     let mut body = String::new();
 
@@ -521,6 +566,12 @@ fn build_pr_body(
         }
 
         body.push('\n');
+    }
+
+    // Include AI-generated description (#242)
+    if let Some(ai_desc) = ai_description {
+        body.push_str(ai_desc);
+        body.push_str("\n\n");
     }
 
     // Include PR template content (#233 #304) with variable substitution.
@@ -621,6 +672,7 @@ mod template_var_tests {
             "",
             None,
             Some(tmpl),
+            None,
         );
         assert!(body.contains("Refs T-5 on `feat/T-5`"), "body: {body}");
         assert!(body.contains("## Nice title"), "body: {body}");

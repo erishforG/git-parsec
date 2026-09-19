@@ -71,6 +71,16 @@ pub enum Command {
         hook: Option<String>,
     },
 
+    /// Run parsec as an MCP server for AI clients.
+    ///
+    /// `parsec mcp serve` speaks newline-delimited JSON-RPC 2.0 over stdio.
+    /// The current phase supports initialize/tools-list transport smoke tests;
+    /// real tool execution is wired in a later MCP phase.
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+
     /// List all active worktrees
     ///
     /// Shows a table of all parsec-managed worktrees with ticket, branch,
@@ -148,6 +158,10 @@ pub enum Command {
         /// Path to PR body template file
         #[arg(long)]
         template: Option<String>,
+
+        /// Generate PR description using AI
+        #[arg(long)]
+        ai_description: bool,
 
         /// Skip worktree removal after PR creation.
         /// Overrides `ship.auto_cleanup = true` in config for this invocation.
@@ -540,6 +554,25 @@ pub enum Command {
         new_ticket: String,
     },
 
+    /// AI-generated commit message from staged changes
+    ///
+    /// Analyzes the staged diff and generates a commit message using an AI
+    /// provider (OpenAI or Anthropic). Auto-detects the ticket from the
+    /// current worktree and prefixes the message accordingly.
+    /// Use --conventional to enforce Conventional Commits format.
+    Commit {
+        /// Ticket identifier (auto-detects from current worktree if omitted)
+        ticket: Option<String>,
+
+        /// Force Conventional Commits format (type(scope): description)
+        #[arg(long)]
+        conventional: bool,
+
+        /// Provide a manual commit message (skips AI generation)
+        #[arg(long, short)]
+        message: Option<String>,
+    },
+
     /// Visualize active worktrees as a commit DAG (alias: sl)
     ///
     /// Lists every active worktree, the commits it adds on top of its base
@@ -759,6 +792,29 @@ pub enum CompleteKind {
 }
 
 #[derive(Subcommand)]
+pub enum McpAction {
+    /// Serve MCP JSON-RPC over stdio.
+    Serve,
+    /// Register git-parsec in a desktop MCP client config.
+    ///
+    /// Reads the target client's JSON config file (creating it if absent),
+    /// merges the `mcpServers.git-parsec` entry while preserving all other
+    /// keys, creates a timestamped backup of any existing file, then writes
+    /// the result.  Use `--dry-run` to preview the planned JSON without
+    /// touching disk.
+    ///
+    /// Supported clients: `claude-desktop`, `cursor`.
+    Install {
+        /// Target MCP client (`claude-desktop` or `cursor`).
+        #[arg(long, value_name = "CLIENT")]
+        client: String,
+        /// Absolute path to the parsec binary (default: `parsec` on $PATH).
+        #[arg(long, value_name = "PATH")]
+        bin_path: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum ConfigAction {
     /// Interactive configuration setup
     ///
@@ -804,7 +860,7 @@ pub enum ConfigAction {
 
 pub async fn run(cli: Cli) -> Result<()> {
     let repo_path = cli.repo.unwrap_or_else(|| PathBuf::from("."));
-    let output_mode = if cli.json {
+    let output_mode = if cli.json || crate::env::is_agent() {
         output::Mode::Json
     } else if cli.quiet {
         output::Mode::Quiet
@@ -824,6 +880,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     // Observability: extract command name and set up execution tracking
     let cmd_name = match &cli.command {
         Command::Start { .. } => "start",
+        Command::Mcp { .. } => "mcp",
         Command::List { .. } => "list",
         Command::Status { .. } => "status",
         Command::Ticket { .. } => "ticket",
@@ -852,6 +909,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Create { .. } => "create",
         Command::Rename { .. } => "rename",
         Command::Compress { .. } => "compress",
+        Command::Commit { .. } => "commit",
         Command::Smartlog { .. } => "smartlog",
         Command::Complete { .. } => "__complete",
         Command::Reviews { .. } => "reviews",
@@ -895,6 +953,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             )
             .await
         }
+        Command::Mcp { action } => match action {
+            McpAction::Serve => crate::mcp::serve_stdio(cli.dry_run),
+            McpAction::Install { client, bin_path } => {
+                let target: crate::mcp::install::McpClientTarget = client.parse()?;
+                crate::mcp::install::install(target, cli.dry_run, bin_path.as_deref())
+            }
+        },
         Command::List { no_pr, full } => commands::list(&repo_path, no_pr, full, output_mode).await,
         Command::Status { ticket } => {
             commands::status(&repo_path, ticket.as_deref(), output_mode).await
@@ -912,6 +977,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             reviewer,
             label,
             template,
+            ai_description,
             no_cleanup,
         } => {
             if cli.dry_run {
@@ -936,6 +1002,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 reviewer,
                 label,
                 template,
+                ai_description,
                 no_cleanup,
                 output_mode,
             )
@@ -1153,6 +1220,20 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Command::Compress { ticket, message } => {
             commands::compress(&repo_path, ticket.as_deref(), message, output_mode).await
+        }
+        Command::Commit {
+            ticket,
+            conventional,
+            message,
+        } => {
+            commands::commit(
+                &repo_path,
+                ticket.as_deref(),
+                conventional,
+                message.as_deref(),
+                output_mode,
+            )
+            .await
         }
         Command::Smartlog {
             depth,
