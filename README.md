@@ -47,8 +47,8 @@ for release notes and the [MCP quickstart](./docs/mcp-quickstart.md) for setup.
 ## Install
 
 ```bash
-# Homebrew / pre-built binary (recommended)
-curl -LO https://github.com/erishforG/git-parsec/releases/latest/download/parsec-x86_64-unknown-linux-gnu.tar.gz
+# Pre-built Linux x86_64 binary
+curl -LO https://github.com/erishforG/git-parsec/releases/latest/download/parsec-1.0.0-x86_64-unknown-linux-gnu.tar.gz
 tar xzf parsec-*.tar.gz && sudo mv parsec /usr/local/bin/
 
 # Cargo (Rust toolchain required)
